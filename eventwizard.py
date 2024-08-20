@@ -13,7 +13,16 @@ intents.reactions = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the shitty help command
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
+
+# Fetch environment variables
+WOM_API_KEY = os.getenv('WOM_API_KEY')
+WOM_GROUP_ID = os.getenv('WOM_GROUP_ID')
+WOM_VERIFICATION_CODE = os.getenv('WOM_VERIFICATION_CODE')
+
+# Ensure these are available
+if not WOM_API_KEY or not WOM_GROUP_ID or not WOM_VERIFICATION_CODE:
+    raise ValueError("Wise Old Man API key, group ID, or verification code is missing.")
 
 # Mapping of button labels to Wise Old Man metrics
 METRIC_MAPPING = {
@@ -308,5 +317,5 @@ async def create_wise_old_man_competition(metric, description):
     else:
         print(f"Failed to create WOM competition: {response.status_code} - {response.text}")
 
-print(f"Token: {os.getenv('DISCORD_BOT_TOKEN')}")
+# Run the bot using the token stored in Railway's environment variables
 bot.run(os.getenv('DISCORD_BOT_TOKEN'))
