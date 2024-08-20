@@ -15,7 +15,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
 
 WOM_GROUP_ID = 9180  # Replace with your actual group ID from Wise Old Man
-WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"  # Your Wise Old Man API Key
 WOM_VERIFICATION_CODE = '337-211-312'  # Your group verification code
 
 # Mapping of button labels to Wise Old Man metrics
