@@ -12,7 +12,7 @@ intents.reactions = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the shitty help command
 
 # Mapping of button labels to Wise Old Man metrics
 METRIC_MAPPING = {
@@ -80,10 +80,9 @@ async def update_wom_group():
 # Command to show the event panel
 @bot.command()
 async def event_panel(ctx):
-    # Define the custom emoji for Skill of the Week
     custom_emoji_skill = discord.utils.get(ctx.guild.emojis, name="skill")
     
-    # Define the initial buttons for Boss of the Week (BOTW) and Skill of the Week (SOTW)
+    # Define buttons for BOTW and SOTW
     button_botw = Button(label="Boss of the Week (BOTW)", style=discord.ButtonStyle.primary, emoji="⚔️")  # Crossed swords emoji
     button_sotw = Button(label="Skill of the Week (SOTW)", style=discord.ButtonStyle.primary, emoji=custom_emoji_skill)  # Custom skill emoji
 
