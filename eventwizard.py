@@ -1,5 +1,6 @@
 import discord
 import requests
+import os
 import asyncio
 from discord.ext import commands
 from discord.ui import Button, View
