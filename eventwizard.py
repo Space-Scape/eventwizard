@@ -307,4 +307,4 @@ async def create_wise_old_man_competition(metric, description):
     else:
         print(f"Failed to create WOM competition: {response.status_code} - {response.text}")
 
-bot.run(DISCORD_BOT_TOKEN)
+bot.run(os.getenv('DISCORD_BOT_TOKEN'))
