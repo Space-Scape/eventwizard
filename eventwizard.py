@@ -14,9 +14,6 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
 
-WOM_GROUP_ID = 9180  # Replace with your actual group ID from Wise Old Man
-WOM_VERIFICATION_CODE = '337-211-312'  # Your group verification code
-
 # Mapping of button labels to Wise Old Man metrics
 METRIC_MAPPING = {
     # Skill Metrics
@@ -73,7 +70,6 @@ async def update_wom_group():
         await asyncio.sleep(10800)  # Wait for 3 hours
         url = f"https://api.wiseoldman.net/v2/groups/{WOM_GROUP_ID}/update-all"
         headers = {"Authorization": f"Bearer {WOM_API_KEY}"}
-	groupVerificationCode = WOM_VERIFICATION_CODE
         response = requests.post(url, headers=headers)
 
         if response.status_code == 200:
@@ -311,3 +307,4 @@ async def create_wise_old_man_competition(metric, description):
         print(f"WOM competition '{description}' created successfully.")
     else:
         print(f"Failed to create WOM competition: {response.status_code} - {response.text}")
+
