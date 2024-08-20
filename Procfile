@@ -1,1 +1,1 @@
-web: python eventwizard.py
+worker: python eventwizard.py
