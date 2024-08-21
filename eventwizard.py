@@ -6,6 +6,13 @@ from discord.ext import commands
 from discord.ui import Button, View
 from datetime import datetime, timedelta, timezone
 
+import discord
+import requests
+import asyncio
+from discord.ext import commands
+from discord.ui import Button, View
+from datetime import datetime, timedelta, timezone
+
 # Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
@@ -15,14 +22,9 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
 
-# Fetch environment variables
-WOM_API_KEY = 'p9yxtw1k3gd1pa8qu8fuftcb'
-WOM_GROUP_ID = os.getenv('WOM_GROUP_ID')
-WOM_VERIFICATION_CODE = os.getenv('WOM_VERIFICATION_CODE')
-
-# Ensure these are available
-if not WOM_API_KEY or not WOM_GROUP_ID or not WOM_VERIFICATION_CODE:
-    raise ValueError("Wise Old Man API key, group ID, or verification code is missing.")
+WOM_GROUP_ID = 9180  # Replace with your actual group ID from Wise Old Man
+WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"  # Your Wise Old Man API Key
+WOM_VERIFICATION_CODE = '337-211-312'  # Your group verification code
 
 # Mapping of button labels to Wise Old Man metrics
 METRIC_MAPPING = {
@@ -80,6 +82,7 @@ async def update_wom_group():
         await asyncio.sleep(10800)  # Wait for 3 hours
         url = f"https://api.wiseoldman.net/v2/groups/{WOM_GROUP_ID}/update-all"
         headers = {"Authorization": f"Bearer {WOM_API_KEY}"}
+        groupVerificationCode = WOM_VERIFICATION_CODE
         response = requests.post(url, headers=headers)
 
         if response.status_code == 200:
@@ -90,9 +93,10 @@ async def update_wom_group():
 # Command to show the event panel
 @bot.command()
 async def event_panel(ctx):
+    # Define the custom emoji for Skill of the Week
     custom_emoji_skill = discord.utils.get(ctx.guild.emojis, name="skill")
     
-    # Define buttons for BOTW and SOTW
+    # Define the initial buttons for Boss of the Week (BOTW) and Skill of the Week (SOTW)
     button_botw = Button(label="Boss of the Week (BOTW)", style=discord.ButtonStyle.primary, emoji="⚔️")  # Crossed swords emoji
     button_sotw = Button(label="Skill of the Week (SOTW)", style=discord.ButtonStyle.primary, emoji=custom_emoji_skill)  # Custom skill emoji
 
@@ -306,7 +310,7 @@ async def create_wise_old_man_competition(metric, description):
     # Headers with the API key
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer = p9yxtw1k3gd1pa8qu8fuftcb"
+        "Authorization": f"Bearer {WOM_API_KEY}"
     }
 
     # Make a POST request to create the competition
