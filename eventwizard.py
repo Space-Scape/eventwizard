@@ -66,7 +66,6 @@ METRIC_MAPPING = {
 
 @bot.event
 async def on_ready():
-    bot.loop.create_task(update_wom_group())
     print(f'eventwizard.py script is currently running')
 
 # Command to show the event panel
