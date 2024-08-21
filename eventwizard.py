@@ -69,20 +69,6 @@ async def on_ready():
     bot.loop.create_task(update_wom_group())
     print(f'eventwizard.py script is currently running')
 
-# Update Wise Old Man group every 3 hours
-async def update_wom_group():
-    while True:
-        await asyncio.sleep(10800)  # Wait for 3 hours
-        url = f"https://api.wiseoldman.net/v2/groups/{WOM_GROUP_ID}/update-all"
-        headers = {"Authorization": f"Bearer {WOM_API_KEY}"}
-        groupVerificationCode = WOM_VERIFICATION_CODE
-        response = requests.post(url, headers=headers)
-
-        if response.status_code == 200:
-            print("Wise Old Man group updated successfully.")
-        else:
-            print(f"Failed to update WOM group: {response.status_code} - {response.text}")
-
 # Command to show the event panel
 @bot.command()
 async def event_panel(ctx):
