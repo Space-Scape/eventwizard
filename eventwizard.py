@@ -6,13 +6,6 @@ from discord.ext import commands
 from discord.ui import Button, View
 from datetime import datetime, timedelta, timezone
 
-import discord
-import requests
-import asyncio
-from discord.ext import commands
-from discord.ui import Button, View
-from datetime import datetime, timedelta, timezone
-
 # Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
