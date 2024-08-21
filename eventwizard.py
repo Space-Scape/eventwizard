@@ -16,7 +16,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
 
 # Fetch environment variables
-WOM_API_KEY = os.getenv('WOM_API_KEY')
+WOM_API_KEY = 'p9yxtw1k3gd1pa8qu8fuftcb'
 WOM_GROUP_ID = os.getenv('WOM_GROUP_ID')
 WOM_VERIFICATION_CODE = os.getenv('WOM_VERIFICATION_CODE')
 
