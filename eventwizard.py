@@ -306,7 +306,7 @@ async def create_wise_old_man_competition(metric, description):
     # Headers with the API key
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {WOM_API_KEY}"
+        "Authorization": f"Bearer = p9yxtw1k3gd1pa8qu8fuftcb"
     }
 
     # Make a POST request to create the competition
