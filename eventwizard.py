@@ -44,7 +44,7 @@ METRIC_MAPPING = {
     "Chambers Of Xeric": "chambers_of_xeric",
     "Commander Zilyana": "commander_zilyana",
     "Corporeal Beast": "corporeal_beast",
-    "Dagannoth Kings": "dagannoth_rex",
+    "Dagannoth Kings": "dks",
     "Duke Sucellus": "duke_sucellus",
     "General Graardor": "general_graardor",
     "Kree'Arra": "kreearra",
