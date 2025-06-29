@@ -14,9 +14,6 @@ from discord.ui import Button, View
 from datetime import datetime, timedelta, timezone
 
 
-
-# Discord Bot Setup
-
 intents = discord.Intents.default()
 
 intents.message_content = True
@@ -29,23 +26,21 @@ intents.members = True
 
 
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Disable the default help command
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 
 
-WOM_GROUP_ID = 9180  # Replace with your actual group ID from Wise Old Man
+WOM_GROUP_ID = 9180
 
-WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"  # Your Wise Old Man API Key
+WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"
 
-WOM_VERIFICATION_CODE = '871-029-369'  # Your group verification code
+WOM_VERIFICATION_CODE = '871-029-369'
 
 
-
-# Mapping of button labels to Wise Old Man metrics
 
 METRIC_MAPPING = {
 
-    # Skill Metrics
+    # SKILLS
 
     "Cooking": "cooking",
 
@@ -79,10 +74,8 @@ METRIC_MAPPING = {
 
     "Construction": "construction",
 
-
-
-    # Boss Metrics
-
+    
+    #BOSSES
 
     "Araxxor": "araxxor",
 
@@ -108,7 +101,6 @@ METRIC_MAPPING = {
 
     "Nightmare": "nightmare",
 
-
     "Phosani": "pnm",
 
     "Phantom Muspah": "phantom_muspah",
@@ -131,7 +123,6 @@ METRIC_MAPPING = {
 
     "Vorkath": "vorkath",
 
-
     "Yama": "yama",
 
     "Zulrah": "zulrah"
@@ -147,28 +138,17 @@ async def on_ready():
     print(f'eventwizard.py script is currently running')
 
 
-
-# Command to show the event panel
-
 @bot.command()
 
 async def event_panel(ctx):
 
-    # Define the custom emoji for Skill of the Week
-
     custom_emoji_skill = discord.utils.get(ctx.guild.emojis, name="skill")
 
-
-
-    # Define the initial buttons for Boss of the Week (BOTW) and Skill of the Week (SOTW)
 
     button_botw = Button(label="Boss of the Week (BOTW)", style=discord.ButtonStyle.primary, emoji="⚔️")  # Crossed swords emoji
 
     button_sotw = Button(label="Skill of the Week (SOTW)", style=discord.ButtonStyle.primary, emoji=custom_emoji_skill)  # Custom skill emoji
 
-
-
-    # Define the view and add the initial buttons
 
     view = View(timeout=None)
 
@@ -177,12 +157,7 @@ async def event_panel(ctx):
     view.add_item(button_sotw)
 
 
-
-    # Callback to show the BOTW event creation panel
-
     async def botw_panel(interaction):
-
-        # Define buttons for each boss with updated names
 
         button_graardor = Button(label="General Graardor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="graardor"))
 
@@ -206,9 +181,7 @@ async def event_panel(ctx):
 
         button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
 
-
         button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
-
 
         button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
 
@@ -217,7 +190,6 @@ async def event_panel(ctx):
         button_leviathan = Button(label="The Leviathan", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="leviathan"))
 
         button_whisperer = Button(label="The Whisperer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="whisperer"))
-
 
         button_dks = Button(label="Dagannoth Kings", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="dks"))
 
@@ -233,9 +205,7 @@ async def event_panel(ctx):
 
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
 
-
         button_phosani = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
-
 
         button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
 
@@ -244,7 +214,6 @@ async def event_panel(ctx):
         # Define the view and add the boss buttons
 
         view_botw = View(timeout=None)
-
 
         view_botw.add_item(button_araxxor)
 
@@ -299,10 +268,7 @@ async def event_panel(ctx):
 
         view_botw.add_item(button_phosani)
 
-
-
-        # Callback for each boss button
-
+        
         async def create_botw_event(interaction, button):
 
             event_name = button.label
@@ -314,7 +280,6 @@ async def event_panel(ctx):
             await create_event(interaction, event_name, description)
 
             await create_wise_old_man_competition(metric, description)
-
 
 
         button_graardor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_graardor))
@@ -339,10 +304,6 @@ async def event_panel(ctx):
 
         button_tob.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_tob))
 
-
-
-        # Callback for new boss buttons
-
         button_vardorvis.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vardorvis))
 
         button_duke.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_duke))
@@ -366,20 +327,10 @@ async def event_panel(ctx):
         button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
 
 
-
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
 
 
-
-    # Callback to show the SOTW event creation panel
-
     async def sotw_panel(interaction):
-
-        # Define buttons for each skill category
-
-
-
-        # Gathering Skills
 
         button_farming = Button(label="Farming", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="farming"))
 
@@ -390,10 +341,6 @@ async def event_panel(ctx):
         button_mining = Button(label="Mining", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="mining"))
 
         button_woodcutting = Button(label="Woodcutting", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="woodcutting"))
-
-
-
-        # Production Skills
 
         button_cooking = Button(label="Cooking", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cooking"))
 
@@ -407,10 +354,6 @@ async def event_panel(ctx):
 
         button_smithing = Button(label="Smithing", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="smithing"))
 
-
-
-        # Utility Skills
-
         button_agility = Button(label="Agility", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="agility"))
 
         button_construction = Button(label="Construction", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="construction"))
@@ -419,12 +362,8 @@ async def event_panel(ctx):
 
         button_slayer = Button(label="Slayer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="slayer"))
 
-        button_thieving = Button(label="Thieving", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="thieving"))
 
-
-
-        # Define the view and add the skill buttons
-
+        
         view_sotw = View(timeout=None)
 
         view_sotw.add_item(button_farming)
@@ -459,9 +398,6 @@ async def event_panel(ctx):
 
         view_sotw.add_item(button_thieving)
 
-
-
-        # Callback for each skill button
 
         async def create_sotw_event(interaction, button):
 
@@ -510,38 +446,25 @@ async def event_panel(ctx):
         button_thieving.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_thieving))
 
 
-
         await interaction.response.edit_message(content="Select the skill for this week's event:", view=view_sotw)
 
-
-
-    # Assign callbacks to the initial buttons
 
     button_botw.callback = botw_panel
 
     button_sotw.callback = sotw_panel
 
 
-
-    # Send the initial panel message
-
     await ctx.send("Click a button to create an event:", view=view)
 
-
-
-# Function to create the event on Discord
 
 async def create_event(interaction, event_name, description):
 
     guild = interaction.guild
 
-    start_time = datetime.now(timezone.utc) + timedelta(seconds=15)  # Add 15 seconds to ensure the start time is in the future
+    start_time = datetime.now(timezone.utc) + timedelta(seconds=15)
 
-    end_time = start_time + timedelta(days=7)  # Set the event duration to 7 days
+    end_time = start_time + timedelta(days=7)
 
-
-
-    # Create the scheduled event as "Somewhere Else" with the location "Gielinor"
 
     await guild.create_scheduled_event(
 
@@ -557,15 +480,10 @@ async def create_event(interaction, event_name, description):
 
         location="Gielinor",
 
-        privacy_level=discord.PrivacyLevel.guild_only  # Set privacy level to guild-only
-
+        privacy_level=discord.PrivacyLevel.guild_only
     )
 
     await interaction.response.send_message(f"Event '{event_name}' created successfully!", ephemeral=True)
-
-
-
-# Function to create a Wise Old Man competition
 
 async def create_wise_old_man_competition(metric, description):
 
@@ -574,14 +492,11 @@ async def create_wise_old_man_competition(metric, description):
     end_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
 
-
-    # Prepare the payload
-
     payload = {
 
         "title": description,
 
-        "metric": metric,  # Metric is mapped from the button name
+        "metric": metric,
 
         "startsAt": start_time,
 
@@ -589,13 +504,10 @@ async def create_wise_old_man_competition(metric, description):
 
         "groupId": WOM_GROUP_ID,
 
-        "groupVerificationCode": WOM_VERIFICATION_CODE  # Include the verification code
+        "groupVerificationCode": WOM_VERIFICATION_CODE
 
     }
 
-
-
-    # Headers with the API key
 
     headers = {
 
@@ -605,10 +517,7 @@ async def create_wise_old_man_competition(metric, description):
 
     }
 
-
-
-    # Make a POST request to create the competition
-
+    
     response = requests.post("https://api.wiseoldman.net/v2/competitions", json=payload, headers=headers)More actions
 
 
@@ -621,8 +530,5 @@ async def create_wise_old_man_competition(metric, description):
 
         print(f"Failed to create WOM competition: {response.status_code} - {response.text}")
 
-
-
-# Run the bot using the token stored in Railway's environment variables
 
 bot.run(os.getenv('DISCORD_BOT_TOKEN'))
