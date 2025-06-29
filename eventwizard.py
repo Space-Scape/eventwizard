@@ -17,7 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)  # Di
 
 WOM_GROUP_ID = 9180  # Replace with your actual group ID from Wise Old Man
 WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"  # Your Wise Old Man API Key
-WOM_VERIFICATION_CODE = '337-211-312'  # Your group verification code
+WOM_VERIFICATION_CODE = '871-029-369'  # Your group verification code
 
 # Mapping of button labels to Wise Old Man metrics
 METRIC_MAPPING = {
