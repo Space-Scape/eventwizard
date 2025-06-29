@@ -82,7 +82,7 @@ METRIC_MAPPING = {
 
     "Chambers Of Xeric": "chambers_of_xeric",
 
-    "Cox CM": "cm",
+    "Chambers Of Xeric (CM)": "cm",
 
     "Commander Zilyana": "commander_zilyana",
 
@@ -102,7 +102,7 @@ METRIC_MAPPING = {
 
     "Nightmare": "nightmare",
 
-    "Phosani's Nightmare": "pnm",
+    "Phosani's Nightmare": "phosani",
 
     "Phantom Muspah": "phantom_muspah",
 
@@ -114,7 +114,7 @@ METRIC_MAPPING = {
 
     "Theatre Of Blood": "theatre_of_blood",
 
-    "HMT": "hmt",
+    "Theatre Of Blood (HM)": "hmt",
 
     "Tombs Of Amascut": "tombs_of_amascut",
 
@@ -206,7 +206,7 @@ async def event_panel(ctx):
 
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
 
-        button_phosani = Button(label="Phosani's Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
+        button_phosani = Button(label="Phosani's Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="phosani"))
 
         button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
        
