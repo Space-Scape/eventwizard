@@ -517,7 +517,7 @@ async def create_wise_old_man_competition(metric, description):
     }
 
     
-    response = requests.post("https://api.wiseoldman.net/v2/competitions", json=payload, headers=headers)More actions
+    response = requests.post("https://api.wiseoldman.net/v2/competitions", json=payload, headers=headers)
 
 
 
