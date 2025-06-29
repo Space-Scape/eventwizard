@@ -1,5 +1,4 @@
 import os
-More actions
 
 import discord
 
