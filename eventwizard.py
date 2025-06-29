@@ -72,7 +72,6 @@ METRIC_MAPPING = {
     "Hunter": "hunter",
 
     "Construction": "construction",
-
     
     #BOSSES
 
