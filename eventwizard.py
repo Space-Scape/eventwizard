@@ -63,7 +63,7 @@ METRIC_MAPPING = {
     "Vet'ion": "vetion",
     "Vorkath": "vorkath",
     "Zulrah": "zulrah",
-    "Yama": "yama",
+    #"Yama": "yama",
     "Araxxor": "araxxor"
 }
 
@@ -108,7 +108,7 @@ async def event_panel(ctx):
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
         button_pnm = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
         button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
-        button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
+        #button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
 
         view_botw = View(timeout=None)
         view_botw.add_item(button_graardor)
@@ -136,7 +136,7 @@ async def event_panel(ctx):
         view_botw.add_item(button_nightmare)
         view_botw.add_item(button_pnm)
         view_botw.add_item(button_araxxor)
-        view_botw.add_item(button_yama)
+        #view_botw.add_item(button_yama)
 
         async def create_botw_event(interaction, button):
             event_name = button.label
@@ -169,7 +169,7 @@ async def event_panel(ctx):
         button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
         button_pnm.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_pnm))
         button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
-        button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
+        #button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
 
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
 
