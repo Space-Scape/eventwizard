@@ -102,7 +102,7 @@ METRIC_MAPPING = {
 
     "Nightmare": "nightmare",
 
-    "Phosani": "pnm",
+    "Phosani's Nightmare": "pnm",
 
     "Phantom Muspah": "phantom_muspah",
 
@@ -184,8 +184,6 @@ async def event_panel(ctx):
 
         button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
 
-        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
-
         button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
 
         button_duke = Button(label="Duke Sucellus", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="duke"))
@@ -208,13 +206,15 @@ async def event_panel(ctx):
 
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
 
-        button_phosani = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
+        button_phosani = Button(label="Phosani's Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
 
+        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
+       
         button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
        
-        button_cm = Button(label="Cox CM", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cm"))
+        button_cm = Button(label="Chambers Of Xeric (CM)", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cm"))
         
-        button_hmt = Button(label="HMT", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hmt"))
+        button_hmt = Button(label="Theatre Of Blood (HM)", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hmt"))
 
 
 
