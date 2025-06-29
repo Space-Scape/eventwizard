@@ -40,6 +40,7 @@ METRIC_MAPPING = {
     "Construction": "construction",
 
     # Boss Metrics
+    "Araxxor": "araxxor",
     "Callisto": "callisto",
     "Chambers Of Xeric": "chambers_of_xeric",
     "Commander Zilyana": "commander_zilyana",
@@ -51,6 +52,7 @@ METRIC_MAPPING = {
     "K'ril Tsutsaroth": "kril_tsutsaroth",
     "Nex": "nex",
     "Nightmare": "nightmare",
+    "Phosani": "pnm",
     "Phantom Muspah": "phantom_muspah",
     "The Gauntlet": "the_gauntlet",
     "The Leviathan": "the_leviathan",
@@ -61,6 +63,7 @@ METRIC_MAPPING = {
     "Venenatis": "venenatis",
     "Vet'ion": "vetion",
     "Vorkath": "vorkath",
+    "Yama": "yama",
     "Zulrah": "zulrah"
 }
 
@@ -97,22 +100,24 @@ async def event_panel(ctx):
         button_cox = Button(label="Chambers Of Xeric", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cox"))
         button_toa = Button(label="Tombs Of Amascut", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="toa"))
         button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
-
-        # New bosses with updated names
+        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
         button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
         button_duke = Button(label="Duke Sucellus", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="duke"))
         button_leviathan = Button(label="The Leviathan", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="leviathan"))
         button_whisperer = Button(label="The Whisperer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="whisperer"))
-        button_dks = Button(label="Dagannoth Rex", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="dks"))
+        button_dks = Button(label="Dagannoth Kings", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="dks"))
         button_corp = Button(label="Corporeal Beast", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="corp"))
         button_vorkath = Button(label="Vorkath", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vorkath"))
         button_zulrah = Button(label="Zulrah", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="zulrah"))
         button_gauntlet = Button(label="The Gauntlet", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="gauntlet"))
         button_muspah = Button(label="Phantom Muspah", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="muspah"))
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
+        button_phosani = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
+        button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
 
         # Define the view and add the boss buttons
         view_botw = View(timeout=None)
+        view_botw.add_item(button_araxxor)
         view_botw.add_item(button_graardor)
         view_botw.add_item(button_zammy)
         view_botw.add_item(button_sara)
@@ -124,8 +129,7 @@ async def event_panel(ctx):
         view_botw.add_item(button_cox)
         view_botw.add_item(button_toa)
         view_botw.add_item(button_tob)
-
-        # Add new boss buttons
+        view_botw.add_item(button_yama)
         view_botw.add_item(button_vardorvis)
         view_botw.add_item(button_duke)
         view_botw.add_item(button_leviathan)
@@ -137,6 +141,7 @@ async def event_panel(ctx):
         view_botw.add_item(button_gauntlet)
         view_botw.add_item(button_muspah)
         view_botw.add_item(button_nightmare)
+        view_botw.add_item(button_phosani)
 
         # Callback for each boss button
         async def create_botw_event(interaction, button):
