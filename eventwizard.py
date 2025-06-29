@@ -58,6 +58,8 @@ METRIC_MAPPING = {
     "The Leviathan": "the_leviathan",
     "The Whisperer": "the_whisperer",
     "Theatre Of Blood": "theatre_of_blood",
+    "HMT": "hmt",
+    "CM": "cm",
     "Tombs Of Amascut": "tombs_of_amascut",
     "Vardorvis": "vardorvis",
     "Venenatis": "venenatis",
@@ -98,8 +100,10 @@ async def event_panel(ctx):
         button_vetion = Button(label="Vet'ion", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vetion"))
         button_venenatis = Button(label="Venenatis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="venenatis"))
         button_cox = Button(label="Chambers Of Xeric", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cox"))
+        button_cm = Button(label="Cox CM", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cm"))
         button_toa = Button(label="Tombs Of Amascut", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="toa"))
         button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
+        button_hmt = Button(label="HMT", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hmt"))
         button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
         button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
         button_duke = Button(label="Duke Sucellus", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="duke"))
@@ -127,8 +131,10 @@ async def event_panel(ctx):
         view_botw.add_item(button_vetion)
         view_botw.add_item(button_venenatis)
         view_botw.add_item(button_cox)
+        view_botw.add_item(button_cm)
         view_botw.add_item(button_toa)
         view_botw.add_item(button_tob)
+        view_botw.add_item(button_hmt)
         view_botw.add_item(button_yama)
         view_botw.add_item(button_vardorvis)
         view_botw.add_item(button_duke)
@@ -160,8 +166,10 @@ async def event_panel(ctx):
         button_vetion.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vetion))
         button_venenatis.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_venenatis))
         button_cox.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_cox))
+        button_cm.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_cm))
         button_toa.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_toa))
         button_tob.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_tob))
+        button_hmt.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_hmt))
 
         # Callback for new boss buttons
         button_vardorvis.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vardorvis))
@@ -175,6 +183,9 @@ async def event_panel(ctx):
         button_gauntlet.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_gauntlet))
         button_muspah.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_muspah))
         button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
+        button_phosani.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_phosani))
+        button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
+        button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
 
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
 
