@@ -353,6 +353,8 @@ async def event_panel(ctx):
         button_farming = Button(label="Farming", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="farming"))
 
         button_fishing = Button(label="Fishing", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="fishing"))
+      
+        button_thieving = Button(label="Thieving", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="thieving"))
 
         button_hunter = Button(label="Hunter", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hunter"))
 
