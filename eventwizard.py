@@ -72,6 +72,7 @@ METRIC_MAPPING = {
     "Hunter": "hunter",
 
     "Construction": "construction",
+
     
     #BOSSES
 
@@ -80,8 +81,6 @@ METRIC_MAPPING = {
     "Callisto": "callisto",
 
     "Chambers Of Xeric": "chambers_of_xeric",
-
-    "Chambers Of Xeric (CM)": "cm",
 
     "Commander Zilyana": "commander_zilyana",
 
@@ -101,7 +100,7 @@ METRIC_MAPPING = {
 
     "Nightmare": "nightmare",
 
-    "Phosani's Nightmare": "phosani",
+    "Phosani": "pnm",
 
     "Phantom Muspah": "phantom_muspah",
 
@@ -112,8 +111,6 @@ METRIC_MAPPING = {
     "The Whisperer": "the_whisperer",
 
     "Theatre Of Blood": "theatre_of_blood",
-
-    "Theatre Of Blood (HM)": "hmt",
 
     "Tombs Of Amascut": "tombs_of_amascut",
 
@@ -183,6 +180,8 @@ async def event_panel(ctx):
 
         button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
 
+        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
+
         button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
 
         button_duke = Button(label="Duke Sucellus", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="duke"))
@@ -205,15 +204,9 @@ async def event_panel(ctx):
 
         button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
 
-        button_phosani = Button(label="Phosani's Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="phosani"))
+        button_phosani = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
 
-        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
-       
         button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
-       
-        button_cm = Button(label="Chambers Of Xeric (CM)", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cm"))
-        
-        button_hmt = Button(label="Theatre Of Blood (HM)", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hmt"))
 
 
 
@@ -241,15 +234,13 @@ async def event_panel(ctx):
 
         view_botw.add_item(button_cox)
 
-        view_botw.add_item(button_cm)
-
-        view_botw.add_item(button_hmt)
-
         view_botw.add_item(button_toa)
 
         view_botw.add_item(button_tob)
 
+
         view_botw.add_item(button_yama)
+
 
         view_botw.add_item(button_vardorvis)
 
@@ -272,6 +263,7 @@ async def event_panel(ctx):
         view_botw.add_item(button_muspah)
 
         view_botw.add_item(button_nightmare)
+
 
         view_botw.add_item(button_phosani)
 
@@ -333,16 +325,6 @@ async def event_panel(ctx):
 
         button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
 
-        button_hmt.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_hmt))
-
-        button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
-
-        button_cm.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_cm))
-        
-        button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
-        
-        button_phosani.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_phosani))
-
 
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
 
@@ -352,8 +334,6 @@ async def event_panel(ctx):
         button_farming = Button(label="Farming", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="farming"))
 
         button_fishing = Button(label="Fishing", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="fishing"))
-      
-        button_thieving = Button(label="Thieving", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="thieving"))
 
         button_hunter = Button(label="Hunter", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hunter"))
 
