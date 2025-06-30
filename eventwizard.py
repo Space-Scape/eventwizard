@@ -360,9 +360,10 @@ async def event_panel(ctx):
         button_firemaking = Button(label="Firemaking", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="firemaking"))
 
         button_slayer = Button(label="Slayer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="slayer"))
+       
+        button_thieving = Button(label="Thieving", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="thieving"))
 
 
-        
         view_sotw = View(timeout=None)
 
         view_sotw.add_item(button_farming)
