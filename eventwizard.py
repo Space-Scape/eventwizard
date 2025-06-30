@@ -238,9 +238,7 @@ async def event_panel(ctx):
 
         view_botw.add_item(button_tob)
 
-
         view_botw.add_item(button_yama)
-
 
         view_botw.add_item(button_vardorvis)
 
@@ -263,7 +261,6 @@ async def event_panel(ctx):
         view_botw.add_item(button_muspah)
 
         view_botw.add_item(button_nightmare)
-
 
         view_botw.add_item(button_phosani)
 
@@ -324,6 +321,14 @@ async def event_panel(ctx):
         button_muspah.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_muspah))
 
         button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
+        
+        button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
+        
+        button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
+        
+        button_phosani.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_phosani))
+        
+        button_.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
 
 
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
