@@ -327,9 +327,6 @@ async def event_panel(ctx):
         button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
         
         button_phosani.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_phosani))
-        
-        button_.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
-
 
         await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
 
