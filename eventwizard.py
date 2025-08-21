@@ -2,18 +2,17 @@ import os
 import discord
 from discord.ext import commands
 from discord import app_commands
-from oauth2client.service_account import ServiceAccountCredentials
 import gspread
+from google.oauth2.service_account import Credentials   # <-- modern import
 from datetime import datetime, timezone
 import asyncio
 from typing import Optional
-
 
 # ---------------------------
 # 🔹 Google Sheets Setup
 # ---------------------------
 scope = [
-    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
@@ -31,7 +30,7 @@ credentials_dict = {
     "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
 }
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
 sheet_client = gspread.authorize(creds)
 
 sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
@@ -412,3 +411,4 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
