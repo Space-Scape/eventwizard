@@ -1,537 +1,414 @@
 import os
-
 import discord
-
-import requests
-
-import asyncio
-
 from discord.ext import commands
-
-from discord.ui import Button, View
-
-from datetime import datetime, timedelta, timezone
-
-
-intents = discord.Intents.default()
-
-intents.message_content = True
-
-intents.reactions = True
-
-intents.guilds = True
-
-intents.members = True
+from discord import app_commands
+from oauth2client.service_account import ServiceAccountCredentials
+import gspread
+from datetime import datetime, timezone
+import asyncio
+from typing import Optional
 
 
+# ---------------------------
+# 🔹 Google Sheets Setup
+# ---------------------------
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
-
-
-
-WOM_GROUP_ID = 9180
-
-WOM_API_KEY = "p9yxtw1k3gd1pa8qu8fuftcb"
-
-WOM_VERIFICATION_CODE = '871-029-369'
-
-
-
-METRIC_MAPPING = {
-
-    # SKILLS
-
-    "Cooking": "cooking",
-
-    "Woodcutting": "woodcutting",
-
-    "Fletching": "fletching",
-
-    "Fishing": "fishing",
-
-    "Firemaking": "firemaking",
-
-    "Crafting": "crafting",
-
-    "Smithing": "smithing",
-
-    "Mining": "mining",
-
-    "Herblore": "herblore",
-
-    "Agility": "agility",
-
-    "Thieving": "thieving",
-
-    "Slayer": "slayer",
-
-    "Farming": "farming",
-
-    "Runecrafting": "runecrafting",
-
-    "Hunter": "hunter",
-
-    "Construction": "construction",
-
-    
-    #BOSSES
-
-    "Araxxor": "araxxor",
-
-    "Callisto": "callisto",
-
-    "Chambers Of Xeric": "chambers_of_xeric",
-
-    "Commander Zilyana": "commander_zilyana",
-
-    "Corporeal Beast": "corporeal_beast",
-
-    "Dagannoth Rex": "dagannoth_rex",
-
-    "Duke Sucellus": "duke_sucellus",
-
-    "General Graardor": "general_graardor",
-
-    "Kree'Arra": "kreearra",
-
-    "K'ril Tsutsaroth": "kril_tsutsaroth",
-
-    "Nex": "nex",
-
-    "Nightmare": "nightmare",
-
-    "Phosani": "pnm",
-
-    "Phantom Muspah": "phantom_muspah",
-
-    "The Gauntlet": "the_gauntlet",
-
-    "The Leviathan": "the_leviathan",
-
-    "The Whisperer": "the_whisperer",
-
-    "Theatre Of Blood": "theatre_of_blood",
-
-    "Tombs Of Amascut": "tombs_of_amascut",
-
-    "Vardorvis": "vardorvis",
-
-    "Venenatis": "venenatis",
-
-    "Vet'ion": "vetion",
-
-    "Vorkath": "vorkath",
-
-    "Yama": "yama",
-
-    "Zulrah": "zulrah"
-
+credentials_dict = {
+    "type": os.getenv('EVENT_TYPE'),
+    "project_id": os.getenv('EVENT_PROJECT_ID'),
+    "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
+    "private_key": os.getenv('EVENT_PRIVATE_KEY').replace("\\n", "\n"),
+    "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
+    "client_id": os.getenv('EVENT_CLIENT_ID'),
+    "auth_uri": os.getenv('EVENT_AUTH_URI'),
+    "token_uri": os.getenv('EVENT_TOKEN_URI'),
+    "auth_provider_x509_cert_url": os.getenv('EVENT_AUTH_PROVIDER_X509_CERT_URL'),
+    "client_x509_cert_url": os.getenv('EVENT_CLIENT_X509_CERT_URL'),
+    "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
 }
 
-
-
-@bot.event
-
-async def on_ready():
-
-    print(f'eventwizard.py script is currently running')
-
-
-@bot.command()
-
-async def event_panel(ctx):
-
-    custom_emoji_skill = discord.utils.get(ctx.guild.emojis, name="skill")
-
-
-    button_botw = Button(label="Boss of the Week (BOTW)", style=discord.ButtonStyle.primary, emoji="⚔️")  # Crossed swords emoji
-
-    button_sotw = Button(label="Skill of the Week (SOTW)", style=discord.ButtonStyle.primary, emoji=custom_emoji_skill)  # Custom skill emoji
-
-
-    view = View(timeout=None)
-
-    view.add_item(button_botw)
-
-    view.add_item(button_sotw)
-
-
-    async def botw_panel(interaction):
-
-        button_graardor = Button(label="General Graardor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="graardor"))
-
-        button_zammy = Button(label="K'ril Tsutsaroth", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="zammy"))
-
-        button_sara = Button(label="Commander Zilyana", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="sara"))
-
-        button_arma = Button(label="Kree'Arra", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="arma"))
-
-        button_nex = Button(label="Nex", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nex"))
-
-        button_callisto = Button(label="Callisto", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="callisto"))
-
-        button_vetion = Button(label="Vet'ion", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vetion"))
-
-        button_venenatis = Button(label="Venenatis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="venenatis"))
-
-        button_cox = Button(label="Chambers Of Xeric", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cox"))
-
-        button_toa = Button(label="Tombs Of Amascut", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="toa"))
-
-        button_tob = Button(label="Theatre Of Blood", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="tob"))
-
-        button_araxxor = Button(label="Araxxor", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="araxxor"))
-
-        button_vardorvis = Button(label="Vardorvis", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vardorvis"))
-
-        button_duke = Button(label="Duke Sucellus", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="duke"))
-
-        button_leviathan = Button(label="The Leviathan", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="leviathan"))
-
-        button_whisperer = Button(label="The Whisperer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="whisperer"))
-
-        button_dks = Button(label="Dagannoth Kings", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="dks"))
-
-        button_corp = Button(label="Corporeal Beast", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="corp"))
-
-        button_vorkath = Button(label="Vorkath", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="vorkath"))
-
-        button_zulrah = Button(label="Zulrah", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="zulrah"))
-
-        button_gauntlet = Button(label="The Gauntlet", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="gauntlet"))
-
-        button_muspah = Button(label="Phantom Muspah", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="muspah"))
-
-        button_nightmare = Button(label="Nightmare", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="nightmare"))
-
-        button_phosani = Button(label="Phosani", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="pnm"))
-
-        button_yama = Button(label="Yama", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="yama"))
-
-
-
-        # Define the view and add the boss buttons
-
-        view_botw = View(timeout=None)
-
-        view_botw.add_item(button_araxxor)
-
-        view_botw.add_item(button_graardor)
-
-        view_botw.add_item(button_zammy)
-
-        view_botw.add_item(button_sara)
-
-        view_botw.add_item(button_arma)
-
-        view_botw.add_item(button_nex)
-
-        view_botw.add_item(button_callisto)
-
-        view_botw.add_item(button_vetion)
-
-        view_botw.add_item(button_venenatis)
-
-        view_botw.add_item(button_cox)
-
-        view_botw.add_item(button_toa)
-
-        view_botw.add_item(button_tob)
-
-        view_botw.add_item(button_yama)
-
-        view_botw.add_item(button_vardorvis)
-
-        view_botw.add_item(button_duke)
-
-        view_botw.add_item(button_leviathan)
-
-        view_botw.add_item(button_whisperer)
-
-        view_botw.add_item(button_dks)
-
-        view_botw.add_item(button_corp)
-
-        view_botw.add_item(button_vorkath)
-
-        view_botw.add_item(button_zulrah)
-
-        view_botw.add_item(button_gauntlet)
-
-        view_botw.add_item(button_muspah)
-
-        view_botw.add_item(button_nightmare)
-
-        view_botw.add_item(button_phosani)
-
-        
-        async def create_botw_event(interaction, button):
-
-            event_name = button.label
-
-            description = f"Defeat {button.label} in this week's challenge!"
-
-            metric = METRIC_MAPPING.get(event_name, event_name.lower().replace(" ", "_"))
-
-            await create_event(interaction, event_name, description)
-
-            await create_wise_old_man_competition(metric, description)
-
-
-        button_graardor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_graardor))
-
-        button_zammy.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_zammy))
-
-        button_sara.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_sara))
-
-        button_arma.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_arma))
-
-        button_nex.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nex))
-
-        button_callisto.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_callisto))
-
-        button_vetion.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vetion))
-
-        button_venenatis.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_venenatis))
-
-        button_cox.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_cox))
-
-        button_toa.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_toa))
-
-        button_tob.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_tob))
-
-        button_vardorvis.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vardorvis))
-
-        button_duke.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_duke))
-
-        button_leviathan.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_leviathan))
-
-        button_whisperer.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_whisperer))
-
-        button_dks.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_dks))
-
-        button_corp.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_corp))
-
-        button_vorkath.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_vorkath))
-
-        button_zulrah.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_zulrah))
-
-        button_gauntlet.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_gauntlet))
-
-        button_muspah.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_muspah))
-
-        button_nightmare.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_nightmare))
-        
-        button_yama.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_yama))
-        
-        button_araxxor.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_araxxor))
-        
-        button_phosani.callback = lambda interaction: asyncio.create_task(create_botw_event(interaction, button_phosani))
-
-        await interaction.response.edit_message(content="Select the boss for this week's event:", view=view_botw)
-
-
-    async def sotw_panel(interaction):
-
-        button_farming = Button(label="Farming", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="farming"))
-
-        button_fishing = Button(label="Fishing", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="fishing"))
-
-        button_hunter = Button(label="Hunter", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="hunter"))
-
-        button_mining = Button(label="Mining", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="mining"))
-
-        button_woodcutting = Button(label="Woodcutting", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="woodcutting"))
-
-        button_cooking = Button(label="Cooking", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="cooking"))
-
-        button_crafting = Button(label="Crafting", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="crafting"))
-
-        button_fletching = Button(label="Fletching", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="fletching"))
-
-        button_herblore = Button(label="Herblore", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="herblore"))
-
-        button_runecraft = Button(label="Runecrafting", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="runecrafting"))
-
-        button_smithing = Button(label="Smithing", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="smithing"))
-
-        button_agility = Button(label="Agility", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="agility"))
-
-        button_construction = Button(label="Construction", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="construction"))
-
-        button_firemaking = Button(label="Firemaking", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="firemaking"))
-
-        button_slayer = Button(label="Slayer", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="slayer"))
-       
-        button_thieving = Button(label="Thieving", style=discord.ButtonStyle.secondary, emoji=discord.utils.get(interaction.guild.emojis, name="thieving"))
-
-
-        view_sotw = View(timeout=None)
-
-        view_sotw.add_item(button_farming)
-
-        view_sotw.add_item(button_fishing)
-
-        view_sotw.add_item(button_hunter)
-
-        view_sotw.add_item(button_mining)
-
-        view_sotw.add_item(button_woodcutting)
-
-        view_sotw.add_item(button_cooking)
-
-        view_sotw.add_item(button_crafting)
-
-        view_sotw.add_item(button_fletching)
-
-        view_sotw.add_item(button_herblore)
-
-        view_sotw.add_item(button_runecraft)
-
-        view_sotw.add_item(button_smithing)
-
-        view_sotw.add_item(button_agility)
-
-        view_sotw.add_item(button_construction)
-
-        view_sotw.add_item(button_firemaking)
-
-        view_sotw.add_item(button_slayer)
-
-        view_sotw.add_item(button_thieving)
-
-
-        async def create_sotw_event(interaction, button):
-
-            event_name = button.label
-
-            description = f"Master {button.label} in this week's skill challenge!"
-
-            metric = METRIC_MAPPING.get(event_name, event_name.lower().replace(" ", "_"))
-
-            await create_event(interaction, event_name, description)
-
-            await create_wise_old_man_competition(metric, description)
-
-
-
-        button_farming.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_farming))
-
-        button_fishing.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_fishing))
-
-        button_hunter.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_hunter))
-
-        button_mining.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_mining))
-
-        button_woodcutting.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_woodcutting))
-
-        button_cooking.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_cooking))
-
-        button_crafting.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_crafting))
-
-        button_fletching.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_fletching))
-
-        button_herblore.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_herblore))
-
-        button_runecraft.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_runecraft))
-
-        button_smithing.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_smithing))
-
-        button_agility.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_agility))
-
-        button_construction.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_construction))
-
-        button_firemaking.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_firemaking))
-
-        button_slayer.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_slayer))
-
-        button_thieving.callback = lambda interaction: asyncio.create_task(create_sotw_event(interaction, button_thieving))
-
-
-        await interaction.response.edit_message(content="Select the skill for this week's event:", view=view_sotw)
-
-
-    button_botw.callback = botw_panel
-
-    button_sotw.callback = sotw_panel
-
-
-    await ctx.send("Click a button to create an event:", view=view)
-
-
-async def create_event(interaction, event_name, description):
-
-    guild = interaction.guild
-
-    start_time = datetime.now(timezone.utc) + timedelta(seconds=15)
-
-    end_time = start_time + timedelta(days=7)
-
-
-    await guild.create_scheduled_event(
-
-        name=event_name,
-
-        description=description,
-
-        start_time=start_time,
-
-        end_time=end_time,
-
-        entity_type=discord.EntityType.external,
-
-        location="Gielinor",
-
-        privacy_level=discord.PrivacyLevel.guild_only
+creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+sheet_client = gspread.authorize(creds)
+
+sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
+
+sheet = sheet_client.open_by_key(sheet_id).sheet1
+
+RSN_SHEET_TAB_NAME = "Tracker"
+rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+
+
+# ---------------------------
+# 🔹 Discord Bot Setup
+# ---------------------------
+intents = discord.Intents.default()
+intents.members = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree
+
+# ---------------------------
+# 🔹 Channel IDs + Role
+# ---------------------------
+SUBMISSION_CHANNEL_ID = 1401523115808526438
+REVIEW_CHANNEL_ID = 1401510165764771950
+LOG_CHANNEL_ID = 1401514384001601607
+REQUIRED_ROLE_NAME = "Event Staff"
+REGISTERED_ROLE_NAME = "Registered"
+
+# ---------------------------
+# 🔹 Boss-Drop Mapping
+# ---------------------------
+
+boss_drops = {
+    "Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
+    "Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
+    "Amoxliatl": ["Moxi", "Glacial temotli"],
+    "Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Aranea boots", "Jar of venom", "Coagulated venom", "Nid"],
+    "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    "Bryophyta": ["Bryophyta's essence"],
+    "Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Claws of callisto", "Voidwaker hilt"],
+    "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    "Chaos Fanatic": ["Odium shard 1", "Malediction shard 1"],
+    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
+    "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    "Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
+    "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    "Deranged Archaeologist": ["Steel ring"],
+    "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
+    "Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    "General Graardor": ["Pet general graardor", "	Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    "Giant Mole": ["Baby mole"],
+    "Grotesque Guardians": ["Noon/midnight", "Granite gloves", "Granite hammer", "Granite ring", "Black tourmaline core", "Jar of stone"],
+    "Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
+    "Inferno": ["Infernal cape"],
+    "Jad": ["Fire cape"],
+    "Kalphite Queen": ["Kalphite princess", "Dragon chainbody", "Dragon pickaxe", "Jar of sand", "Kq head"],
+    "Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
+    "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    "Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon", "Charged ice", "Frozen cache", "Ancient essence"],
+    "Royal Titans": ["Bran", "Deadeye prayer scroll", "Mystic vigour prayer scroll", "Fire element staff crown", "Ice element staff crown"],
+    "Revenants": ["Thammaron's sceptre", "Viggora's chainmace", "Craw's bow"],
+    "Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    "Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
+    "Scurrius": ["Scurry"],
+    "Tempoross": ["Tome of water (empty)"],
+    "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
+    "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Bellator vestige", "Siren's staff"],
+    "Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    "Tormented Demons": ["Tormented synapse", "Burning claw"],
+    "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Ultor vestige", "Executioner's axe head"],
+    "Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
+    "Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
+    "Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
+    "Wintertodt": ["Tome of fire (empty)"],
+    "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
+    "Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
+    "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
+    "Misc items": ["Priff rabbit kc", "Zenyte shard", "Wyvern visage", "Jar of smoke", "Jar of darkness"],
+    "Misc pets": ["Prince black dragon", "Pet smoke devil"]
+}
+
+# ---------------------------
+# 🔹 Slash Command
+# ---------------------------
+@tree.command(name="submitdrop", description="Submit a boss drop for review")
+@app_commands.describe(
+    screenshot="Attach a screenshot of your drop",
+    submitted_for="Optionally specify the user you're submitting this drop for"
+)
+async def submit_drop(interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: discord.Member = None):
+    if interaction.channel.id != SUBMISSION_CHANNEL_ID:
+        await interaction.response.send_message("❌ This command can only be used in the drop submission channel.", ephemeral=True)
+        return
+
+    # Use specified user or fallback to the command sender
+    target_user = submitted_for or interaction.user
+
+    await interaction.response.send_message(
+        content=f"Submitting drop for {target_user.display_name}. Select the boss you received the drop from:",
+        view=BossView(interaction.user, target_user, screenshot),
+        ephemeral=True
     )
 
-    await interaction.response.send_message(f"Event '{event_name}' created successfully!", ephemeral=True)
+# The BossView manages boss pagination and selection
+class BossSelect(discord.ui.Select):
+    def __init__(self, submitting_user, target_user, screenshot, page=0):
+        self.submitting_user = submitting_user
+        self.target_user = target_user
+        self.screenshot = screenshot
+        self.page = page
 
-async def create_wise_old_man_competition(metric, description):
+        bosses = list(boss_drops.keys())
+        max_pages = (len(bosses) - 1) // 25
+        page = max(0, min(page, max_pages))
 
-    start_time = (datetime.now(timezone.utc) + timedelta(seconds=15)).isoformat()
+        page_bosses = bosses[page * 25: (page + 1) * 25]
+        options = [discord.SelectOption(label=boss) for boss in page_bosses]
 
-    end_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        super().__init__(placeholder="Select a boss", options=options, min_values=1, max_values=1)
 
-
-    payload = {
-
-        "title": description,
-
-        "metric": metric,
-
-        "startsAt": start_time,
-
-        "endsAt": end_time,
-
-        "groupId": WOM_GROUP_ID,
-
-        "groupVerificationCode": WOM_VERIFICATION_CODE
-
-    }
-
-
-    headers = {
-
-        "Content-Type": "application/json",
-
-        "Authorization": f"Bearer {WOM_API_KEY}"
-
-    }
-
-    
-    response = requests.post("https://api.wiseoldman.net/v2/competitions", json=payload, headers=headers)
+    async def callback(self, interaction: discord.Interaction):
+        boss = self.values[0]
+        await interaction.response.edit_message(
+            content=f"Selected boss: {boss}. Now select the drop you received.",
+            view=DropView(self.submitting_user, self.target_user, self.screenshot, boss, page=self.page)
+        )
 
 
+class BossView(discord.ui.View):
+    def __init__(self, submitting_user, target_user, screenshot, page=0):
+        super().__init__()
+        self.add_item(BossSelect(submitting_user, target_user, screenshot, page))
+        if page > 0:
+            self.add_item(PreviousPageButton(submitting_user, target_user, screenshot, page))
+        max_pages = (len(boss_drops) - 1) // 25
+        if page < max_pages:
+            self.add_item(NextPageButton(submitting_user, target_user, screenshot, page))
 
-    if response.status_code == 201:
+class PreviousPageButton(discord.ui.Button):
+    def __init__(self, submitting_user, target_user, screenshot, page):
+        super().__init__(label="◀️ Previous Page", style=discord.ButtonStyle.secondary)
+        self.submitting_user = submitting_user
+        self.target_user = target_user
+        self.screenshot = screenshot
+        self.page = page
 
-        print(f"WOM competition '{description}' created successfully.")
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(view=BossView(self.submitting_user, self.target_user, self.screenshot, self.page - 1))
 
-    else:
+class NextPageButton(discord.ui.Button):
+    def __init__(self, submitting_user, target_user, screenshot, page):
+        super().__init__(label="Next Page ▶️", style=discord.ButtonStyle.secondary)
+        self.submitting_user = submitting_user
+        self.target_user = target_user
+        self.screenshot = screenshot
+        self.page = page
 
-        print(f"Failed to create WOM competition: {response.status_code} - {response.text}")
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(view=BossView(self.submitting_user, self.target_user, self.screenshot, self.page + 1))
+
+# ---------------------------
+# 🔹 Utility: Get team role mention
+# ---------------------------
+def get_team_role_mention(member: discord.Member) -> str:
+    for role in member.roles:
+        if role.name.startswith("Team "):
+            return role.mention
+    return "*No team*"
+
+# ---------------------------
+# 🔹 Drop Select
+# ---------------------------
+class DropSelect(discord.ui.Select):
+    def __init__(self, submitting_user, target_user, screenshot, boss):
+        self.submitting_user = submitting_user
+        self.target_user = target_user
+        self.screenshot = screenshot
+        self.boss = boss
+        options = [discord.SelectOption(label=drop) for drop in boss_drops[boss]]
+        super().__init__(placeholder=f"Select a drop from {boss}", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        drop_name = self.values[0]
+        review_channel = bot.get_channel(REVIEW_CHANNEL_ID)
+
+        embed = discord.Embed(title=f"{self.boss} Drop Submission", colour=discord.Colour.blurple())
+        embed.add_field(name="Submitted For", value=f"{self.target_user.mention} ({self.target_user.id})", inline=False)
+        embed.add_field(name="Drop Received", value=drop_name, inline=False)
+        embed.add_field(name="Submitted By", value=f"{self.submitting_user.mention} ({self.submitting_user.id})", inline=False)
+        embed.set_image(url=self.screenshot.url)
+
+        await interaction.response.edit_message(content="✅ Submitted for review.", embed=embed, view=None)
+
+        if review_channel:
+            team_mention = get_team_role_mention(self.target_user)
+            await review_channel.send(
+                embed=embed,
+                view=DropReviewButtons(self.target_user, drop_name, self.screenshot.url, self.submitting_user, team_mention)
+            )
+
+class DropView(discord.ui.View):
+    def __init__(self, submitting_user, target_user, screenshot, boss, page=0):
+        super().__init__()
+        self.submitting_user = submitting_user
+        self.target_user = target_user
+        self.screenshot = screenshot
+        self.boss = boss
+        self.page = page
+
+        self.add_item(DropSelect(submitting_user, target_user, screenshot, boss))
+        self.add_item(self.BackButton())
+
+    class BackButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="⬅️ Back", style=discord.ButtonStyle.secondary)
+
+        async def callback(self, interaction: discord.Interaction):
+            # Go back to boss selection at the same page (or page 0)
+            await interaction.response.edit_message(
+                content=f"Submitting drop for {self.view.target_user.display_name}. Select the boss you received the drop from:",
+                view=BossView(
+                    self.view.submitting_user,
+                    self.view.target_user,
+                    self.view.screenshot,
+                    page=self.view.page  # preserve pagination page if you want
+                )
+            )
 
 
-bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+# ---------------------------
+# 🔹 DropReviewButtons
+# ---------------------------
+class DropReviewButtons(discord.ui.View):
+    def __init__(self, submitted_user: discord.Member, drop: str, image_url: str, submitting_user: discord.Member, team_mention: str):
+        super().__init__(timeout=None)
+        self.submitted_user = submitted_user
+        self.drop = drop
+        self.image_url = image_url
+        self.submitting_user = submitting_user
+        self.team_mention = team_mention
+        self.reviewer: Optional[int] = None  # user.id of the current reviewer
 
+    def has_drop_manager_role(self, member: discord.Member) -> bool:
+        return any(role.name == REQUIRED_ROLE_NAME for role in member.roles)
+
+    @discord.ui.button(label="Review", style=discord.ButtonStyle.blurple)
+    async def review(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.has_drop_manager_role(interaction.user):
+            await interaction.response.send_message("❌ You do not have permission to review.", ephemeral=True)
+            return
+
+        if self.reviewer is None:
+            # Claim review
+            self.reviewer = interaction.user.id
+            for child in self.children:
+                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                    child.disabled = False
+            await interaction.message.edit(
+                content=f"👤 Being reviewed by: {interaction.user.display_name}",
+                view=self
+            )
+            await interaction.response.defer()
+
+        elif self.reviewer == interaction.user.id:
+            # Release review
+            self.reviewer = None
+            for child in self.children:
+                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                    child.disabled = True
+            await interaction.message.edit(
+                content=f"👤 No one is currently reviewing this.",
+                view=self
+            )
+            await interaction.response.defer()
+
+        else:
+            await interaction.response.send_message(
+                f"❌ This is currently being reviewed by <@{self.reviewer}>.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(label="Approve ✅", style=discord.ButtonStyle.green, disabled=True)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.reviewer != interaction.user.id:
+            await interaction.response.send_message(
+                "❌ You are not the reviewer of this submission.",
+                ephemeral=True
+            )
+            return
+
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(title="Drop Approved", colour=discord.Colour.green())
+            embed.add_field(name="Approved By", value=interaction.user.display_name, inline=False)
+            embed.add_field(name="Drop For", value=self.submitted_user.mention, inline=False)
+            embed.add_field(name="Team", value=self.team_mention, inline=False)
+            embed.add_field(name="Drop", value=self.drop, inline=False)
+            embed.add_field(name="Submitted By", value=self.submitting_user.mention, inline=False)
+            embed.set_image(url=self.image_url)
+            await log_channel.send(embed=embed)
+
+        sheet.append_row([
+            interaction.user.display_name,
+            self.submitted_user.display_name,
+            str(self.submitted_user.id),
+            self.drop,
+            self.image_url,
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        ])
+
+        await interaction.response.send_message("✅ Approved and logged. This message will now be removed.", ephemeral=True)
+
+        # Delete the original message after short delay
+        await asyncio.sleep(1)
+        await interaction.message.delete()
+
+    @discord.ui.button(label="Reject ❌", style=discord.ButtonStyle.red, disabled=True)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.reviewer != interaction.user.id:
+            await interaction.response.send_message(
+                "❌ You are not the reviewer of this submission.",
+                ephemeral=True
+            )
+            return
+
+        modal = RejectReasonModal(self, interaction)
+        await interaction.response.send_modal(modal)
+
+class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
+    def __init__(self, parent_view: discord.ui.View, interaction: discord.Interaction):
+        super().__init__()
+        self.parent_view = parent_view
+        self.message = interaction.message
+
+        self.reason = discord.ui.TextInput(
+            label="Reason for rejection",
+            style=discord.TextStyle.paragraph,
+            placeholder="Enter the reason why this drop is being rejected.",
+            required=True,
+            max_length=500
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(title="Drop Rejected", colour=discord.Colour.red())
+            embed.add_field(name="Rejected By", value=interaction.user.display_name, inline=False)
+            embed.add_field(name="Drop For", value=self.parent_view.submitted_user.mention, inline=False)
+            embed.add_field(name="Team", value=self.parent_view.team_mention, inline=False)
+            embed.add_field(name="Drop", value=self.parent_view.drop, inline=False)
+            embed.add_field(name="Submitted By", value=self.parent_view.submitting_user.mention, inline=False)
+            embed.add_field(name="Reason", value=self.reason.value, inline=False)
+            embed.set_image(url=self.parent_view.image_url)
+            await log_channel.send(embed=embed)
+
+        await interaction.response.send_message("❌ Submission rejected and logged. This message will now be removed.", ephemeral=True)
+
+        # Delete the original message after short delay
+        await asyncio.sleep(1)
+        await self.message.delete()
+
+
+# ---------------------------
+# 🔹 On Ready
+# ---------------------------
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    synced = await tree.sync()
+    print(f"✅ Synced {len(synced)} slash commands.")
+
+bot.run(os.getenv('BOT_TOKEN'))
