@@ -166,7 +166,7 @@ boss_drops = {
     #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
     #"Misc items": ["Priff rabbit kc", "Zenyte shard", "Wyvern visage", "Jar of smoke", "Jar of darkness"],
     #"Misc pets": ["Prince black dragon", "Pet smoke devil"]
-}
+#}
 
 
 
@@ -462,6 +462,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
