@@ -70,7 +70,7 @@ boss_drops = {
     "Barrows": ["Ahrim's hood", "Karil's coif", "Dharok's helm", "Guthan's helm", "Torag's helm", "Verac's helm"],
     "Callisto": ["Callisto cub", "Claws of callisto"],
     "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
-    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust", "Kodai wand", "Elder maul", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark"],
     "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
     "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
     "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
@@ -462,6 +462,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
