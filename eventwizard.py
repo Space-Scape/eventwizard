@@ -116,7 +116,7 @@ boss_drops = {
     "Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
     "Misc items": ["Priff rabbit", "Wyvern visage", "Jar of darkness"]
-#}
+}
 
 
 
@@ -412,6 +412,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
