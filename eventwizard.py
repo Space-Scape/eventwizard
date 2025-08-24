@@ -78,6 +78,7 @@ boss_drops = {
     "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
     #"Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
     "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    "Demonic Gorilla": ["Zenyte shard", "Ballista limbs", "Ballista spring", "Light frame", "Heavy frame", "Monkey tail"],
     #"Deranged Archaeologist": ["Steel ring"],
     "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
     "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
@@ -412,6 +413,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
