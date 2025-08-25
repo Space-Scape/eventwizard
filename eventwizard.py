@@ -134,7 +134,6 @@ async def submit_drop(interaction: discord.Interaction, screenshot: discord.Atta
         await interaction.response.send_message("❌ This command can only be used in the drop submission channel.", ephemeral=True)
         return
 
-    # Use specified user or fallback to the command sender
     target_user = submitted_for or interaction.user
 
     await interaction.response.send_message(
@@ -143,7 +142,6 @@ async def submit_drop(interaction: discord.Interaction, screenshot: discord.Atta
         ephemeral=True
     )
 
-# The BossView manages boss pagination and selection
 class BossSelect(discord.ui.Select):
     def __init__(self, submitting_user, target_user, screenshot, page=0):
         self.submitting_user = submitting_user
@@ -257,17 +255,15 @@ class DropView(discord.ui.View):
             super().__init__(label="⬅️ Back", style=discord.ButtonStyle.secondary)
 
         async def callback(self, interaction: discord.Interaction):
-            # Go back to boss selection at the same page (or page 0)
             await interaction.response.edit_message(
                 content=f"Submitting drop for {self.view.target_user.display_name}. Select the boss you received the drop from:",
                 view=BossView(
                     self.view.submitting_user,
                     self.view.target_user,
                     self.view.screenshot,
-                    page=self.view.page  # preserve pagination page if you want
+                    page=self.view.page
                 )
             )
-
 
 # ---------------------------
 # 🔹 DropReviewButtons
@@ -280,31 +276,47 @@ class DropReviewButtons(discord.ui.View):
         self.image_url = image_url
         self.submitting_user = submitting_user
         self.team_mention = team_mention
-        self.reviewer: Optional[int] = None  # user.id of the current reviewer
+        self.reviewer: Optional[int] = None 
 
     def has_drop_manager_role(self, member: discord.Member) -> bool:
         return any(role.name == REQUIRED_ROLE_NAME for role in member.roles)
 
+    def is_moderator(self, member: discord.Member) -> bool:
+        return any(role.name == "Moderators" for role in member.roles)
+
     @discord.ui.button(label="Review", style=discord.ButtonStyle.blurple)
     async def review(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.has_drop_manager_role(interaction.user):
+        user = interaction.user
+
+        if not self.has_drop_manager_role(user) and not self.is_moderator(user):
             await interaction.response.send_message("❌ You do not have permission to review.", ephemeral=True)
             return
 
-        if self.reviewer is None:
-            # Claim review
-            self.reviewer = interaction.user.id
+        # --- Moderator override ---
+        if self.is_moderator(user):
+            self.reviewer = user.id
             for child in self.children:
                 if child.label.startswith("Approve") or child.label.startswith("Reject"):
                     child.disabled = False
             await interaction.message.edit(
-                content=f"👤 Being reviewed by: {interaction.user.display_name}",
+                content=f"👤 Overridden by Moderator: {user.display_name}",
+                view=self
+            )
+            await interaction.response.defer()
+            return
+
+        if self.reviewer is None:
+            self.reviewer = user.id
+            for child in self.children:
+                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                    child.disabled = False
+            await interaction.message.edit(
+                content=f"👤 Being reviewed by: {user.display_name}",
                 view=self
             )
             await interaction.response.defer()
 
-        elif self.reviewer == interaction.user.id:
-            # Release review
+        elif self.reviewer == user.id:
             self.reviewer = None
             for child in self.children:
                 if child.label.startswith("Approve") or child.label.startswith("Reject"):
@@ -352,7 +364,6 @@ class DropReviewButtons(discord.ui.View):
 
         await interaction.response.send_message("✅ Approved and logged. This message will now be removed.", ephemeral=True)
 
-        # Delete the original message after short delay
         await asyncio.sleep(1)
         await interaction.message.delete()
 
@@ -398,7 +409,6 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 
         await interaction.response.send_message("❌ Submission rejected and logged. This message will now be removed.", ephemeral=True)
 
-        # Delete the original message after short delay
         await asyncio.sleep(1)
         await self.message.delete()
 
@@ -413,6 +423,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
