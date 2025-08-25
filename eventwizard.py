@@ -292,19 +292,43 @@ class DropReviewButtons(discord.ui.View):
             await interaction.response.send_message("❌ You do not have permission to review.", ephemeral=True)
             return
 
-        # --- Moderator override ---
+        # --- Moderator ---
         if self.is_moderator(user):
-            self.reviewer = user.id
-            for child in self.children:
-                if child.label.startswith("Approve") or child.label.startswith("Reject"):
-                    child.disabled = False
-            await interaction.message.edit(
-                content=f"👤 Overridden by Moderator: {user.display_name}",
-                view=self
-            )
-            await interaction.response.defer()
+            if self.reviewer is None:
+                self.reviewer = user.id
+                for child in self.children:
+                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                        child.disabled = False
+                await interaction.message.edit(
+                    content=f"👤 Being reviewed by Moderator: {user.display_name}",
+                    view=self
+                )
+                await interaction.response.defer()
+
+            elif self.reviewer != user.id:
+                self.reviewer = None
+                for child in self.children:
+                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                        child.disabled = True
+                await interaction.message.edit(
+                    content=f"👤 Moderator {user.display_name} canceled the review. No one is currently reviewing this.",
+                    view=self
+                )
+                await interaction.response.defer()
+
+            else:
+                self.reviewer = None
+                for child in self.children:
+                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                        child.disabled = True
+                await interaction.message.edit(
+                    content=f"👤 No one is currently reviewing this.",
+                    view=self
+                )
+                await interaction.response.defer()
             return
 
+        # --- drop manager ---
         if self.reviewer is None:
             self.reviewer = user.id
             for child in self.children:
@@ -423,6 +447,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
