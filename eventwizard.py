@@ -116,7 +116,7 @@ boss_drops = {
     "Wintertodt": ["Tome of fire (empty)"],
     "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
     "Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
-    "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
+    "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
     "Misc items": ["Priff rabbit", "Wyvern visage", "Jar of darkness"]
 }
 
@@ -448,6 +448,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
