@@ -104,6 +104,7 @@ boss_drops = {
     #"Scurrius": ["Scurry"],
     "Tempoross": ["Tome of water (empty)"],
     "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
+    "Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
     "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Bellator vestige", "Siren's staff"],
     "Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
     "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
@@ -447,6 +448,7 @@ async def on_ready():
     print(f"✅ Synced {len(synced)} slash commands.")
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
