@@ -11,6 +11,8 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
+from gspread.exceptions import APIError, GSpreadException
+from gspread import CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -443,29 +445,22 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # 🔹 Event Management System
 # --------------------------------------------------
 async def post_todays_event_links(channel: discord.TextChannel):
-    """Deletes old event links and posts new ones for the current day."""
+    """Posts new links for the current day's events with an @everyone ping."""
     if not channel: return
 
-    # Delete old event links posted by the bot
-    async for message in channel.history(limit=50):
-        if message.author == bot.user and "https://discord.com/events/" in message.content:
-            try:
-                await message.delete()
-            except discord.HTTPException:
-                pass 
-
-    # Fetch all scheduled events directly from Discord and check their dates.
     today = datetime.now(CST).date()
     guild_events = channel.guild.scheduled_events
 
     todays_discord_events = []
     for event in guild_events:
-        # discord.utils.utcnow() is timezone-aware (UTC), convert event start_time to the same
         if event.start_time.astimezone(CST).date() == today:
             todays_discord_events.append(event)
 
     if not todays_discord_events:
         return
+
+    # Post the header with @everyone ping
+    await channel.send("| @everyone |\nToday's Event:", allowed_mentions=discord.AllowedMentions.everyone())
 
     # Post the URL for each event happening today
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
@@ -499,8 +494,6 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
         new_message = await channel.send(embed=embed)
         current_schedule_message_id = new_message.id
         print("✅ Posted new schedule message.")
-    
-    await post_todays_event_links(channel)
 
 
 def get_all_event_records():
@@ -800,6 +793,36 @@ async def check_sheet_for_updates():
         print(f"Error during sheet poll: {e}")
 
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
+async def daily_channel_cleanup():
+    """Wipes the event channel daily, keeping only the main schedule message."""
+    global current_schedule_message_id
+    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+    if not channel:
+        print("❌ Cleanup task failed: Event schedule channel not found.")
+        return
+
+    if not current_schedule_message_id:
+        # Try to find the schedule message if the ID is lost
+        async for message in channel.history(limit=50):
+            if message.author == bot.user and message.embeds:
+                if message.embeds[0].title and "Weekly Clan Schedule" in message.embeds[0].title:
+                    current_schedule_message_id = message.id
+                    break
+    
+    if not current_schedule_message_id:
+        print("⚠️ Cleanup task skipped: No schedule message ID found or stored.")
+        return
+
+    print("🧹 Starting daily cleanup of event channel...")
+    try:
+        def is_not_schedule(m):
+            return m.id != current_schedule_message_id
+        deleted = await channel.purge(limit=100, check=is_not_schedule)
+        print(f"✅ Daily cleanup complete. Deleted {len(deleted)} messages.")
+    except discord.HTTPException as e:
+        print(f"Error during channel purge: {e}")
+
+@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
 async def weekly_schedule_reset():
     """Deletes the old schedule and posts a new one every Sunday at midnight."""
     if datetime.now(CST).weekday() == 6:
@@ -820,6 +843,8 @@ async def on_ready():
         check_sheet_for_updates.start()
     if not weekly_schedule_reset.is_running():
         weekly_schedule_reset.start()
+    if not daily_channel_cleanup.is_running():
+        daily_channel_cleanup.start()
 
     try:
         synced = await tree.sync()
@@ -829,6 +854,7 @@ async def on_ready():
 
 @check_sheet_for_updates.before_loop
 @weekly_schedule_reset.before_loop
+@daily_channel_cleanup.before_loop
 async def before_tasks():
     await bot.wait_until_ready()
 
