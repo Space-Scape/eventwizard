@@ -442,9 +442,48 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # --------------------------------------------------
 # 🔹 Event Management System
 # --------------------------------------------------
+async def post_todays_event_links(channel: discord.TextChannel):
+    """Deletes old event links and posts new ones for the current day."""
+    if not channel: return
+
+    # Delete old event links posted by the bot
+    async for message in channel.history(limit=50):
+        if message.author == bot.user and "https://discord.com/events/" in message.content:
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass # Ignore errors if message is already gone
+
+    # Get today's events from the sheet
+    today = datetime.now(CST).date()
+    todays_sheet_events = []
+    try:
+        all_events = get_all_event_records()
+        for event in all_events:
+            try:
+                start_date = datetime.strptime(event.get("Start Date", ""), "%m/%d/%Y").date()
+                if start_date == today:
+                    todays_sheet_events.append(event)
+            except (ValueError, KeyError):
+                continue
+    except Exception as e:
+        print(f"Could not get event records for link posting: {e}")
+        return
+
+    if not todays_sheet_events:
+        return
+
+    # Find matching guild events and post their links
+    guild_events = channel.guild.scheduled_events
+    for sheet_event in todays_sheet_events:
+        event_name = sheet_event.get("Event Description")
+        for guild_event in guild_events:
+            if guild_event.name == event_name:
+                await channel.send(guild_event.url)
+                break
 
 async def update_schedule_message(channel: discord.TextChannel, force_new=False):
-    """Posts or edits the weekly schedule message."""
+    """Posts or edits the weekly schedule message and updates event links."""
     global current_schedule_message_id
     if not channel: return
 
@@ -455,7 +494,7 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
             old_message = await channel.fetch_message(current_schedule_message_id)
             await old_message.delete()
         except discord.NotFound:
-            pass # Message already deleted
+            pass 
         current_schedule_message_id = None
 
     if current_schedule_message_id:
@@ -463,13 +502,15 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
             message = await channel.fetch_message(current_schedule_message_id)
             await message.edit(embed=embed)
             print("✅ Edited existing schedule message.")
-            return
         except discord.NotFound:
             current_schedule_message_id = None
     
-    new_message = await channel.send(embed=embed)
-    current_schedule_message_id = new_message.id
-    print("✅ Posted new schedule message.")
+    if not current_schedule_message_id:
+        new_message = await channel.send(embed=embed)
+        current_schedule_message_id = new_message.id
+        print("✅ Posted new schedule message.")
+    
+    await post_todays_event_links(channel)
 
 
 def get_all_event_records():
@@ -706,13 +747,13 @@ async def generate_schedule_embed():
             if key not in grouped_events:
                 grouped_events[key] = {'hosts': set(), 'ids': []}
             grouped_events[key]['hosts'].add(event['Event Owner'])
-            grouped_events[key]['ids'].append(str(event['row_number']))
+            grouped_events[key]['ids'].append(int(event['row_number']))
         
         lines = []
         for (desc, _), data in sorted(grouped_events.items()):
             hosts = " & ".join(sorted(list(data['hosts'])))
-            ids = " & ".join(sorted(data['ids']))
-            lines.append(f"• ||{ids}|| **{desc}**・Hosted by {hosts}")
+            latest_id = max(data['ids'])
+            lines.append(f"• ||{latest_id}|| **{desc}**・Hosted by {hosts}")
         embed.add_field(name="# Week-Long Events", value="\n".join(lines), inline=False)
 
 
@@ -738,24 +779,6 @@ async def generate_schedule_embed():
 
         embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No Event Planned.", inline=False)
 
-    if todays_events := sorted(daily_events.get(today, []), key=lambda x: x['Event Description']):
-        grouped_events = {}
-        for event in todays_events:
-            key = (event['Event Description'], event['Type of Event'])
-            if key not in grouped_events:
-                grouped_events[key] = {'hosts': set(), 'ids': []}
-            grouped_events[key]['hosts'].add(event['Event Owner'])
-            grouped_events[key]['ids'].append(str(event['row_number']))
-            
-        today_lines = []
-        for (desc, e_type), data in grouped_events.items():
-            hosts = " & ".join(sorted(list(data['hosts'])))
-            ids = " & ".join(sorted(data['ids']))
-            line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {hosts}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {hosts}"
-            today_lines.append(line)
-
-        embed.add_field(name="# Events Today", value="\n".join(today_lines), inline=False)
-
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
     return embed
 
@@ -764,7 +787,7 @@ async def check_sheet_for_updates():
     """Polls the Google Sheet for changes and updates the schedule message."""
     global last_known_sheet_data
     try:
-        new_data = get_all_event_records()
+        new_data = events_sheet.get_all_values()
         if last_known_sheet_data is not None and new_data != last_known_sheet_data:
             print("Sheet change detected, updating schedule...")
             channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
@@ -777,7 +800,6 @@ async def check_sheet_for_updates():
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
 async def weekly_schedule_reset():
     """Deletes the old schedule and posts a new one every Sunday at midnight."""
-    # Run only on Sunday (weekday() == 6)
     if datetime.now(CST).weekday() == 6:
         print("Performing weekly schedule reset...")
         channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
@@ -809,3 +831,4 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
