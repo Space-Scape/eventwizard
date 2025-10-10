@@ -892,9 +892,9 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
-channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-if channel:
-    await update_schedule_message(channel)
+    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+    if channel:
+        await update_schedule_message(channel)
 
 @check_sheet_for_updates.before_loop
 @weekly_schedule_reset.before_loop
@@ -904,6 +904,7 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
