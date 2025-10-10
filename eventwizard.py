@@ -11,8 +11,7 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
-from gspread.exceptions import APIError, GSpreadException
-from gspread import CellNotFound
+from gspread.exceptions import APIError, GSpreadException, CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -723,4 +722,3 @@ async def before_post_daily_schedule():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
-
