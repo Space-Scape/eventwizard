@@ -796,7 +796,7 @@ async def generate_schedule_embed():
 
             for (desc, e_type), data in grouped_events.items():
                 hosts = " & ".join(sorted(list(data['hosts'])))
-                ids = " & ".join(sorted(data['ids']))
+                ids = "/".join(sorted(data['ids']))
                 line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {hosts}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {hosts}"
                 day_lines.append(line)
 
@@ -892,6 +892,10 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
+channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+if channel:
+    await update_schedule_message(channel)
+
 @check_sheet_for_updates.before_loop
 @weekly_schedule_reset.before_loop
 @daily_channel_cleanup.before_loop
@@ -900,6 +904,7 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
 
