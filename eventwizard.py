@@ -12,6 +12,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
 from gspread.exceptions import APIError, GSpreadException
+from gspread import CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -135,6 +136,7 @@ boss_drops = {
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
     "Misc items": ["Priff rabbit", "Wyvern visage", "Jar of darkness"]
 }
+
 
 # ---------------------------
 # 🔹 Drop Submission System
@@ -524,7 +526,7 @@ class AddEventModal(Modal):
             try:
                 cell = rsn_sheet.find(str(interaction.user.id))
                 event_owner = rsn_sheet.cell(cell.row, 4).value if cell else re.sub(r'^\W+', '', interaction.user.display_name)
-            except (gspread.CellNotFound, Exception):
+            except (CellNotFound, Exception):
                 event_owner = re.sub(r'^\W+', '', interaction.user.display_name)
 
         event_data = [
@@ -710,11 +712,15 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     if not post_daily_schedule.is_running():
         post_daily_schedule.start()
-    synced = await tree.sync()
-    print(f"✅ Synced {len(synced)} slash commands.")
+    try:
+        synced = await tree.sync()
+        print(f"✅ Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print(f"❌ Command sync failed: {e}")
 
 @post_daily_schedule.before_loop
 async def before_post_daily_schedule():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
