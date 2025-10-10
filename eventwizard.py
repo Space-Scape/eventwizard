@@ -1,12 +1,17 @@
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import gspread
-from google.oauth2.service_account import Credentials   # <-- modern import
-from datetime import datetime, timezone
+from google.oauth2.service_account import Credentials
 import asyncio
+import re
+from discord.ui import Modal, TextInput, View, Button
+from discord import ButtonStyle
 from typing import Optional
+from datetime import datetime, timedelta, timezone, time
+from zoneinfo import ZoneInfo
+from gspread.exceptions import APIError, GSpreadException
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -33,12 +38,17 @@ credentials_dict = {
 creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
 sheet_client = gspread.authorize(creds)
 
+# Drop Submission Sheet
 sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
-
 sheet = sheet_client.open_by_key(sheet_id).sheet1
 
+# RSN Tracker Sheet
 RSN_SHEET_TAB_NAME = "Tracker"
 rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+
+# Events Sheet
+EVENTS_SHEET_ID = "1ycltDSLJeKTLAHzVeYZ6JKwIV5A7md8Lh7IetvVljEc"
+events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs")
 
 
 # ---------------------------
@@ -50,59 +60,64 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 # ---------------------------
-# 🔹 Channel IDs + Role
+# 🔹 Configuration
 # ---------------------------
+# Drop Submissions
 SUBMISSION_CHANNEL_ID = 1401523115808526438
 REVIEW_CHANNEL_ID = 1401510165764771950
 LOG_CHANNEL_ID = 1401514384001601607
 REQUIRED_ROLE_NAME = "Event Staff"
 REGISTERED_ROLE_NAME = "Registered"
 
+# Event Management
+EVENT_SCHEDULE_CHANNEL_ID = 1426183325093203979
+STAFF_ROLE_ID = 1272635396991221824
+ADMINISTRATOR_ROLE_ID = 1272961765034164318
+
+# Timezones
+CST = ZoneInfo("America/Chicago")
+TIMEZONE_DATA = {
+    "PST": ("America/Los_Angeles", "🇺🇸"), "MST": ("America/Denver", "🇺🇸"),
+    "CST": ("America/Chicago", "🇺🇸"), "EST": ("America/New_York", "🇺🇸"),
+    "AST": ("America/Halifax", "🇨🇦"), "BRT": ("Brazil", "🇧🇷"),
+    "ART": ("Argentina", "🇦🇷"), "GMT": ("Europe/London", "🇬🇧"),
+    "CET": ("Europe/Paris", "🇫🇷"), "EET": ("Europe/Helsinki", "🇫🇮"),
+    "AWST": ("Australia/Perth", "🇦🇺"), "ACST": ("Australia/Adelaide", "🇦🇺"),
+    "AEST": ("Australia/Sydney", "🇦🇺"),
+}
+INTERNATIONAL_TIMEZONES = {"GMT", "CET", "EET", "BRT", "ART", "AWST", "ACST", "AEST"}
+
 # ---------------------------
 # 🔹 Boss-Drop Mapping
 # ---------------------------
-
 boss_drops = {
     "Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
     "Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
     "Amoxliatl": ["Moxi"],
     "Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Aranea boots", "Jar of venom", "Coagulated venom", "Nid"],
     "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
-    #"Bryophyta": ["Bryophyta's essence"],
     "Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Claws of callisto", "Voidwaker hilt"],
     "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
-    #"Chaos Fanatic": ["Odium shard 1", "Malediction shard 1"],
     "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
-    #"Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
     "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
     "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
-    #"Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
     "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
     "Demonic Gorilla": ["Zenyte shard", "Ballista limbs", "Ballista spring", "Light frame", "Heavy frame", "Monkey tail"],
-    #"Deranged Archaeologist": ["Steel ring"],
     "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
     "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
-    #"Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
-    "General Graardor": ["Pet general graardor", "	Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
     "Giant Mole": ["Baby mole"],
     "Grotesque Guardians": ["Noon/midnight", "Granite gloves", "Granite hammer", "Granite ring", "Black tourmaline core", "Jar of stone"],
     "Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
-    #"Inferno": ["Infernal cape"],
-    #"Jad": ["Fire cape"],
-    #"Kalphite Queen": ["Kalphite princess", "Dragon chainbody", "Dragon pickaxe", "Jar of sand", "Kq head"],
     "Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
     "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
     "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
-    #"Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
     "King black dragon": ["Prince black dragon"],
     "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
     "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
     "Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon", "Charged ice", "Frozen cache", "Ancient essence"],
-    #"Royal Titans": ["Bran", "Deadeye prayer scroll", "Mystic vigour prayer scroll", "Fire element staff crown", "Ice element staff crown"],
     "Revenants": ["Thammaron's sceptre", "Viggora's chainmace", "Craw's bow", "Ancient relic", "Ancient effigy", "Ancient medallion", "Ancient statuette", "Ancient totem"],
     "Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
-    #"Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
-    #"Scurrius": ["Scurry"],
     "Tempoross": ["Tome of water (empty)"],
     "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
     "Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
@@ -121,10 +136,8 @@ boss_drops = {
     "Misc items": ["Priff rabbit", "Wyvern visage", "Jar of darkness"]
 }
 
-
-
 # ---------------------------
-# 🔹 Slash Command
+# 🔹 Drop Submission System
 # ---------------------------
 @tree.command(name="submitdrop", description="Submit a boss drop for review")
 @app_commands.describe(
@@ -200,18 +213,12 @@ class NextPageButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.edit_message(view=BossView(self.submitting_user, self.target_user, self.screenshot, self.page + 1))
 
-# ---------------------------
-# 🔹 Utility: Get team role mention
-# ---------------------------
 def get_team_role_mention(member: discord.Member) -> str:
     for role in member.roles:
         if role.name.startswith("Team "):
             return role.mention
     return "*No team*"
 
-# ---------------------------
-# 🔹 Drop Select
-# ---------------------------
 class DropSelect(discord.ui.Select):
     def __init__(self, submitting_user, target_user, screenshot, boss):
         self.submitting_user = submitting_user
@@ -267,9 +274,6 @@ class DropView(discord.ui.View):
                 )
             )
 
-# ---------------------------
-# 🔹 DropReviewButtons
-# ---------------------------
 class DropReviewButtons(discord.ui.View):
     def __init__(self, submitted_user: discord.Member, drop: str, image_url: str, submitting_user: discord.Member, team_mention: str):
         super().__init__(timeout=None)
@@ -362,10 +366,7 @@ class DropReviewButtons(discord.ui.View):
     @discord.ui.button(label="Approve ✅", style=discord.ButtonStyle.green, disabled=True)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.reviewer != interaction.user.id:
-            await interaction.response.send_message(
-                "❌ You are not the reviewer of this submission.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ You are not the reviewer of this submission.", ephemeral=True)
             return
 
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -389,17 +390,13 @@ class DropReviewButtons(discord.ui.View):
         ])
 
         await interaction.response.send_message("✅ Approved and logged. This message will now be removed.", ephemeral=True)
-
         await asyncio.sleep(1)
         await interaction.message.delete()
 
     @discord.ui.button(label="Reject ❌", style=discord.ButtonStyle.red, disabled=True)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.reviewer != interaction.user.id:
-            await interaction.response.send_message(
-                "❌ You are not the reviewer of this submission.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ You are not the reviewer of this submission.", ephemeral=True)
             return
 
         modal = RejectReasonModal(self, interaction)
@@ -412,11 +409,9 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
         self.message = interaction.message
 
         self.reason = discord.ui.TextInput(
-            label="Reason for rejection",
-            style=discord.TextStyle.paragraph,
+            label="Reason for rejection", style=discord.TextStyle.paragraph,
             placeholder="Enter the reason why this drop is being rejected.",
-            required=True,
-            max_length=500
+            required=True, max_length=500
         )
         self.add_item(self.reason)
 
@@ -434,10 +429,278 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
             await log_channel.send(embed=embed)
 
         await interaction.response.send_message("❌ Submission rejected and logged. This message will now be removed.", ephemeral=True)
-
         await asyncio.sleep(1)
         await self.message.delete()
 
+# --------------------------------------------------
+# 🔹 Event Management System
+# --------------------------------------------------
+
+async def update_schedule_message(channel: discord.TextChannel):
+    """Posts a new, updated schedule message without deleting or editing previous messages."""
+    try:
+        await create_and_post_schedule(channel)
+        print("✅ Posted an updated schedule message.")
+    except Exception as e:
+        print(f"❌ Could not post updated schedule message: {e}")
+
+
+def get_all_event_records():
+    """Custom function to get all event records, accounting for header row and adding row number."""
+    try:
+        all_values = events_sheet.get_all_values()
+        if len(all_values) < 5:
+            return []
+        
+        headers = all_values[3]
+        data_rows = all_values[4:]
+        
+        records = []
+        for i, row in enumerate(data_rows):
+            record = {headers[j]: (row[j] if j < len(row) else "") for j in range(len(headers))}
+            record['row_number'] = i + 5
+            
+            if any(val for key, val in record.items() if key != 'row_number'):
+                records.append(record)
+        return records
+    except Exception as e:
+        print(f"Error fetching and parsing event sheet data: {e}")
+        return []
+
+class AddEventModal(Modal):
+    def __init__(self, event_type_str: str, is_international: bool = False, cover_image: Optional[bytes] = None, existing_data: Optional[dict] = None):
+        super().__init__(title=f"Create/Edit Event")
+        self.is_international = is_international
+        self.cover_image = cover_image
+        self.existing_data = existing_data
+
+        date_label = "Start Date (D/M/YYYY)" if is_international else "Start Date (M/D/YYYY)"
+        date_placeholder = "e.g., 29/9/2025" if is_international else "e.g., 9/29/2025"
+        end_date_label = "End Date (Optional, D/M/YYYY)" if is_international else "End Date (Optional, M/D/YYYY)"
+
+        default_type = existing_data.get("Type of Event", event_type_str) if existing_data else event_type_str
+        default_desc = existing_data.get("Event Description", "") if existing_data else ""
+        default_owner = existing_data.get("Event Owner", "") if existing_data else ""
+        default_start = existing_data.get("Start Date", "") if existing_data else ""
+        default_end = existing_data.get("End Date", "") if existing_data else ""
+        default_comments = existing_data.get("Comments", "") if existing_data else ""
+        
+        if default_start and is_international:
+            try: default_start = datetime.strptime(default_start, "%m/%d/%Y").strftime("%d/%m/%Y")
+            except ValueError: pass
+        if default_end and is_international:
+            try: default_end = datetime.strptime(default_end, "%m/%d/%Y").strftime("%d/%m/%Y")
+            except ValueError: pass
+
+        self.field1 = TextInput(label="Type of Event", default=default_type)
+        self.field2 = TextInput(label="Event Description", placeholder="e.g., Learner ToB", default=default_desc)
+        self.field3 = TextInput(label="Event Owner (Optional)", placeholder="Leave blank to default to you", default=default_owner, required=False)
+        self.field4 = TextInput(label=date_label, placeholder=date_placeholder, default=default_start)
+        self.field5 = TextInput(label=end_date_label, placeholder="Leave blank for single-day events", default=default_end, required=False)
+        self.field6 = TextInput(label="Comments (Optional)", style=discord.TextStyle.paragraph, default=default_comments, required=False)
+
+        for item in [self.field1, self.field2, self.field3, self.field4, self.field5, self.field6]:
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        event_type_value, description_value, owner_value, start_date_str, end_date_str, comments_val = \
+            self.field1.value, self.field2.value, self.field3.value, self.field4.value, self.field5.value, self.field6.value
+
+        expected_format_str = "%d/%m/%Y" if self.is_international else "%m/%d/%Y"
+        try:
+            start_date_obj = datetime.strptime(start_date_str, expected_format_str)
+            end_date_obj = datetime.strptime(end_date_str, expected_format_str) if end_date_str else start_date_obj
+        except ValueError:
+            await interaction.followup.send(f"❌ **Invalid Date.** Please use the **{expected_format_str.upper()}** format.", ephemeral=True)
+            return
+
+        start_date_for_sheet = start_date_obj.strftime("%m/%d/%Y")
+        end_date_for_sheet = end_date_obj.strftime("%m/%d/%Y")
+
+        event_owner = owner_value.strip()
+        if not event_owner:
+            try:
+                cell = rsn_sheet.find(str(interaction.user.id))
+                event_owner = rsn_sheet.cell(cell.row, 4).value if cell else re.sub(r'^\W+', '', interaction.user.display_name)
+            except (gspread.CellNotFound, Exception):
+                event_owner = re.sub(r'^\W+', '', interaction.user.display_name)
+
+        event_data = [
+            event_type_value, description_value, event_owner, "", "",
+            start_date_for_sheet, end_date_for_sheet, "", "", "", comments_val or ""
+        ]
+
+        try:
+            action_verb = "created"
+            if self.existing_data:
+                row_num = self.existing_data['row_number']
+                cell_range = f"B{row_num}:L{row_num}"
+                events_sheet.update(cell_range, [event_data], value_input_option='USER_ENTERED')
+                action_verb = "edited"
+            else:
+                next_row = len(events_sheet.col_values(2)) + 1
+                cell_range = f"B{next_row}:L{next_row}"
+                events_sheet.update(cell_range, [event_data], value_input_option='USER_ENTERED')
+                
+                guild = interaction.guild
+                event_start_time = datetime.combine(start_date_obj, time(12, 0), tzinfo=CST)
+                event_end_time = datetime.combine(end_date_obj, time(13, 0), tzinfo=CST)
+                await guild.create_scheduled_event(
+                    name=description_value, description=comments_val or "Details in events channel.",
+                    start_time=event_start_time, end_time=event_end_time,
+                    entity_type=discord.EntityType.external, location="In Rancour PVM", image=self.cover_image
+                )
+
+            if (event_channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
+                await update_schedule_message(event_channel)
+
+            confirm_embed = discord.Embed(title=f"✅ Event {action_verb.capitalize()}!", color=discord.Color.green())
+            confirm_embed.add_field(name="Description", value=description_value, inline=False)
+            await interaction.followup.send(embed=confirm_embed, ephemeral=True)
+
+        except Exception as e:
+            print(f"Error processing event: {e}")
+            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
+
+@tree.command(name="addevent", description="Add a new event.")
+@app_commands.checks.has_role(REQUIRED_ROLE_NAME)
+@app_commands.describe(event_type="The type of event.", image="Optional cover image.")
+@app_commands.choices(event_type=[
+    app_commands.Choice(name=t, value=t) for t in ["BOTW", "SOTW", "Pet Roulette", "Sanguine Sunday", "Mass Event", "Bounty", "Large Event", "Castle Wars", "Wildy Altar", "Discord games", "Hide and seek", "Other Event"]
+])
+async def addevent(interaction: discord.Interaction, event_type: str, image: Optional[discord.Attachment] = None):
+    user_roles = {r.name for r in interaction.user.roles}
+    is_international = bool(user_roles.intersection(INTERNATIONAL_TIMEZONES))
+    image_bytes = await image.read() if image else None
+    await interaction.response.send_modal(AddEventModal(event_type, is_international, image_bytes))
+
+@tree.command(name="editevent", description="Edit an event by its ID.")
+@app_commands.checks.has_role(REQUIRED_ROLE_NAME)
+@app_commands.describe(event_id="The ID (row number) of the event to edit.")
+async def editevent(interaction: discord.Interaction, event_id: int):
+    try:
+        if event_id < 5: raise ValueError("Invalid ID")
+        
+        row_data = events_sheet.row_values(event_id)
+        if not any(row_data): raise ValueError("No event found")
+
+        headers = events_sheet.row_values(4)
+        event_dict = {headers[i]: (row_data[i] if i < len(row_data) else "") for i in range(len(headers))}
+        event_dict['row_number'] = event_id
+
+        user_roles = {r.name for r in interaction.user.roles}
+        is_international = bool(user_roles.intersection(INTERNATIONAL_TIMEZONES))
+        
+        await interaction.response.send_modal(AddEventModal("", is_international, existing_data=event_dict))
+    except (IndexError, ValueError, APIError):
+        await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
+
+class DeleteConfirmationView(View):
+    def __init__(self, event_id: int):
+        super().__init__(timeout=60)
+        self.event_id = event_id
+
+    @discord.ui.button(label="Confirm Delete", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: Button):
+        try:
+            events_sheet.delete_rows(self.event_id)
+            await interaction.response.edit_message(content=f"✅ Event ID `{self.event_id}` deleted.", view=None)
+            if (ch := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)): await update_schedule_message(ch)
+        except Exception as e:
+            await interaction.response.edit_message(content=f"❌ Error deleting: {e}", view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.edit_message(content="Deletion canceled.", view=None)
+
+@tree.command(name="deleteevent", description="Delete an event by its ID.")
+@app_commands.checks.has_role(REQUIRED_ROLE_NAME)
+@app_commands.describe(event_id="The ID (row number) to delete.")
+async def deleteevent(interaction: discord.Interaction, event_id: int):
+    try:
+        if event_id < 5: raise ValueError("Invalid ID")
+        row_data = events_sheet.row_values(event_id)
+        if not any(row_data): raise ValueError("No event")
+        
+        desc, owner, start_date = row_data[1], row_data[2], row_data[5]
+        embed = discord.Embed(title="⚠️ Confirm Deletion", description="This cannot be undone.", color=discord.Color.red())
+        embed.add_field(name="ID", value=f"`{event_id}`").add_field(name="Desc", value=desc).add_field(name="Host", value=owner).add_field(name="Date", value=start_date)
+        await interaction.response.send_message(embed=embed, view=DeleteConfirmationView(event_id), ephemeral=True)
+    except (IndexError, ValueError, APIError):
+         await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
+
+@tree.command(name="schedule", description="Posts the weekly event schedule.")
+@app_commands.checks.has_role(REQUIRED_ROLE_NAME)
+async def schedule(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
+        await create_and_post_schedule(channel)
+        await interaction.followup.send(f"✅ Schedule posted in {channel.mention}!", ephemeral=True)
+    else:
+        await interaction.followup.send("⚠️ Event schedule channel not found.", ephemeral=True)
+
+async def create_and_post_schedule(channel: discord.TextChannel):
+    try:
+        all_events = get_all_event_records()
+    except Exception as e: return print(f"Could not fetch event records: {e}")
+
+    now, today = datetime.now(CST), datetime.now(CST).date()
+    start_of_week = today - timedelta(days=(today.weekday() + 1) % 7)
+    end_of_week = start_of_week + timedelta(days=6)
+
+    daily_events = {start_of_week + timedelta(days=i): [] for i in range(7)}
+    week_long_events = []
+
+    for event in all_events:
+        try:
+            start_date = datetime.strptime(event["Start Date"], "%m/%d/%Y").date()
+            end_date = datetime.strptime(event["End Date"], "%m/%d/%Y").date() if event["End Date"] else start_date
+            if (end_date - start_date).days >= 6:
+                if start_date <= end_of_week and end_date >= start_of_week:
+                    week_long_events.append(event)
+            else:
+                d = start_date
+                while d <= end_date:
+                    if start_of_week <= d <= end_of_week: daily_events[d].append(event)
+                    d += timedelta(days=1)
+        except (ValueError, KeyError): continue
+    
+    embed = discord.Embed(title=f"📅 Weekly Clan Schedule ({start_of_week:%b %d} - {end_of_week:%b %d})", color=discord.Color.gold())
+
+    if week_long_events:
+        lines = [f"• `||{e['row_number']}||` **{e['Event Description']}**・Hosted by {e['Event Owner']}" for e in sorted(week_long_events, key=lambda x: x['Event Description'])]
+        embed.add_field(name="# Week-Long Events", value="\n".join(lines), inline=False)
+
+    for i in range(7):
+        current_date = start_of_week + timedelta(days=i)
+        day_name = current_date.strftime("%A")
+        
+        day_lines = []
+        for event in sorted(daily_events[current_date], key=lambda x: x['Event Description']):
+            e_type, desc, owner, e_id = event['Type of Event'], event['Event Description'], event['Event Owner'], event['row_number']
+            line = f"• `||{e_id}||` **{e_type}**: {desc}・Hosted by {owner}" if e_type.lower() != desc.lower() else f"• `||{e_id}||` **{e_type}**・Hosted by {owner}"
+            day_lines.append(line)
+
+        embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No Event Planned.", inline=False)
+
+    if todays_events := sorted(daily_events.get(today, []), key=lambda x: x['Event Description']):
+        today_lines = [f"• `||{e['row_number']}||` **{e['Type of Event']}**: {e['Event Description']}・Hosted by {e['Event Owner']}" if e['Type of Event'].lower() != e['Event Description'].lower() else f"• `||{e['row_number']}||` **{e['Type of Event']}**・Hosted by {e['Event Owner']}" for e in todays_events]
+        embed.add_field(name="# Events Today", value="\n".join(today_lines), inline=False)
+
+    embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
+    await channel.send(embed=embed)
+
+@tasks.loop(time=time(hour=9, minute=0, tzinfo=CST))
+async def post_daily_schedule():
+    if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
+        await create_and_post_schedule(channel)
+        print("✅ Automatically posted the daily event schedule.")
 
 # ---------------------------
 # 🔹 On Ready
@@ -445,20 +708,13 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    if not post_daily_schedule.is_running():
+        post_daily_schedule.start()
     synced = await tree.sync()
     print(f"✅ Synced {len(synced)} slash commands.")
 
+@post_daily_schedule.before_loop
+async def before_post_daily_schedule():
+    await bot.wait_until_ready()
+
 bot.run(os.getenv('BOT_TOKEN'))
-
-
-
-
-
-
-
-
-
-
-
-
-
