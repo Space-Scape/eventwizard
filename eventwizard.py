@@ -11,8 +11,6 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
-from gspread.exceptions import APIError, GSpreadException
-from gspread import CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -886,5 +884,6 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
 
 
