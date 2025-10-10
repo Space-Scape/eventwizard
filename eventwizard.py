@@ -11,6 +11,8 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
+from gspread.exceptions import APIError, GSpreadException
+from gspread import CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -674,23 +676,60 @@ async def create_and_post_schedule(channel: discord.TextChannel):
     embed = discord.Embed(title=f"📅 Weekly Clan Schedule ({start_of_week:%b %d} - {end_of_week:%b %d})", color=discord.Color.gold())
 
     if week_long_events:
-        lines = [f"• `||{e['row_number']}||` **{e['Event Description']}**・Hosted by {e['Event Owner']}" for e in sorted(week_long_events, key=lambda x: x['Event Description'])]
+        grouped_events = {}
+        for event in week_long_events:
+            key = (event['Event Description'], event['Type of Event'])
+            if key not in grouped_events:
+                grouped_events[key] = {'hosts': set(), 'ids': []}
+            grouped_events[key]['hosts'].add(event['Event Owner'])
+            grouped_events[key]['ids'].append(str(event['row_number']))
+        
+        lines = []
+        for (desc, _), data in sorted(grouped_events.items()):
+            hosts = " & ".join(sorted(list(data['hosts'])))
+            ids = " & ".join(sorted(data['ids']))
+            lines.append(f"• ||{ids}|| **{desc}**・Hosted by {hosts}")
         embed.add_field(name="# Week-Long Events", value="\n".join(lines), inline=False)
+
 
     for i in range(7):
         current_date = start_of_week + timedelta(days=i)
         day_name = current_date.strftime("%A")
         
         day_lines = []
-        for event in sorted(daily_events[current_date], key=lambda x: x['Event Description']):
-            e_type, desc, owner, e_id = event['Type of Event'], event['Event Description'], event['Event Owner'], event['row_number']
-            line = f"• `||{e_id}||` **{e_type}**: {desc}・Hosted by {owner}" if e_type.lower() != desc.lower() else f"• `||{e_id}||` **{e_type}**・Hosted by {owner}"
-            day_lines.append(line)
+        if day_events_for_day := sorted(daily_events[current_date], key=lambda x: x['Event Description']):
+            grouped_events = {}
+            for event in day_events_for_day:
+                key = (event['Event Description'], event['Type of Event'])
+                if key not in grouped_events:
+                    grouped_events[key] = {'hosts': set(), 'ids': []}
+                grouped_events[key]['hosts'].add(event['Event Owner'])
+                grouped_events[key]['ids'].append(str(event['row_number']))
+
+            for (desc, e_type), data in grouped_events.items():
+                hosts = " & ".join(sorted(list(data['hosts'])))
+                ids = " & ".join(sorted(data['ids']))
+                line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {hosts}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {hosts}"
+                day_lines.append(line)
 
         embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No Event Planned.", inline=False)
 
     if todays_events := sorted(daily_events.get(today, []), key=lambda x: x['Event Description']):
-        today_lines = [f"• `||{e['row_number']}||` **{e['Type of Event']}**: {e['Event Description']}・Hosted by {e['Event Owner']}" if e['Type of Event'].lower() != e['Event Description'].lower() else f"• `||{e['row_number']}||` **{e['Type of Event']}**・Hosted by {e['Event Owner']}" for e in todays_events]
+        grouped_events = {}
+        for event in todays_events:
+            key = (event['Event Description'], event['Type of Event'])
+            if key not in grouped_events:
+                grouped_events[key] = {'hosts': set(), 'ids': []}
+            grouped_events[key]['hosts'].add(event['Event Owner'])
+            grouped_events[key]['ids'].append(str(event['row_number']))
+            
+        today_lines = []
+        for (desc, e_type), data in grouped_events.items():
+            hosts = " & ".join(sorted(list(data['hosts'])))
+            ids = " & ".join(sorted(data['ids']))
+            line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {hosts}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {hosts}"
+            today_lines.append(line)
+
         embed.add_field(name="# Events Today", value="\n".join(today_lines), inline=False)
 
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
@@ -721,4 +760,3 @@ async def before_post_daily_schedule():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
-
