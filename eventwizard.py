@@ -59,6 +59,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 # ---------------------------
+# 🔹 Global State for Schedule
+# ---------------------------
+current_schedule_message_id = None
+last_known_sheet_data = None
+
+
+# ---------------------------
 # 🔹 Configuration
 # ---------------------------
 # Drop Submissions
@@ -436,13 +443,33 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # 🔹 Event Management System
 # --------------------------------------------------
 
-async def update_schedule_message(channel: discord.TextChannel):
-    """Posts a new, updated schedule message without deleting or editing previous messages."""
-    try:
-        await create_and_post_schedule(channel)
-        print("✅ Posted an updated schedule message.")
-    except Exception as e:
-        print(f"❌ Could not post updated schedule message: {e}")
+async def update_schedule_message(channel: discord.TextChannel, force_new=False):
+    """Posts or edits the weekly schedule message."""
+    global current_schedule_message_id
+    if not channel: return
+
+    embed = await generate_schedule_embed()
+    
+    if force_new and current_schedule_message_id:
+        try:
+            old_message = await channel.fetch_message(current_schedule_message_id)
+            await old_message.delete()
+        except discord.NotFound:
+            pass # Message already deleted
+        current_schedule_message_id = None
+
+    if current_schedule_message_id:
+        try:
+            message = await channel.fetch_message(current_schedule_message_id)
+            await message.edit(embed=embed)
+            print("✅ Edited existing schedule message.")
+            return
+        except discord.NotFound:
+            current_schedule_message_id = None
+    
+    new_message = await channel.send(embed=embed)
+    current_schedule_message_id = new_message.id
+    print("✅ Posted new schedule message.")
 
 
 def get_all_event_records():
@@ -553,9 +580,6 @@ class AddEventModal(Modal):
                     entity_type=discord.EntityType.external, location="In Rancour PVM", image=self.cover_image
                 )
 
-            if (event_channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
-                await update_schedule_message(event_channel)
-
             confirm_embed = discord.Embed(title=f"✅ Event {action_verb.capitalize()}!", color=discord.Color.green())
             confirm_embed.add_field(name="Description", value=description_value, inline=False)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
@@ -609,7 +633,6 @@ class DeleteConfirmationView(View):
         try:
             events_sheet.delete_rows(self.event_id)
             await interaction.response.edit_message(content=f"✅ Event ID `{self.event_id}` deleted.", view=None)
-            if (ch := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)): await update_schedule_message(ch)
         except Exception as e:
             await interaction.response.edit_message(content=f"❌ Error deleting: {e}", view=None)
 
@@ -640,15 +663,18 @@ async def deleteevent(interaction: discord.Interaction, event_id: int):
 async def schedule(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
-        await create_and_post_schedule(channel)
+        await update_schedule_message(channel, force_new=True)
         await interaction.followup.send(f"✅ Schedule posted in {channel.mention}!", ephemeral=True)
     else:
         await interaction.followup.send("⚠️ Event schedule channel not found.", ephemeral=True)
 
-async def create_and_post_schedule(channel: discord.TextChannel):
+async def generate_schedule_embed():
+    """Fetches event data and generates the schedule embed."""
     try:
         all_events = get_all_event_records()
-    except Exception as e: return print(f"Could not fetch event records: {e}")
+    except Exception as e:
+        print(f"Could not fetch event records: {e}")
+        return discord.Embed(title="Error", description="Could not fetch event data from spreadsheet.", color=discord.Color.red())
 
     now, today = datetime.now(CST), datetime.now(CST).date()
     start_of_week = today - timedelta(days=(today.weekday() + 1) % 7)
@@ -731,13 +757,32 @@ async def create_and_post_schedule(channel: discord.TextChannel):
         embed.add_field(name="# Events Today", value="\n".join(today_lines), inline=False)
 
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
-    await channel.send(embed=embed)
+    return embed
 
-@tasks.loop(time=time(hour=9, minute=0, tzinfo=CST))
-async def post_daily_schedule():
-    if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
-        await create_and_post_schedule(channel)
-        print("✅ Automatically posted the daily event schedule.")
+@tasks.loop(seconds=20)
+async def check_sheet_for_updates():
+    """Polls the Google Sheet for changes and updates the schedule message."""
+    global last_known_sheet_data
+    try:
+        new_data = get_all_event_records()
+        if last_known_sheet_data is not None and new_data != last_known_sheet_data:
+            print("Sheet change detected, updating schedule...")
+            channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+            if channel:
+                await update_schedule_message(channel)
+        last_known_sheet_data = new_data
+    except Exception as e:
+        print(f"Error during sheet poll: {e}")
+
+@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
+async def weekly_schedule_reset():
+    """Deletes the old schedule and posts a new one every Sunday at midnight."""
+    # Run only on Sunday (weekday() == 6)
+    if datetime.now(CST).weekday() == 6:
+        print("Performing weekly schedule reset...")
+        channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+        if channel:
+            await update_schedule_message(channel, force_new=True)
 
 # ---------------------------
 # 🔹 On Ready
@@ -745,17 +790,22 @@ async def post_daily_schedule():
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    if not post_daily_schedule.is_running():
-        post_daily_schedule.start()
+    
+    # Start the tasks
+    if not check_sheet_for_updates.is_running():
+        check_sheet_for_updates.start()
+    if not weekly_schedule_reset.is_running():
+        weekly_schedule_reset.start()
+
     try:
         synced = await tree.sync()
         print(f"✅ Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
-@post_daily_schedule.before_loop
-async def before_post_daily_schedule():
+@check_sheet_for_updates.before_loop
+@weekly_schedule_reset.before_loop
+async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
-
