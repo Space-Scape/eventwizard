@@ -11,6 +11,8 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
+from gspread.exceptions import APIError, GSpreadException
+from gspread import CellNotFound
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -443,21 +445,11 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # 🔹 Event Management System
 # --------------------------------------------------
 async def post_todays_event_links(channel: discord.TextChannel):
-    """Posts new links for the current day's events with an @everyone ping, after cleaning old ones."""
+    """Posts new links for the current day's events with an @everyone ping."""
     if not channel: 
         print("❌ post_todays_event_links: No channel provided.")
         return
 
-    # Clean up old pings and links from today
-    today_start = datetime.now(CST).replace(hour=0, minute=0, second=0, microsecond=0)
-    async for message in channel.history(after=today_start, limit=50):
-        is_event_link = "https://discord.com/events/" in message.content
-        is_event_ping = "| @everyone |" in message.content
-        if message.author == bot.user and (is_event_link or is_event_ping):
-            try: await message.delete()
-            except discord.HTTPException: pass
-
-    # Fetch all scheduled events directly from Discord and check their dates.
     today = datetime.now(CST).date()
     print(f"ℹ️ Checking for events on: {today}")
     
@@ -478,7 +470,7 @@ async def post_todays_event_links(channel: discord.TextChannel):
 
     print(f"✅ Found {len(todays_discord_events)} events for today. Posting links...")
     # Post the header with @everyone ping
-    await channel.send("| @everyone |\nToday's Event:", allowed_mentions=discord.AllowedMentions.everyone())
+    await channel.send("| @everyone |\nToday's Event:", allowed_mentions=discord.AllowedMentions(everyone=True))
 
     # Post the URL for each event happening today
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
@@ -514,7 +506,8 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
         current_schedule_message_id = new_message.id
         print("✅ Posted new schedule message.")
     
-    await post_todays_event_links(channel)
+    # Don't post today's links automatically on every update, only on scheduled tasks
+    # This avoids spamming links every time the sheet is edited.
 
 
 def get_all_event_records():
