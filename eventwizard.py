@@ -452,35 +452,25 @@ async def post_todays_event_links(channel: discord.TextChannel):
             try:
                 await message.delete()
             except discord.HTTPException:
-                pass # Ignore errors if message is already gone
+                pass 
 
-    # Get today's events from the sheet
+    # Fetch all scheduled events directly from Discord and check their dates.
     today = datetime.now(CST).date()
-    todays_sheet_events = []
-    try:
-        all_events = get_all_event_records()
-        for event in all_events:
-            try:
-                start_date = datetime.strptime(event.get("Start Date", ""), "%m/%d/%Y").date()
-                if start_date == today:
-                    todays_sheet_events.append(event)
-            except (ValueError, KeyError):
-                continue
-    except Exception as e:
-        print(f"Could not get event records for link posting: {e}")
-        return
-
-    if not todays_sheet_events:
-        return
-
-    # Find matching guild events and post their links
     guild_events = channel.guild.scheduled_events
-    for sheet_event in todays_sheet_events:
-        event_name = sheet_event.get("Event Description")
-        for guild_event in guild_events:
-            if guild_event.name == event_name:
-                await channel.send(guild_event.url)
-                break
+
+    todays_discord_events = []
+    for event in guild_events:
+        # discord.utils.utcnow() is timezone-aware (UTC), convert event start_time to the same
+        if event.start_time.astimezone(CST).date() == today:
+            todays_discord_events.append(event)
+
+    if not todays_discord_events:
+        return
+
+    # Post the URL for each event happening today
+    for event in sorted(todays_discord_events, key=lambda e: e.start_time):
+        await channel.send(event.url)
+
 
 async def update_schedule_message(channel: discord.TextChannel, force_new=False):
     """Posts or edits the weekly schedule message and updates event links."""
@@ -542,46 +532,58 @@ class AddEventModal(Modal):
         self.cover_image = cover_image
         self.existing_data = existing_data
 
-        date_label = "Start Date (D/M/YYYY)" if is_international else "Start Date (M/D/YYYY)"
-        date_placeholder = "e.g., 29/9/2025" if is_international else "e.g., 9/29/2025"
-        end_date_label = "End Date (Optional, D/M/YYYY)" if is_international else "End Date (Optional, M/D/YYYY)"
-
+        date_format_str = "D/M/YYYY" if is_international else "M/D/YYYY"
+        date_placeholder = f"e.g., {'29/9/2025' if is_international else '9/29/2025'}"
+        
         default_type = existing_data.get("Type of Event", event_type_str) if existing_data else event_type_str
         default_desc = existing_data.get("Event Description", "") if existing_data else ""
         default_owner = existing_data.get("Event Owner", "") if existing_data else ""
-        default_start = existing_data.get("Start Date", "") if existing_data else ""
-        default_end = existing_data.get("End Date", "") if existing_data else ""
         default_comments = existing_data.get("Comments", "") if existing_data else ""
         
-        if default_start and is_international:
-            try: default_start = datetime.strptime(default_start, "%m/%d/%Y").strftime("%d/%m/%Y")
-            except ValueError: pass
-        if default_end and is_international:
-            try: default_end = datetime.strptime(default_end, "%m/%d/%Y").strftime("%d/%m/%Y")
-            except ValueError: pass
+        default_dates = ""
+        if existing_data:
+            start_str = existing_data.get("Start Date", "")
+            end_str = existing_data.get("End Date", "")
+            if start_str and is_international:
+                try: start_str = datetime.strptime(start_str, "%m/%d/%Y").strftime("%d/%m/%Y")
+                except ValueError: pass
+            if end_str and is_international:
+                try: end_str = datetime.strptime(end_str, "%m/%d/%Y").strftime("%d/%m/%Y")
+                except ValueError: pass
+            
+            if start_str and end_str and start_str != end_str:
+                default_dates = f"{start_str} - {end_str}"
+            else:
+                default_dates = start_str
 
         self.field1 = TextInput(label="Type of Event", default=default_type)
         self.field2 = TextInput(label="Event Description", placeholder="e.g., Learner ToB", default=default_desc)
         self.field3 = TextInput(label="Event Owner (Optional)", placeholder="Leave blank to default to you", default=default_owner, required=False)
-        self.field4 = TextInput(label=date_label, placeholder=date_placeholder, default=default_start)
-        self.field5 = TextInput(label=end_date_label, placeholder="Leave blank for single-day events", default=default_end, required=False)
-        self.field6 = TextInput(label="Comments (Optional)", style=discord.TextStyle.paragraph, default=default_comments, required=False)
+        self.field4 = TextInput(label=f"Date(s) ({date_format_str})", placeholder=f"{date_placeholder} or {date_placeholder} - {date_placeholder}", default=default_dates)
+        self.field5 = TextInput(label="Comments (Optional)", style=discord.TextStyle.paragraph, default=default_comments, required=False)
 
-        for item in [self.field1, self.field2, self.field3, self.field4, self.field5, self.field6]:
+        for item in [self.field1, self.field2, self.field3, self.field4, self.field5]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
-        event_type_value, description_value, owner_value, start_date_str, end_date_str, comments_val = \
-            self.field1.value, self.field2.value, self.field3.value, self.field4.value, self.field5.value, self.field6.value
+        event_type_value = self.field1.value
+        description_value = self.field2.value
+        owner_value = self.field3.value
+        dates_str = self.field4.value
+        comments_val = self.field5.value
 
-        expected_format_str = "%d/%m/%Y" if self.is_international else "%m/%d/%Y"
+        start_date_str, end_date_str = (dates_str.split(' - ', 1) + [None])[:2] if ' - ' in dates_str else (dates_str, dates_str)
+        start_date_str = start_date_str.strip()
+        end_date_str = end_date_str.strip() if end_date_str else start_date_str
+
+        expected_format = "%d/%m/%Y" if self.is_international else "%m/%d/%Y"
         try:
-            start_date_obj = datetime.strptime(start_date_str, expected_format_str)
-            end_date_obj = datetime.strptime(end_date_str, expected_format_str) if end_date_str else start_date_obj
+            start_date_obj = datetime.strptime(start_date_str, expected_format)
+            end_date_obj = datetime.strptime(end_date_str, expected_format)
         except ValueError:
-            await interaction.followup.send(f"❌ **Invalid Date.** Please use the **{expected_format_str.upper()}** format.", ephemeral=True)
+            await interaction.followup.send(f"❌ **Invalid Date.** Use **{expected_format.upper()}** format.", ephemeral=True)
             return
 
         start_date_for_sheet = start_date_obj.strftime("%m/%d/%Y")
@@ -659,7 +661,7 @@ async def editevent(interaction: discord.Interaction, event_id: int):
         is_international = bool(user_roles.intersection(INTERNATIONAL_TIMEZONES))
         
         await interaction.response.send_modal(AddEventModal("", is_international, existing_data=event_dict))
-    except (IndexError, ValueError, APIError):
+    except (IndexError, ValueError, gspread.exceptions.APIError, CellNotFound):
         await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
@@ -694,7 +696,7 @@ async def deleteevent(interaction: discord.Interaction, event_id: int):
         embed = discord.Embed(title="⚠️ Confirm Deletion", description="This cannot be undone.", color=discord.Color.red())
         embed.add_field(name="ID", value=f"`{event_id}`").add_field(name="Desc", value=desc).add_field(name="Host", value=owner).add_field(name="Date", value=start_date)
         await interaction.response.send_message(embed=embed, view=DeleteConfirmationView(event_id), ephemeral=True)
-    except (IndexError, ValueError, APIError):
+    except (IndexError, ValueError, gspread.exceptions.APIError):
          await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
@@ -831,4 +833,3 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
-
