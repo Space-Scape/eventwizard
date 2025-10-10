@@ -442,8 +442,19 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # --------------------------------------------------
 # 🔹 Event Management System
 # --------------------------------------------------
+async def delete_previous_events_post(channel: discord.TextChannel):
+    """Deletes the previous @Events post and its linked messages."""
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author == channel.guild.me and ("@Events" in msg.content or "Today's Event" in msg.content):
+                await msg.delete()
+                break
+    except Exception as e:
+        print(f"Error deleting old @Events post: {e}")
+
+
 async def post_todays_event_links(channel: discord.TextChannel):
-    """Posts new links for the current day's events with an @everyone ping."""
+    """Posts new links for the current day's events with an @Events ping."""
     if not channel: 
         print("❌ post_todays_event_links: No channel provided.")
         return
@@ -467,8 +478,13 @@ async def post_todays_event_links(channel: discord.TextChannel):
         return
 
     print(f"✅ Found {len(todays_discord_events)} events for today. Posting links...")
-    # Post the header with @everyone ping
-    await channel.send("| @everyone |\nToday's Event:", allowed_mentions=discord.AllowedMentions(everyone=True))
+    # Post the header with @Events ping
+    await delete_previous_events_post(channel)
+    events_role = discord.utils.get(channel.guild.roles, name="Events")
+    role_mention = events_role.mention if events_role else "@Events"
+    header = "Today's Event:" if len(todays_discord_events) == 1 else "Today's Events:"
+    await channel.send(f"{role_mention}
+{header}", allowed_mentions=discord.AllowedMentions(roles=True))
 
     # Post the URL for each event happening today
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
@@ -712,6 +728,7 @@ async def schedule(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
         await update_schedule_message(channel, force_new=True)
+        await post_todays_event_links(channel)
         await interaction.followup.send(f"✅ Schedule posted in {channel.mention}!", ephemeral=True)
     else:
         await interaction.followup.send("⚠️ Event schedule channel not found.", ephemeral=True)
