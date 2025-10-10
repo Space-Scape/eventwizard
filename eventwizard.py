@@ -483,8 +483,7 @@ async def post_todays_event_links(channel: discord.TextChannel):
     events_role = discord.utils.get(channel.guild.roles, name="Events")
     role_mention = events_role.mention if events_role else "@Events"
     header = "Today's Event:" if len(todays_discord_events) == 1 else "Today's Events:"
-    await channel.send(f"{role_mention}
-{header}", allowed_mentions=discord.AllowedMentions(roles=True))
+    await channel.send(f"{role_mention}\n{header}", allowed_mentions=discord.AllowedMentions(roles=True))
 
     # Post the URL for each event happening today
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
@@ -901,4 +900,6 @@ async def before_tasks():
     await bot.wait_until_ready()
 
 bot.run(os.getenv('BOT_TOKEN'))
+
+
 
