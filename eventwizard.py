@@ -873,10 +873,6 @@ async def on_ready():
         await update_schedule_message(channel)
 
 
-@check_sheet_for_updates.before_loop
-@daily_event_link_post.before_loop
-async def before_tasks():
-    await bot.wait_until_ready()
 
 
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
@@ -897,48 +893,20 @@ async def daily_event_link_post():
         print("✅ Today's event links posted.")
 
 
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-
-    if not check_sheet_for_updates.is_running():
-        check_sheet_for_updates.start()
-    if not daily_schedule_post.is_running():
-        daily_schedule_post.start()
-    if not daily_event_link_post.is_running():
-        daily_event_link_post.start()
-
-    try:
-        synced = await tree.sync()
-        print(f"✅ Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(f"❌ Command sync failed: {e}")
-
 
 @check_sheet_for_updates.before_loop
+async def before_check_sheet_for_updates():
+    await bot.wait_until_ready()
+
+@daily_schedule_post.before_loop
+async def before_daily_schedule_post():
+    await bot.wait_until_ready()
+
 @daily_event_link_post.before_loop
-async def before_tasks():
+async def before_daily_event_link_post():
     await bot.wait_until_ready()
 
 
-@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
-async def daily_schedule_post():
-    """Posts a new schedule embed every day at 12:00 AM CST."""
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if channel:
-        await update_schedule_message(channel, force_new=True)
-
-
-@tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
-async def daily_event_link_post():
-    """Posts links for the current day's events every day at 12:01 AM CST."""
-    print("🌅 Posting today's event links...")
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if channel:
-        await post_todays_event_links(channel)
-        print("✅ Today's event links posted.")
-
-
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
@@ -957,5 +925,5 @@ async def on_ready():
         print(f"❌ Command sync failed: {e}")
 
 
-# 🚀 Must always be last
 bot.run(os.getenv("BOT_TOKEN"))
+
