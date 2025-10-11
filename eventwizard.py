@@ -76,7 +76,7 @@ REQUIRED_ROLE_NAME = "Event Staff"
 REGISTERED_ROLE_NAME = "Registered"
 
 # Event Management
-EVENT_SCHEDULE_CHANNEL_ID = 1426183325093203979
+EVENT_SCHEDULE_CHANNEL_ID = 1272646577432825977
 STAFF_ROLE_ID = 1272635396991221824
 ADMINISTRATOR_ROLE_ID = 1272961765034164318
 
@@ -453,43 +453,74 @@ async def delete_previous_events_post(channel: discord.TextChannel):
         print(f"Error deleting old @Events post: {e}")
 
 
+
+def _fmt_no_leading_zero(hour_12: str) -> str:
+    return hour_12.lstrip("0") if len(hour_12) > 0 else hour_12
+
+async def find_manual_event_posts_for_times(channel: discord.TextChannel, times_cst: list[datetime]) -> list[discord.Message]:
+    patterns = set()
+    for dt in times_cst:
+        dt_cst = dt.astimezone(CST)
+        weekday_long = dt_cst.strftime("%A")
+        month_long = dt_cst.strftime("%B")
+        day_str = str(int(dt_cst.strftime("%d")))
+        year = dt_cst.strftime("%Y")
+        time_12 = _fmt_no_leading_zero(dt_cst.strftime("%I:%M %p"))
+        fmt1 = f"{weekday_long}, {month_long} {day_str}, {year} {time_12}"
+        fmt2 = f"{month_long} {day_str}, {year} {time_12}"
+        patterns.update([fmt1, fmt2])
+
+    matches = []
+    async for msg in channel.history(limit=400):
+        text = (msg.content or "").strip()
+        if any(p in text for p in patterns):
+            matches.append(msg)
+    matches.sort(key=lambda m: m.created_at, reverse=False)
+    return matches
+
 async def post_todays_event_links(channel: discord.TextChannel):
-    """Posts new links for the current day's events with an @Events ping."""
-    if not channel: 
+    """Posts today's links with @Events mention and includes manual events from text posts."""
+    if not channel:
         print("❌ post_todays_event_links: No channel provided.")
         return
 
     today = datetime.now(CST).date()
-    print(f"ℹ️ Checking for events on: {today}")
-    
     guild_events = channel.guild.scheduled_events
-    print(f"ℹ️ Found {len(guild_events)} scheduled events in the server.")
 
     todays_discord_events = []
     for event in guild_events:
-        event_date_cst = event.start_time.astimezone(CST).date()
-        print(f"    - Checking event '{event.name}' starting on {event_date_cst}...")
-        if event_date_cst == today:
-            print(f"    ✔️ Match found!")
+        if event.start_time.astimezone(CST).date() == today:
             todays_discord_events.append(event)
 
-    if not todays_discord_events:
-        print("ℹ️ No events scheduled for today. No links will be posted.")
-        return
-
-    print(f"✅ Found {len(todays_discord_events)} events for today. Posting links...")
-    # Post the header with @Events ping
-    await delete_previous_events_post(channel)
     events_role = discord.utils.get(channel.guild.roles, name="Events")
     role_mention = events_role.mention if events_role else "@Events"
-    header = "Today's Event:" if len(todays_discord_events) == 1 else "Today's Events:"
-    await channel.send(f"{role_mention}\n{header}", allowed_mentions=discord.AllowedMentions(roles=True))
 
-    # Post the URL for each event happening today
+    times_to_match = [e.start_time.astimezone(CST) for e in todays_discord_events]
+    if not times_to_match:
+        for h in (0, 12, 15, 18, 20):
+            times_to_match.append(datetime.combine(today, time(hour=h, minute=0, tzinfo=CST)))
+
+    manual_posts = await find_manual_event_posts_for_times(channel, times_to_match)
+
+    if not todays_discord_events and not manual_posts:
+        await delete_previous_events_post(channel)
+        print("ℹ️ No Discord calendar events or manual posts found for today.")
+        return
+
+    await delete_previous_events_post(channel)
+    header = "Today's Event:" if (len(todays_discord_events) + len(manual_posts)) == 1 else "Today's Events:"
+    await channel.send(f"{role_mention}
+{header}", allowed_mentions=discord.AllowedMentions(roles=True))
+
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
         await channel.send(event.url)
-    print("✅ Finished posting event links.")
 
+    for msg in manual_posts:
+        try:
+            await channel.send(msg.jump_url)
+        except Exception:
+            snippet = (msg.content or "").splitlines()[0][:100]
+            await channel.send(f"(manual) {snippet}…")
 
 async def update_schedule_message(channel: discord.TextChannel, force_new=False):
     """Posts or edits the weekly schedule message and updates event links."""
@@ -805,52 +836,7 @@ async def generate_schedule_embed():
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
     return embed
 
-@tasks.loop(seconds=20)
-async def check_sheet_for_updates():
-    """Polls the Google Sheet for changes and updates the schedule message."""
-    global last_known_sheet_data
-    try:
-        new_data = events_sheet.get_all_values()
-        if last_known_sheet_data is not None and new_data != last_known_sheet_data:
-            print("Sheet change detected, updating schedule...")
-            channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-            if channel:
-                await update_schedule_message(channel)
-        last_known_sheet_data = new_data
-    except Exception as e:
-        print(f"Error during sheet poll: {e}")
-
-@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
-async def daily_channel_cleanup():
-    """Wipes the event channel daily, keeping only the main schedule message."""
-    global current_schedule_message_id
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if not channel:
-        print("❌ Cleanup task failed: Event schedule channel not found.")
-        return
-
-    if not current_schedule_message_id:
-        # Try to find the schedule message if the ID is lost
-        async for message in channel.history(limit=50):
-            if message.author == bot.user and message.embeds:
-                if message.embeds[0].title and "Weekly Clan Schedule" in message.embeds[0].title:
-                    current_schedule_message_id = message.id
-                    break
-    
-    if not current_schedule_message_id:
-        print("⚠️ Cleanup task skipped: No schedule message ID found or stored.")
-        return
-
-    print("🧹 Starting daily cleanup of event channel...")
-    try:
-        def is_not_schedule(m):
-            return m.id != current_schedule_message_id
-        deleted = await channel.purge(limit=100, check=is_not_schedule)
-        print(f"✅ Daily cleanup complete. Deleted {len(deleted)} messages.")
-    except discord.HTTPException as e:
-        print(f"Error during channel purge: {e}")
-        
-@tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
+tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
 async def daily_event_link_post():
     """Posts links for the current day's events every day at 12:01 AM CST."""
     print("🌅 Posting today's event links...")
@@ -860,19 +846,7 @@ async def daily_event_link_post():
         print("✅ Today's event links posted.")
 
 
-@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
-async def weekly_schedule_reset():
-    """Deletes the old schedule and posts a new one every Sunday at midnight."""
-    if datetime.now(CST).weekday() == 6:
-        print("Performing weekly schedule reset...")
-        channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-        if channel:
-            await update_schedule_message(channel, force_new=True)
-
-# ---------------------------
-# 🔹 On Ready
-# ---------------------------
-@bot.event
+bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     
@@ -885,6 +859,8 @@ async def on_ready():
         daily_channel_cleanup.start()
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
+    if not daily_schedule_post.is_running():
+        daily_schedule_post.start()
 
     try:
         synced = await tree.sync()
@@ -903,9 +879,13 @@ async def on_ready():
 async def before_tasks():
     await bot.wait_until_ready()
 
+
+@tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
+async def daily_schedule_post():
+    """Posts a new schedule embed every day at 12:00 AM CST."""
+    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+    if channel:
+        await update_schedule_message(channel, force_new=True)
+
+
 bot.run(os.getenv('BOT_TOKEN'))
-
-
-
-
-
