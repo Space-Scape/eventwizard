@@ -4,6 +4,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread.exceptions import CellNotFound
 import asyncio
 import re
 from discord.ui import Modal, TextInput, View, Button
@@ -20,6 +21,7 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Load credentials from environment variables
 credentials_dict = {
     "type": os.getenv('EVENT_TYPE'),
     "project_id": os.getenv('EVENT_PROJECT_ID'),
@@ -42,7 +44,6 @@ sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
 sheet = sheet_client.open_by_key(sheet_id).sheet1
 
 # RSN Tracker Sheet
-RSN_SHEET_TAB_NAME = "Tracker"
 rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
 # Events Sheet
@@ -289,9 +290,9 @@ class DropReviewButtons(discord.ui.View):
         self.image_url = image_url
         self.submitting_user = submitting_user
         self.team_mention = team_mention
-        self.reviewer: Optional[int] = None 
+        self.reviewer: Optional[int] = None
 
-    def has_drop_manager_role(self, member: discord.Member) -> bool:
+    def has_required_role(self, member: discord.Member) -> bool:
         return any(role.name == REQUIRED_ROLE_NAME for role in member.roles)
 
     def is_moderator(self, member: discord.Member) -> bool:
@@ -301,74 +302,28 @@ class DropReviewButtons(discord.ui.View):
     async def review(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
 
-        if not self.has_drop_manager_role(user) and not self.is_moderator(user):
+        if not self.has_required_role(user) and not self.is_moderator(user):
             await interaction.response.send_message("❌ You do not have permission to review.", ephemeral=True)
             return
 
-        # --- Moderator ---
-        if self.is_moderator(user):
-            if self.reviewer is None:
-                self.reviewer = user.id
-                for child in self.children:
-                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
-                        child.disabled = False
-                await interaction.message.edit(
-                    content=f"👤 Being reviewed by Moderator: {user.display_name}",
-                    view=self
-                )
-                await interaction.response.defer()
-
-            elif self.reviewer != user.id:
-                self.reviewer = None
-                for child in self.children:
-                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
-                        child.disabled = True
-                await interaction.message.edit(
-                    content=f"👤 Moderator {user.display_name} canceled the review. No one is currently reviewing this.",
-                    view=self
-                )
-                await interaction.response.defer()
-
-            else:
-                self.reviewer = None
-                for child in self.children:
-                    if child.label.startswith("Approve") or child.label.startswith("Reject"):
-                        child.disabled = True
-                await interaction.message.edit(
-                    content=f"👤 No one is currently reviewing this.",
-                    view=self
-                )
-                await interaction.response.defer()
-            return
-
-        # --- drop manager ---
+        # Toggle review status
         if self.reviewer is None:
             self.reviewer = user.id
             for child in self.children:
-                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                if isinstance(child, Button) and (child.label.startswith("Approve") or child.label.startswith("Reject")):
                     child.disabled = False
-            await interaction.message.edit(
-                content=f"👤 Being reviewed by: {user.display_name}",
-                view=self
-            )
+            await interaction.message.edit(content=f"👤 Being reviewed by: {user.display_name}", view=self)
             await interaction.response.defer()
-
         elif self.reviewer == user.id:
             self.reviewer = None
             for child in self.children:
-                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                if isinstance(child, Button) and (child.label.startswith("Approve") or child.label.startswith("Reject")):
                     child.disabled = True
-            await interaction.message.edit(
-                content=f"👤 No one is currently reviewing this.",
-                view=self
-            )
+            await interaction.message.edit(content="*No one is currently reviewing this.*", view=self)
             await interaction.response.defer()
-
         else:
-            await interaction.response.send_message(
-                f"❌ This is currently being reviewed by <@{self.reviewer}>.",
-                ephemeral=True
-            )
+            await interaction.response.send_message(f"❌ This is currently being reviewed by <@{self.reviewer}>.", ephemeral=True)
+
 
     @discord.ui.button(label="Approve ✅", style=discord.ButtonStyle.green, disabled=True)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -410,7 +365,7 @@ class DropReviewButtons(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
-    def __init__(self, parent_view: discord.ui.View, interaction: discord.Interaction):
+    def __init__(self, parent_view: DropReviewButtons, interaction: discord.Interaction):
         super().__init__()
         self.parent_view = parent_view
         self.message = interaction.message
@@ -448,14 +403,11 @@ async def delete_previous_events_post(channel: discord.TextChannel):
         async for msg in channel.history(limit=100):
             if msg.author == channel.guild.me and ("@Events" in msg.content or "Today's Event" in msg.content):
                 await msg.delete()
-                break
     except Exception as e:
         print(f"Error deleting old @Events post: {e}")
 
-
-
 def _fmt_no_leading_zero(hour_12: str) -> str:
-    return hour_12.lstrip("0") if len(hour_12) > 0 else hour_12
+    return hour_12.lstrip("0") if hour_12.startswith("0") else hour_12
 
 async def find_manual_event_posts_for_times(channel: discord.TextChannel, times_cst: list[datetime]) -> list[discord.Message]:
     patterns = set()
@@ -463,7 +415,7 @@ async def find_manual_event_posts_for_times(channel: discord.TextChannel, times_
         dt_cst = dt.astimezone(CST)
         weekday_long = dt_cst.strftime("%A")
         month_long = dt_cst.strftime("%B")
-        day_str = str(int(dt_cst.strftime("%d")))
+        day_str = str(dt_cst.day) # Correctly get day as integer
         year = dt_cst.strftime("%Y")
         time_12 = _fmt_no_leading_zero(dt_cst.strftime("%I:%M %p"))
         fmt1 = f"{weekday_long}, {month_long} {day_str}, {year} {time_12}"
@@ -487,15 +439,12 @@ async def post_todays_event_links(channel: discord.TextChannel):
     today = datetime.now(CST).date()
     guild_events = channel.guild.scheduled_events
 
-    todays_discord_events = []
-    for event in guild_events:
-        if event.start_time.astimezone(CST).date() == today:
-            todays_discord_events.append(event)
+    todays_discord_events = [event for event in guild_events if event.start_time.astimezone(CST).date() == today]
 
     events_role = discord.utils.get(channel.guild.roles, name="Events")
     role_mention = events_role.mention if events_role else "@Events"
 
-    times_to_match = [e.start_time.astimezone(CST) for e in todays_discord_events]
+    times_to_match = [e.start_time for e in todays_discord_events]
     if not times_to_match:
         for h in (0, 12, 15, 18, 20):
             times_to_match.append(datetime.combine(today, time(hour=h, minute=0, tzinfo=CST)))
@@ -509,8 +458,11 @@ async def post_todays_event_links(channel: discord.TextChannel):
 
     await delete_previous_events_post(channel)
     header = "Today's Event:" if (len(todays_discord_events) + len(manual_posts)) == 1 else "Today's Events:"
-    await channel.send(f"{role_mention}
-{header}", allowed_mentions=discord.AllowedMentions(roles=True))
+    
+    await channel.send(
+        f"""{role_mention}\n{header}""",
+        allowed_mentions=discord.AllowedMentions(roles=True)
+    )
 
     for event in sorted(todays_discord_events, key=lambda e: e.start_time):
         await channel.send(event.url)
@@ -523,7 +475,7 @@ async def post_todays_event_links(channel: discord.TextChannel):
             await channel.send(f"(manual) {snippet}…")
 
 async def update_schedule_message(channel: discord.TextChannel, force_new=False):
-    """Posts or edits the weekly schedule message and updates event links."""
+    """Posts or edits the weekly schedule message."""
     global current_schedule_message_id
     if not channel: return
 
@@ -549,17 +501,12 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
         new_message = await channel.send(embed=embed)
         current_schedule_message_id = new_message.id
         print("✅ Posted new schedule message.")
-    
-    # Don't post today's links automatically on every update, only on scheduled tasks
-    # This avoids spamming links every time the sheet is edited.
-
 
 def get_all_event_records():
-    """Custom function to get all event records, accounting for header row and adding row number."""
+    """Fetches all event records, adding a row number for identification."""
     try:
         all_values = events_sheet.get_all_values()
-        if len(all_values) < 5:
-            return []
+        if len(all_values) < 5: return []
         
         headers = all_values[3]
         data_rows = all_values[4:]
@@ -567,7 +514,7 @@ def get_all_event_records():
         records = []
         for i, row in enumerate(data_rows):
             record = {headers[j]: (row[j] if j < len(row) else "") for j in range(len(headers))}
-            record['row_number'] = i + 5
+            record['row_number'] = i + 5 # Sheet row numbers are 1-based, data starts on row 5
             
             if any(val for key, val in record.items() if key != 'row_number'):
                 records.append(record)
@@ -578,7 +525,7 @@ def get_all_event_records():
 
 class AddEventModal(Modal):
     def __init__(self, event_type_str: str, is_international: bool = False, cover_image: Optional[bytes] = None, existing_data: Optional[dict] = None):
-        super().__init__(title=f"Create/Edit Event")
+        super().__init__(title="Create/Edit Event")
         self.is_international = is_international
         self.cover_image = cover_image
         self.existing_data = existing_data
@@ -595,13 +542,13 @@ class AddEventModal(Modal):
         if existing_data:
             start_str = existing_data.get("Start Date", "")
             end_str = existing_data.get("End Date", "")
-            if start_str and is_international:
-                try: start_str = datetime.strptime(start_str, "%m/%d/%Y").strftime("%d/%m/%Y")
+            if start_str and not is_international:
+                try: start_str = datetime.strptime(start_str, "%d/%m/%Y").strftime("%m/%d/%Y")
                 except ValueError: pass
-            if end_str and is_international:
-                try: end_str = datetime.strptime(end_str, "%m/%d/%Y").strftime("%d/%m/%Y")
+            if end_str and not is_international:
+                try: end_str = datetime.strptime(end_str, "%d/%m/%Y").strftime("%m/%d/%Y")
                 except ValueError: pass
-            
+
             if start_str and end_str and start_str != end_str:
                 default_dates = f"{start_str} - {end_str}"
             else:
@@ -613,18 +560,12 @@ class AddEventModal(Modal):
         self.field4 = TextInput(label=f"Date(s) ({date_format_str})", placeholder=f"{date_placeholder} or {date_placeholder} - {date_placeholder}", default=default_dates)
         self.field5 = TextInput(label="Comments (Optional)", style=discord.TextStyle.paragraph, default=default_comments, required=False)
 
-        for item in [self.field1, self.field2, self.field3, self.field4, self.field5]:
-            self.add_item(item)
+        for item in [self.field1, self.field2, self.field3, self.field4, self.field5]: self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
-        event_type_value = self.field1.value
-        description_value = self.field2.value
-        owner_value = self.field3.value
         dates_str = self.field4.value
-        comments_val = self.field5.value
-
         start_date_str, end_date_str = (dates_str.split(' - ', 1) + [None])[:2] if ' - ' in dates_str else (dates_str, dates_str)
         start_date_str = start_date_str.strip()
         end_date_str = end_date_str.strip() if end_date_str else start_date_str
@@ -640,7 +581,7 @@ class AddEventModal(Modal):
         start_date_for_sheet = start_date_obj.strftime("%m/%d/%Y")
         end_date_for_sheet = end_date_obj.strftime("%m/%d/%Y")
 
-        event_owner = owner_value.strip()
+        event_owner = self.field3.value.strip()
         if not event_owner:
             try:
                 cell = rsn_sheet.find(str(interaction.user.id))
@@ -649,42 +590,39 @@ class AddEventModal(Modal):
                 event_owner = re.sub(r'^\W+', '', interaction.user.display_name)
 
         event_data = [
-            event_type_value, description_value, event_owner, "", "",
-            start_date_for_sheet, end_date_for_sheet, "", "", "", comments_val or ""
+            self.field1.value, self.field2.value, event_owner, "", "",
+            start_date_for_sheet, end_date_for_sheet, "", "", "", self.field5.value or ""
         ]
 
         try:
             action_verb = "created"
             if self.existing_data:
                 row_num = self.existing_data['row_number']
-                cell_range = f"B{row_num}:L{row_num}"
-                events_sheet.update(cell_range, [event_data], value_input_option='USER_ENTERED')
+                events_sheet.update(f"B{row_num}:L{row_num}", [event_data], value_input_option='USER_ENTERED')
                 action_verb = "edited"
             else:
                 next_row = len(events_sheet.col_values(2)) + 1
-                cell_range = f"B{next_row}:L{next_row}"
-                events_sheet.update(cell_range, [event_data], value_input_option='USER_ENTERED')
+                events_sheet.update(f"B{next_row}:L{next_row}", [event_data], value_input_option='USER_ENTERED')
                 
-                guild = interaction.guild
-                event_start_time = datetime.combine(start_date_obj, time(12, 0), tzinfo=CST)
-                event_end_time = datetime.combine(end_date_obj, time(13, 0), tzinfo=CST)
-                await guild.create_scheduled_event(
-                    name=description_value, description=comments_val or "Details in events channel.",
+                # Create a corresponding Discord Scheduled Event
+                event_start_time = CST.localize(datetime.combine(start_date_obj, time(12, 0)))
+                event_end_time = event_start_time + timedelta(hours=1)
+                await interaction.guild.create_scheduled_event(
+                    name=self.field2.value, description=self.field5.value or "Details in events channel.",
                     start_time=event_start_time, end_time=event_end_time,
                     entity_type=discord.EntityType.external, location="In Rancour PVM", image=self.cover_image
                 )
 
             confirm_embed = discord.Embed(title=f"✅ Event {action_verb.capitalize()}!", color=discord.Color.green())
-            confirm_embed.add_field(name="Description", value=description_value, inline=False)
+            confirm_embed.add_field(name="Description", value=self.field2.value, inline=False)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
-
         except Exception as e:
             print(f"Error processing event: {e}")
-            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
+            await interaction.followup.send(f"❌ An error occurred while saving the event: {e}", ephemeral=True)
 
-@tree.command(name="addevent", description="Add a new event.")
+@tree.command(name="addevent", description="Add a new event to the schedule.")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
-@app_commands.describe(event_type="The type of event.", image="Optional cover image.")
+@app_commands.describe(event_type="The type of event.", image="Optional cover image for the event.")
 @app_commands.choices(event_type=[
     app_commands.Choice(name=t, value=t) for t in ["BOTW", "SOTW", "Pet Roulette", "Sanguine Sunday", "Mass Event", "Bounty", "Large Event", "Castle Wars", "Wildy Altar", "Discord games", "Hide and seek", "Other Event"]
 ])
@@ -694,7 +632,7 @@ async def addevent(interaction: discord.Interaction, event_type: str, image: Opt
     image_bytes = await image.read() if image else None
     await interaction.response.send_modal(AddEventModal(event_type, is_international, image_bytes))
 
-@tree.command(name="editevent", description="Edit an event by its ID.")
+@tree.command(name="editevent", description="Edit an existing event by its ID (row number).")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
 @app_commands.describe(event_id="The ID (row number) of the event to edit.")
 async def editevent(interaction: discord.Interaction, event_id: int):
@@ -712,8 +650,8 @@ async def editevent(interaction: discord.Interaction, event_id: int):
         is_international = bool(user_roles.intersection(INTERNATIONAL_TIMEZONES))
         
         await interaction.response.send_modal(AddEventModal("", is_international, existing_data=event_dict))
-    except (IndexError, ValueError, gspread.exceptions.APIError, CellNotFound):
-        await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
+    except (IndexError, ValueError, gspread.exceptions.APIError):
+        await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`. Please check the sheet.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
 
@@ -726,54 +664,55 @@ class DeleteConfirmationView(View):
     async def confirm(self, interaction: discord.Interaction, button: Button):
         try:
             events_sheet.delete_rows(self.event_id)
-            await interaction.response.edit_message(content=f"✅ Event ID `{self.event_id}` deleted.", view=None)
+            await interaction.response.edit_message(content=f"✅ Event ID `{self.event_id}` has been deleted.", view=None)
         except Exception as e:
-            await interaction.response.edit_message(content=f"❌ Error deleting: {e}", view=None)
+            await interaction.response.edit_message(content=f"❌ An error occurred during deletion: {e}", view=None)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: Button):
         await interaction.response.edit_message(content="Deletion canceled.", view=None)
 
-@tree.command(name="deleteevent", description="Delete an event by its ID.")
+@tree.command(name="deleteevent", description="Delete an event by its ID (row number).")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
-@app_commands.describe(event_id="The ID (row number) to delete.")
+@app_commands.describe(event_id="The ID (row number) of the event to delete.")
 async def deleteevent(interaction: discord.Interaction, event_id: int):
     try:
         if event_id < 5: raise ValueError("Invalid ID")
         row_data = events_sheet.row_values(event_id)
-        if not any(row_data): raise ValueError("No event")
+        if not any(row_data): raise ValueError("No event found")
         
         desc, owner, start_date = row_data[1], row_data[2], row_data[5]
-        embed = discord.Embed(title="⚠️ Confirm Deletion", description="This cannot be undone.", color=discord.Color.red())
-        embed.add_field(name="ID", value=f"`{event_id}`").add_field(name="Desc", value=desc).add_field(name="Host", value=owner).add_field(name="Date", value=start_date)
+        embed = discord.Embed(title="⚠️ Confirm Deletion", description="Are you sure you want to delete this event? This action cannot be undone.", color=discord.Color.red())
+        embed.add_field(name="ID", value=f"`{event_id}`").add_field(name="Description", value=desc).add_field(name="Host", value=owner).add_field(name="Date", value=start_date)
         await interaction.response.send_message(embed=embed, view=DeleteConfirmationView(event_id), ephemeral=True)
     except (IndexError, ValueError, gspread.exceptions.APIError):
-         await interaction.response.send_message(f"❌ Could not find event with ID `{event_id}`.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Could not find an event with ID `{event_id}`.", ephemeral=True)
     except Exception as e:
-        await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
+        await interaction.response.send_message(f"An unexpected error occurred: {e}", ephemeral=True)
 
-@tree.command(name="schedule", description="Posts the weekly event schedule.")
+@tree.command(name="schedule", description="Manually posts/updates the weekly event schedule.")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
 async def schedule(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    if (channel := bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)):
+    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+    if channel:
         await update_schedule_message(channel, force_new=True)
         await post_todays_event_links(channel)
-        await interaction.followup.send(f"✅ Schedule posted in {channel.mention}!", ephemeral=True)
+        await interaction.followup.send(f"✅ Schedule has been posted in {channel.mention}!", ephemeral=True)
     else:
         await interaction.followup.send("⚠️ Event schedule channel not found.", ephemeral=True)
 
 async def generate_schedule_embed():
-    """Fetches event data and generates the schedule embed."""
+    """Fetches event data and generates the weekly schedule embed."""
     try:
         all_events = get_all_event_records()
     except Exception as e:
         print(f"Could not fetch event records: {e}")
-        return discord.Embed(title="Error", description="Could not fetch event data from spreadsheet.", color=discord.Color.red())
+        return discord.Embed(title="Error", description="Could not fetch event data from the spreadsheet.", color=discord.Color.red())
 
     now, today = datetime.now(CST), datetime.now(CST).date()
-    start_of_week = today - timedelta(days=(today.weekday() + 1) % 7)
-    end_of_week = start_of_week + timedelta(days=6)
+    start_of_week = today - timedelta(days=today.weekday()) # Monday
+    end_of_week = start_of_week + timedelta(days=6) # Sunday
 
     daily_events = {start_of_week + timedelta(days=i): [] for i in range(7)}
     week_long_events = []
@@ -781,107 +720,62 @@ async def generate_schedule_embed():
     for event in all_events:
         try:
             start_date = datetime.strptime(event["Start Date"], "%m/%d/%Y").date()
-            end_date = datetime.strptime(event["End Date"], "%m/%d/%Y").date() if event["End Date"] else start_date
-            if (end_date - start_date).days >= 6:
-                if start_date <= end_of_week and end_date >= start_of_week:
-                    week_long_events.append(event)
+            end_date = datetime.strptime(event["End Date"], "%m/%d/%Y").date() if event.get("End Date") else start_date
+            
+            # Check if event is week-long and overlaps with the current week
+            if (end_date - start_date).days >= 6 and start_date <= end_of_week and end_date >= start_of_week:
+                week_long_events.append(event)
             else:
                 d = start_date
                 while d <= end_date:
-                    if start_of_week <= d <= end_of_week: daily_events[d].append(event)
+                    if start_of_week <= d <= end_of_week:
+                        daily_events[d].append(event)
                     d += timedelta(days=1)
-        except (ValueError, KeyError): continue
+        except (ValueError, KeyError):
+            continue
     
     embed = discord.Embed(title=f"📅 Weekly Clan Schedule ({start_of_week:%b %d} - {end_of_week:%b %d})", color=discord.Color.gold())
 
     if week_long_events:
-        grouped_events = {}
-        for event in week_long_events:
-            key = (event['Event Description'], event['Type of Event'])
-            if key not in grouped_events:
-                grouped_events[key] = {'hosts': set(), 'ids': []}
-            grouped_events[key]['hosts'].add(event['Event Owner'])
-            grouped_events[key]['ids'].append(int(event['row_number']))
-        
-        lines = []
-        for (desc, _), data in sorted(grouped_events.items()):
-            hosts = " & ".join(sorted(list(data['hosts'])))
-            latest_id = max(data['ids'])
-            lines.append(f"• ||{latest_id}|| **{desc}**・Hosted by {hosts}")
-        embed.add_field(name="# Week-Long Events", value="\n".join(lines), inline=False)
-
+        value = "\n".join([f"• ||{e['row_number']}|| **{e['Event Description']}**・Hosted by {e['Event Owner']}" for e in week_long_events])
+        embed.add_field(name="# Week-Long Events", value=value, inline=False)
 
     for i in range(7):
         current_date = start_of_week + timedelta(days=i)
         day_name = current_date.strftime("%A")
         
         day_lines = []
-        if day_events_for_day := sorted(daily_events[current_date], key=lambda x: x['Event Description']):
-            grouped_events = {}
+        if day_events_for_day := sorted(daily_events.get(current_date, []), key=lambda x: x['Event Description']):
             for event in day_events_for_day:
-                key = (event['Event Description'], event['Type of Event'])
-                if key not in grouped_events:
-                    grouped_events[key] = {'hosts': set(), 'ids': []}
-                grouped_events[key]['hosts'].add(event['Event Owner'])
-                grouped_events[key]['ids'].append(str(event['row_number']))
-
-            for (desc, e_type), data in grouped_events.items():
-                hosts = " & ".join(sorted(list(data['hosts'])))
-                ids = "/".join(sorted(data['ids']))
-                line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {hosts}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {hosts}"
+                e_type = event.get('Type of Event', '')
+                desc = event.get('Event Description', 'No Description')
+                host = event.get('Event Owner', 'N/A')
+                ids = event.get('row_number', 'N/A')
+                line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {host}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {host}"
                 day_lines.append(line)
 
-        embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No Event Planned.", inline=False)
+        embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No events planned.", inline=False)
 
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
     return embed
 
-tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
-async def daily_event_link_post():
-    """Posts links for the current day's events every day at 12:01 AM CST."""
-    print("🌅 Posting today's event links...")
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if channel:
-        await post_todays_event_links(channel)
-        print("✅ Today's event links posted.")
+# --------------------------------------------------
+# 🔹 Scheduled Tasks
+# --------------------------------------------------
 
-
-bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    
-    # Start the tasks
-    if not check_sheet_for_updates.is_running():
-        check_sheet_for_updates.start()
-    if not weekly_schedule_reset.is_running():
-        weekly_schedule_reset.start()
-    if not daily_channel_cleanup.is_running():
-        daily_channel_cleanup.start()
-    if not daily_event_link_post.is_running():
-        daily_event_link_post.start()
-    if not daily_schedule_post.is_running():
-        daily_schedule_post.start()
-
-    try:
-        synced = await tree.sync()
-        print(f"✅ Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(f"❌ Command sync failed: {e}")
-
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if channel:
-        await update_schedule_message(channel)
-
-
-
+# This task was referenced but not defined. You need to implement its logic.
+# @tasks.loop(seconds=60)
+# async def check_sheet_for_updates():
+#     """Periodically checks the sheet for changes and updates the schedule if needed."""
+#     # Add your logic here to compare current vs. last known sheet data
+#     pass
 
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
 async def daily_schedule_post():
-    """Posts a new schedule embed every day at 12:00 AM CST."""
+    """Posts a fresh schedule embed every day at 12:00 AM CST."""
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
     if channel:
         await update_schedule_message(channel, force_new=True)
-
 
 @tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
 async def daily_event_link_post():
@@ -893,11 +787,6 @@ async def daily_event_link_post():
         print("✅ Today's event links posted.")
 
 
-
-@check_sheet_for_updates.before_loop
-async def before_check_sheet_for_updates():
-    await bot.wait_until_ready()
-
 @daily_schedule_post.before_loop
 async def before_daily_schedule_post():
     await bot.wait_until_ready()
@@ -906,13 +795,16 @@ async def before_daily_schedule_post():
 async def before_daily_event_link_post():
     await bot.wait_until_ready()
 
-
+# --------------------------------------------------
+# 🔹 Bot Startup
+# --------------------------------------------------
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-
-    if not check_sheet_for_updates.is_running():
-        check_sheet_for_updates.start()
+    
+    # Start the defined tasks
+    # if not check_sheet_for_updates.is_running():
+    #     check_sheet_for_updates.start()
     if not daily_schedule_post.is_running():
         daily_schedule_post.start()
     if not daily_event_link_post.is_running():
@@ -924,6 +816,11 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
+    # Initial post/update on startup
+    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+    if channel:
+        await update_schedule_message(channel)
 
-# 🚀 Always last
+# 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
