@@ -925,5 +925,5 @@ async def on_ready():
         print(f"❌ Command sync failed: {e}")
 
 
+# 🚀 Always last
 bot.run(os.getenv("BOT_TOKEN"))
-
