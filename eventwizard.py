@@ -4,7 +4,6 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import gspread
 from google.oauth2.service_account import Credentials
-from gspread.exceptions import CellNotFound
 import asyncio
 import re
 from discord.ui import Modal, TextInput, View, Button
@@ -823,4 +822,5 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
 
