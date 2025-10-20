@@ -11,6 +11,8 @@ from discord import ButtonStyle
 from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
+from gspread.exceptions import CellNotFound
+import collections
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -523,10 +525,9 @@ def get_all_event_records():
         return []
 
 class AddEventModal(Modal):
-    def __init__(self, event_type_str: str, is_international: bool = False, cover_image: Optional[bytes] = None, existing_data: Optional[dict] = None):
+    def __init__(self, event_type_str: str, is_international: bool = False, existing_data: Optional[dict] = None):
         super().__init__(title="Create/Edit Event")
         self.is_international = is_international
-        self.cover_image = cover_image
         self.existing_data = existing_data
 
         date_format_str = "D/M/YYYY" if is_international else "M/D/YYYY"
@@ -597,20 +598,11 @@ class AddEventModal(Modal):
             action_verb = "created"
             if self.existing_data:
                 row_num = self.existing_data['row_number']
-                events_sheet.update(f"B{row_num}:L{row_num}", [event_data], value_input_option='USER_ENTERED')
+                events_sheet.update(range_name=f"B{row_num}:L{row_num}", values=[event_data], value_input_option='USER_ENTERED')
                 action_verb = "edited"
             else:
                 next_row = len(events_sheet.col_values(2)) + 1
-                events_sheet.update(f"B{next_row}:L{next_row}", [event_data], value_input_option='USER_ENTERED')
-                
-                # Create a corresponding Discord Scheduled Event
-                event_start_time = CST.localize(datetime.combine(start_date_obj, time(12, 0)))
-                event_end_time = event_start_time + timedelta(hours=1)
-                await interaction.guild.create_scheduled_event(
-                    name=self.field2.value, description=self.field5.value or "Details in events channel.",
-                    start_time=event_start_time, end_time=event_end_time,
-                    entity_type=discord.EntityType.external, location="In Rancour PVM", image=self.cover_image
-                )
+                events_sheet.update(range_name=f"B{next_row}:L{next_row}", values=[event_data], value_input_option='USER_ENTERED')
 
             confirm_embed = discord.Embed(title=f"✅ Event {action_verb.capitalize()}!", color=discord.Color.green())
             confirm_embed.add_field(name="Description", value=self.field2.value, inline=False)
@@ -621,15 +613,14 @@ class AddEventModal(Modal):
 
 @tree.command(name="addevent", description="Add a new event to the schedule.")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
-@app_commands.describe(event_type="The type of event.", image="Optional cover image for the event.")
+@app_commands.describe(event_type="The type of event.")
 @app_commands.choices(event_type=[
     app_commands.Choice(name=t, value=t) for t in ["BOTW", "SOTW", "Pet Roulette", "Sanguine Sunday", "Mass Event", "Bounty", "Large Event", "Castle Wars", "Wildy Altar", "Discord games", "Hide and seek", "Other Event"]
 ])
-async def addevent(interaction: discord.Interaction, event_type: str, image: Optional[discord.Attachment] = None):
+async def addevent(interaction: discord.Interaction, event_type: str):
     user_roles = {r.name for r in interaction.user.roles}
     is_international = bool(user_roles.intersection(INTERNATIONAL_TIMEZONES))
-    image_bytes = await image.read() if image else None
-    await interaction.response.send_modal(AddEventModal(event_type, is_international, image_bytes))
+    await interaction.response.send_modal(AddEventModal(event_type, is_international))
 
 @tree.command(name="editevent", description="Edit an existing event by its ID (row number).")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
@@ -744,13 +735,25 @@ async def generate_schedule_embed():
         day_name = current_date.strftime("%A")
         
         day_lines = []
-        if day_events_for_day := sorted(daily_events.get(current_date, []), key=lambda x: x['Event Description']):
+        day_events_for_day = sorted(daily_events.get(current_date, []), key=lambda x: x['Event Description'])
+        
+        if day_events_for_day:
+            grouped_events = collections.defaultdict(lambda: {'hosts': [], 'ids': []})
             for event in day_events_for_day:
-                e_type = event.get('Type of Event', '')
-                desc = event.get('Event Description', 'No Description')
-                host = event.get('Event Owner', 'N/A')
-                ids = event.get('row_number', 'N/A')
-                line = f"• ||{ids}|| **{e_type}**: {desc}・Hosted by {host}" if e_type.lower() != desc.lower() else f"• ||{ids}|| **{e_type}**・Hosted by {host}"
+                key = (event.get('Type of Event', ''), event.get('Event Description', 'No Description'))
+                grouped_events[key]['hosts'].append(event.get('Event Owner', 'N/A'))
+                grouped_events[key]['ids'].append(str(event.get('row_number', 'N/A')))
+
+            for (e_type, desc), data in grouped_events.items():
+                if len(data['hosts']) > 1:
+                    hosts_str = ' & '.join(sorted(list(set(data['hosts']))))
+                else:
+                    hosts_str = data['hosts'][0] if data['hosts'] else 'N/A'
+
+                ids_str = ", ".join(sorted(list(set(data['ids']))))
+                
+                line_base = f"**{e_type}**: {desc}" if e_type and e_type.lower() != desc.lower() else f"**{desc}**"
+                line = f"• ||{ids_str}|| {line_base}・Hosted by {hosts_str}"
                 day_lines.append(line)
 
         embed.add_field(name=day_name, value="\n".join(day_lines) if day_lines else "- No events planned.", inline=False)
@@ -762,12 +765,25 @@ async def generate_schedule_embed():
 # 🔹 Scheduled Tasks
 # --------------------------------------------------
 
-# This task was referenced but not defined. You need to implement its logic.
-# @tasks.loop(seconds=60)
-# async def check_sheet_for_updates():
-#     """Periodically checks the sheet for changes and updates the schedule if needed."""
-#     # Add your logic here to compare current vs. last known sheet data
-#     pass
+@tasks.loop(minutes=5)
+async def check_sheet_for_updates():
+    """Periodically checks the sheet for changes and updates the schedule if needed."""
+    global last_known_sheet_data
+    try:
+        channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+        if not channel or not current_schedule_message_id:
+            return
+
+        current_data = get_all_event_records()
+        
+        if current_data != last_known_sheet_data:
+            print("📝 Sheet change detected, updating schedule...")
+            await update_schedule_message(channel)
+            last_known_sheet_data = current_data
+            print("✅ Schedule updated.")
+
+    except Exception as e:
+        print(f"Error in check_sheet_for_updates: {e}")
 
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
 async def daily_schedule_post():
@@ -787,6 +803,7 @@ async def daily_event_link_post():
 
 
 @daily_schedule_post.before_loop
+@check_sheet_for_updates.before_loop
 async def before_daily_schedule_post():
     await bot.wait_until_ready()
 
@@ -799,11 +816,12 @@ async def before_daily_event_link_post():
 # --------------------------------------------------
 @bot.event
 async def on_ready():
+    global last_known_sheet_data
     print(f"✅ Logged in as {bot.user}")
     
     # Start the defined tasks
-    # if not check_sheet_for_updates.is_running():
-    #     check_sheet_for_updates.start()
+    if not check_sheet_for_updates.is_running():
+        check_sheet_for_updates.start()
     if not daily_schedule_post.is_running():
         daily_schedule_post.start()
     if not daily_event_link_post.is_running():
@@ -819,8 +837,9 @@ async def on_ready():
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
     if channel:
         await update_schedule_message(channel)
+        # Initialize the data for the update checker
+        last_known_sheet_data = get_all_event_records()
+
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
-
-
