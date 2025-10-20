@@ -398,15 +398,6 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
 # --------------------------------------------------
 # 🔹 Event Management System
 # --------------------------------------------------
-async def delete_previous_events_post(channel: discord.TextChannel):
-    """Deletes the previous @Events post and its linked messages."""
-    try:
-        async for msg in channel.history(limit=100):
-            if msg.author == channel.guild.me and ("@Events" in msg.content or "Today's Event" in msg.content):
-                await msg.delete()
-    except Exception as e:
-        print(f"Error deleting old @Events post: {e}")
-
 def _fmt_no_leading_zero(hour_12: str) -> str:
     return hour_12.lstrip("0") if hour_12.startswith("0") else hour_12
 
@@ -453,11 +444,9 @@ async def post_todays_event_links(channel: discord.TextChannel):
     manual_posts = await find_manual_event_posts_for_times(channel, times_to_match)
 
     if not todays_discord_events and not manual_posts:
-        await delete_previous_events_post(channel)
         print("ℹ️ No Discord calendar events or manual posts found for today.")
         return
 
-    await delete_previous_events_post(channel)
     header = "Today's Event:" if (len(todays_discord_events) + len(manual_posts)) == 1 else "Today's Events:"
     
     await channel.send(
@@ -483,11 +472,6 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
     embed = await generate_schedule_embed()
     
     if force_new and current_schedule_message_id:
-        try:
-            old_message = await channel.fetch_message(current_schedule_message_id)
-            await old_message.delete()
-        except discord.NotFound:
-            pass 
         current_schedule_message_id = None
 
     if current_schedule_message_id:
@@ -843,3 +827,6 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
+
+
