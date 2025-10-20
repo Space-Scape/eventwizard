@@ -569,7 +569,7 @@ class AddEventModal(Modal):
             try:
                 cell = rsn_sheet.find(str(interaction.user.id))
                 event_owner = rsn_sheet.cell(cell.row, 4).value if cell else re.sub(r'^\W+', '', interaction.user.display_name)
-            except (CellNotFound, Exception):
+            except Exception:
                 event_owner = re.sub(r'^\W+', '', interaction.user.display_name)
 
         event_data = [
@@ -721,13 +721,23 @@ async def generate_schedule_embed():
         day_events_for_day = sorted(daily_events.get(current_date, []), key=lambda x: x['Event Description'])
         
         if day_events_for_day:
-            grouped_events = collections.defaultdict(lambda: {'hosts': [], 'ids': []})
+            grouped_events = collections.defaultdict(lambda: {'hosts': [], 'ids': [], 'original_type': '', 'original_desc': ''})
             for event in day_events_for_day:
-                key = (event.get('Type of Event', ''), event.get('Event Description', 'No Description'))
+                e_type = event.get('Type of Event', '')
+                desc = event.get('Event Description', 'No Description')
+                key = (e_type.lower(), desc.lower())
+                
                 grouped_events[key]['hosts'].append(event.get('Event Owner', 'N/A'))
                 grouped_events[key]['ids'].append(str(event.get('row_number', 'N/A')))
 
-            for (e_type, desc), data in grouped_events.items():
+                if not grouped_events[key]['original_desc']:
+                    grouped_events[key]['original_type'] = e_type
+                    grouped_events[key]['original_desc'] = desc
+
+            for key, data in grouped_events.items():
+                e_type = data['original_type']
+                desc = data['original_desc']
+
                 if len(data['hosts']) > 1:
                     hosts_str = ' & '.join(sorted(list(set(data['hosts']))))
                 else:
@@ -826,7 +836,3 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
-
-
-
-
