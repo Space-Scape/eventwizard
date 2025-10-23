@@ -598,7 +598,7 @@ class AddEventModal(Modal):
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
 @app_commands.describe(event_type="The type of event.")
 @app_commands.choices(event_type=[
-    app_commands.Choice(name=t, value=t) for t in ["BOTW", "SOTW", "Pet Roulette", "Sanguine Sunday", "Mass Event", "Bounty", "Large Event", "Castle Wars", "Wildy Altar", "Discord games", "Hide and seek", "Other Event"]
+    app_commands.Choice(name=t, value=t) for t in ["BOTW", "SOTW", "Pet Roulette", "Sanguine Sunday", "Mass Event", "Bounty", "Large Event", "Castle Wars", "Wildy Altar", "Discord games", "Hide and seek", "Workshop", "Other Event"]
 ])
 async def addevent(interaction: discord.Interaction, event_type: str):
     user_roles = {r.name for r in interaction.user.roles}
@@ -836,3 +836,4 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
