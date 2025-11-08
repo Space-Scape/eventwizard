@@ -70,9 +70,9 @@ last_known_sheet_data = None
 # 🔹 Configuration
 # ---------------------------
 # Drop Submissions
-SUBMISSION_CHANNEL_ID = 1401523115808526438
-REVIEW_CHANNEL_ID = 1401510165764771950
-LOG_CHANNEL_ID = 1401514384001601607
+#SUBMISSION_CHANNEL_ID = 1401523115808526438
+#REVIEW_CHANNEL_ID = 1401510165764771950
+#LOG_CHANNEL_ID = 1401514384001601607
 REQUIRED_ROLE_NAME = "Event Staff"
 REGISTERED_ROLE_NAME = "Registered"
 
@@ -97,6 +97,7 @@ INTERNATIONAL_TIMEZONES = {"GMT", "CET", "EET", "BRT", "ART", "AWST", "ACST", "A
 # ---------------------------
 # 🔹 Boss-Drop Mapping
 # ---------------------------
+"""
 boss_drops = {
     "Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
     "Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
@@ -142,6 +143,7 @@ boss_drops = {
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
     "Misc items": ["Priff rabbit", "Wyvern visage", "Jar of darkness"]
 }
+
 
 
 # ---------------------------
@@ -393,7 +395,7 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
         await interaction.response.send_message("❌ Submission rejected and logged. This message will now be removed.", ephemeral=True)
         await asyncio.sleep(1)
         await self.message.delete()
-
+"""
 # --------------------------------------------------
 # 🔹 Event Management System
 # --------------------------------------------------
@@ -836,4 +838,5 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
 
