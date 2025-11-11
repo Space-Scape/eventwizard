@@ -4,6 +4,7 @@ from discord.ext import commands
 import gspread
 from gspread.utils import rowcol_to_a1
 from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
 import asyncio
