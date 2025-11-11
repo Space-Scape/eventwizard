@@ -3,13 +3,12 @@ import discord
 from discord.ext import commands
 import gspread
 from gspread.utils import rowcol_to_a1
-# 🔹 REMOVED: from oauth2client.service_account import ServiceAccountCredentials (redundant)
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
 import asyncio
 import random
-import traceback # 🔹 ADDED: To print full error trace
+import traceback
 from discord.ui import Modal, TextInput
 from discord import app_commands, ui, Interaction, Member, TextStyle
 from typing import List, Optional
@@ -55,7 +54,7 @@ CARD_EMOJIS = {
     "Varrock Tele": "🏛️",
     "POH Voucher": "🏠",
     "Home Tele": "🏡",
-    "Dragon Spear": "🏑",
+    "Dragon Spear": "👑",
     "Rogue's Gloves": "🧤",
     "Lure": "🎣",
     "Backstab": "🗡️",
@@ -77,7 +76,7 @@ CHANCE_TILES = {7, 22, 36}
 GLIDER_TILES = {12, 28, 38}
 
 # Tiles that grant a free roll if landed on with 0 rolls available
-ROLL_GRANTING_TILES = {GO_TILE, JAIL_TILE, BANK_STANDING_TILE} | GLIDER_TILES | CHEST_TILES | CHANCE_TILES
+ROLL_GRANTING_TILES = {GO_TILE, BANK_STANDING_TILE} | GLIDER_TILES | CHEST_TILES | CHANCE_TILES
 
 # ---------------------------
 # 🔹 Boss-Drop Mapping
@@ -141,8 +140,8 @@ class MonopolyCog(commands.Cog):
         print("✅ Monopoly Cog: All required environment variables are present.")
 
         scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
+            "https.www.googleapis.com/auth/spreadsheets",
+            "https.www.googleapis.com/auth/drive"
         ]
         
         # 🔹 FIXED: Check for private key before using .replace()
@@ -631,6 +630,7 @@ class MonopolyCog(commands.Cog):
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
                     final_gp_value = base_gp_value * gp_multiplier  # Apply multiplier
+                    original_gp_value_pre_tax = final_gp_value # 🔹 Store original value
 
                     if gp_multiplier > 1 and consumed_card_name:
                         emoji = CARD_EMOJIS.get(consumed_card_name, "")
@@ -674,7 +674,7 @@ class MonopolyCog(commands.Cog):
                         for idx, record in enumerate(records, start=2):
                             if record.get("Team") == team_name:
                                 current_gp = int(record.get("GP", 0) or 0)
-                                new_gp = current_gp + final_gp_value
+                                new_gp = max(0, current_gp + final_gp_value)
                                 self.cog.team_data_sheet.update_cell(idx, gp_col_index, new_gp)
                                 print(f"✅ Awarded {final_gp_value:,} GP to {team_name}. New total: {new_gp}")
                                 
@@ -699,7 +699,7 @@ class MonopolyCog(commands.Cog):
                             tax_message = (
                                 f"🏠 **House Tax:** {team_name} paid **{tax_amount:,} GP** "
                                 f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
-                                f"({int((tax_amount / (tax_amount + final_gp_value)) * 100)}% of the reward)."
+                                f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
                             )
                             if team_chan: # Submitter's channel
                                 await team_chan.send(tax_message)
@@ -744,7 +744,7 @@ class MonopolyCog(commands.Cog):
                                 roll_grant_embed = discord.Embed(
                                     title="🎲 Roll Granted!",
                                     description=(
-                                        f"Your team landed a drop at **{self.boss}**!"
+                                        f"Your team landed a drop at **{self.boss}**! "
                                         "A free roll has been granted! Use `/roll` to use it."
                                     ),
                                     color=discord.Color.green()
@@ -1065,7 +1065,7 @@ class MonopolyCog(commands.Cog):
                 pass_go_bonus = 20_000_000
                 current_gp_str = self.team_data_sheet.cell(team_row_index, gp_col_index).value
                 current_gp = int(current_gp_str) if current_gp_str and str(current_gp_str).replace(',', '').isdigit() else 0
-                new_gp = current_gp + pass_go_bonus
+                new_gp = max(0, current_gp + pass_go_bonus)
                 self.team_data_sheet.update_cell(team_row_index, gp_col_index, new_gp)
                 
                 go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **{pass_go_bonus:,} GP**! (Total Passes: {new_pass_count})"
@@ -1417,7 +1417,7 @@ class MonopolyCog(commands.Cog):
             if updates_to_make:
                 self.house_data_sheet.batch_update(updates_to_make)
                 
-            new_gp = current_gp - house_cost
+            new_gp = max(0, current_gp - house_cost)
             self.team_data_sheet.update_cell(team_row_index, team_gp_col_gspread, new_gp)
             
             self.set_bought_house_flag(team_name, "yes")
@@ -2463,7 +2463,7 @@ class MonopolyCog(commands.Cog):
                             await victim_channel.send(embed=maul_embed)
                     
                     new_caster_gp = caster_gp + final_steal_amount
-                    new_target_gp = target_gp - final_steal_amount
+                    new_target_gp = max(0, target_gp - final_steal_amount)
                     
                     self.team_data_sheet.update_cell(caster_row, gp_col_index, new_caster_gp)
                     self.team_data_sheet.update_cell(target_row, gp_col_index, new_target_gp)
@@ -2663,14 +2663,18 @@ class MonopolyCog(commands.Cog):
                 victim_chance_cards = self.get_held_cards(self.chance_sheet, victim_team)
                 all_victim_cards = victim_chest_cards + victim_chance_cards
                 
+                if not all_victim_cards:
+                    await interaction.followup.send(f"❌ Card effect failed: **{victim_team}** has no cards. Your **Smite** card was not used.", ephemeral=True)
+                    return
+
                 non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
                 
                 if not non_active_cards:
-                    await interaction.followup.send(f"❌ Card effect failed: **{victim_team}** has no cards that can be removed.", ephemeral=True)
+                    await interaction.followup.send(f"❌ Card effect failed: **{victim_team}**'s cards are all active and cannot be removed. Your **Smite** card was not used.", ephemeral=True)
                     return 
 
                 if self.check_and_consume_redemption(victim_team):
-                    embed_description += f"🩵 **{target_team}**'s Redemption activated!"
+                    embed_description += f"🩵 **{victim_team}**'s Redemption activated!"
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
