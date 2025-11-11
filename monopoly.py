@@ -120,37 +120,31 @@ class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         
-        # ========== GOOGLE SHEETS SETUP ==========
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
-
+        
+        # Load credentials from environment variables
         credentials_dict = {
-            "type": os.getenv("EVENT_TYPE"),
-            "project_id": os.getenv("EVENT_PROJECT_ID"),
-            "private_key_id": os.getenv("EVENT_PRIVATE_KEY_ID"),
-            "private_key": os.getenv("EVENT_PRIVATE_KEY").replace("\\n", "\n"),
-            "client_email": os.getenv("EVENT_CLIENT_EMAIL"),
-            "client_id": os.getenv("EVENT_CLIENT_ID"),
-            "auth_uri": os.getenv("EVENT_AUTH_URI"),
-            "token_uri": os.getenv("EVENT_TOKEN_URI"),
-            "auth_provider_x509_cert_url": os.getenv("EVENT_AUTH_PROVIDER_X509_CERT_URL"),
-            "client_x509_cert_url": os.getenv("EVENT_CLIENT_X509_CERT_URL"),
-            "universe_domain": os.getenv("EVENT_UNIVERSE_DOMAIN")
+            "type": os.getenv('EVENT_TYPE'),
+            "project_id": os.getenv('EVENT_PROJECT_ID'),
+            "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
+            "private_key": os.getenv('EVENT_PRIVATE_KEY').replace("\\n", "\n"),
+            "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
+            "client_id": os.getenv('EVENT_CLIENT_ID'),
+            "auth_uri": os.getenv('EVENT_AUTH_URI'),
+            "token_uri": os.getenv('EVENT_TOKEN_URI'),
+            "auth_provider_x509_cert_url": os.getenv('EVENT_AUTH_PROVIDER_X509_CERT_URL'),
+            "client_x509_cert_url": os.getenv('EVENT_CLIENT_X509_CERT_URL'),
+            "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
         }
-
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-        client_g = gspread.authorize(creds)
-        sheet = client_g.open_by_key(SPREADSHEET_ID)
-        self.command_log = sheet.worksheet("Command Log")
-        self.team_data_sheet = sheet.worksheet("TeamData")
-        self.chest_sheet = sheet.worksheet("ChestCards")
-        self.chance_sheet = sheet.worksheet("ChanceCards")
-        self.drop_log_sheet = sheet.worksheet("DropLog")
-        self.item_values_sheet = sheet.worksheet("ItemValues")
-        self.house_data_sheet = sheet.worksheet("HouseData")
-        print("✅ Monopoly Cog: Google Sheets initialized.")
+        
+        creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+        sheet_client = gspread.authorize(creds)
+        sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
+        sheet = sheet_client.open_by_key(sheet_id).sheet1
+        rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
     # ========= Helper Functions =========
     def log_command(self, player_name, command, args_dict):
