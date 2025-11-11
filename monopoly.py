@@ -126,7 +126,7 @@ class MonopolyCog(commands.Cog):
             'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID', 
             'EVENT_PRIVATE_KEY', 'EVENT_CLIENT_EMAIL', 'EVENT_CLIENT_ID', 
             'EVENT_AUTH_URI', 'EVENT_TOKEN_URI', 'EVENT_AUTH_PROVIDER_X509_CERT_URL', 
-            'EVENT_CLIENT_X509_CERT_URL', 'EVENT_UNIVERSE_DOMAIN', 'SPREADSHEET_ID'
+            'EVENT_CLIENT_X509_CERT_URL', 'EVENT_UNIVERSE_DOMAIN'
         ]
         
         missing_vars = [var for var in required_env_vars if not os.getenv(var)]
