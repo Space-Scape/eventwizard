@@ -140,8 +140,8 @@ class MonopolyCog(commands.Cog):
         print("✅ Monopoly Cog: All required environment variables are present.")
 
         scope = [
-            "https.www.googleapis.com/auth/spreadsheets",
-            "https.www.googleapis.com/auth/drive"
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
         ]
         
         # 🔹 FIXED: Check for private key before using .replace()
