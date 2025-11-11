@@ -141,7 +141,7 @@ class MonopolyCog(commands.Cog):
         print("✅ Monopoly Cog: All required environment variables are present.")
 
         scope = [
-            "https.www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
         
