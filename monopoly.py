@@ -23,7 +23,6 @@ TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"]
 
 # 🔹 Channel and Role IDs
 # 🔹 FIXED: Define as strings for robust comparison
-DROP_SUBMISSION_CHANNEL_ID = os.getenv("DROP_SUBMISSION_CHANNEL_ID")
 REVIEW_CHANNEL_ID = "1436465463742824499"
 LOG_CHANNEL_ID = "1436463720401211474"
 
@@ -128,17 +127,17 @@ class MonopolyCog(commands.Cog):
         ]
 
         credentials_dict = {
-            "type": os.getenv("type"),
-            "project_id": os.getenv("project_id"),
-            "private_key_id": os.getenv("private_key_id"),
-            "private_key": os.getenv("private_key").replace("\\n", "\n"),
-            "client_email": os.getenv("client_email"),
-            "client_id": os.getenv("client_id"),
-            "auth_uri": os.getenv("auth_uri"),
-            "token_uri": os.getenv("token_uri"),
-            "auth_provider_x509_cert_url": os.getenv("auth_provider_x509_cert_url"),
-            "client_x509_cert_url": os.getenv("client_x509_cert_url"),
-            "universe_domain": os.getenv("universe_domain")
+            "type": os.getenv("EVENT_TYPE"),
+            "project_id": os.getenv("EVENT_PROJECT_ID"),
+            "private_key_id": os.getenv("EVENT_PRIVATE_KEY_ID"),
+            "private_key": os.getenv("EVENT_PRIVATE_KEY").replace("\\n", "\n"),
+            "client_email": os.getenv("EVENT_CLIENT_EMAIL"),
+            "client_id": os.getenv("EVENT_CLIENT_ID"),
+            "auth_uri": os.getenv("EVENT_AUTH_URI"),
+            "token_uri": os.getenv("EVENT_TOKEN_URI"),
+            "auth_provider_x509_cert_url": os.getenv("EVENT_AUTH_PROVIDER_X509_CERT_URL"),
+            "client_x509_cert_url": os.getenv("EVENT_CLIENT_X509_CERT_URL"),
+            "universe_domain": os.getenv("EVENT_UNIVERSE_DOMAIN")
         }
 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
