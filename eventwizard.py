@@ -12,6 +12,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
 import collections
+import traceback # Add this if it's not already there
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -499,7 +500,7 @@ async def before_daily_schedule_post():
 @daily_event_link_post.before_loop
 async def before_daily_event_link_post():
     await bot.wait_until_ready()
-
+    
 # --------------------------------------------------
 # 🔹 Bot Startup
 # --------------------------------------------------
@@ -516,18 +517,20 @@ async def on_ready():
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
 
-    try:
-        synced = await tree.sync()
-        print(f"✅ Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(f"❌ Command sync failed: {e}")
-
-    # Load the monopoly cog
+    # 🔹 FIXED: Load the extension FIRST
     try:
         await bot.load_extension("monopoly")
         print("✅ Loaded extension: monopoly")
     except Exception as e:
         print(f"❌ Failed to load extension: monopoly - {e}")
+        traceback.print_exc() # Print the full error
+
+    # 🔹 FIXED: Sync the command tree SECOND
+    try:
+        synced = await tree.sync()
+        print(f"✅ Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print(f"❌ Command sync failed: {e}")
 
     # Initial post/update on startup
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
@@ -539,3 +542,4 @@ async def on_ready():
 
 # 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
+
