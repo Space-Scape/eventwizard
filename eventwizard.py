@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone, time
 from zoneinfo import ZoneInfo
 import collections
-import traceback # Add this if it's not already there
+import traceback
 
 # ---------------------------
 # 🔹 Google Sheets Setup
@@ -22,7 +22,6 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Load credentials from environment variables
 credentials_dict = {
     "type": os.getenv('EVENT_TYPE'),
     "project_id": os.getenv('EVENT_PROJECT_ID'),
@@ -392,7 +391,6 @@ async def generate_schedule_embed():
             start_date = datetime.strptime(event["Start Date"], "%m/%d/%Y").date()
             end_date = datetime.strptime(event["End Date"], "%m/%d/%Y").date() if event.get("End Date") else start_date
             
-            # Check if event is week-long and overlaps with the current week
             if (end_date - start_date).days >= 6 and start_date <= end_of_week and end_date >= start_of_week:
                 week_long_events.append(event)
             else:
@@ -506,10 +504,9 @@ async def before_daily_event_link_post():
 # --------------------------------------------------
 @bot.event
 async def on_ready():
-    global last_known_sheet_data
+    global last_known_sheet_data, current_schedule_message_id
     print(f"✅ Logged in as {bot.user}")
     
-    # Start the defined tasks
     if not check_sheet_for_updates.is_running():
         check_sheet_for_updates.start()
     if not daily_schedule_post.is_running():
@@ -517,29 +514,37 @@ async def on_ready():
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
 
-    # 🔹 FIXED: Load the extension FIRST
     try:
         await bot.load_extension("monopoly")
         print("✅ Loaded extension: monopoly")
     except Exception as e:
         print(f"❌ Failed to load extension: monopoly - {e}")
-        traceback.print_exc() # Print the full error
+        traceback.print_exc()
 
-    # 🔹 FIXED: Sync the command tree SECOND
     try:
         synced = await tree.sync()
         print(f"✅ Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
-    # Initial post/update on startup
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
     if channel:
-        await update_schedule_message(channel)
-        # Initialize the data for the update checker
+        print(f"Searching for existing schedule message in {channel.name}...")
+        try:
+            async for message in channel.history(limit=50):
+                if message.author == bot.user and message.embeds and message.embeds[0].title and "Weekly Clan Schedule" in message.embeds[0].title:
+                    current_schedule_message_id = message.id
+                    print(f"✅ Found existing schedule message: {message.id}")
+                    break
+            if not current_schedule_message_id:
+                print("ℹ️ No existing schedule message found. A new one will be posted by the daily task or on the next sheet update.")
+                
+        except Exception as e:
+            print(f"❌ Error searching for existing schedule message: {e}")
+
         last_known_sheet_data = get_all_event_records()
+    else:
+        print(f"⚠️ Could not find EVENT_SCHEDULE_CHANNEL_ID ({EVENT_SCHEDULE_CHANNEL_ID}) on startup.")
 
 
-# 🚀 Always last - run the bot
 bot.run(os.getenv("BOT_TOKEN"))
-
