@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import json
 import asyncio
 import random
-import traceback
+import traceback # 🔹 ADDED: To print full error trace
 from discord.ui import Modal, TextInput
 from discord import app_commands, ui, Interaction, Member, TextStyle
 from typing import List, Optional
@@ -121,14 +121,36 @@ class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         
+        # 🔹 NEW: Comprehensive check for all required environment variables
+        required_env_vars = [
+            'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID', 
+            'EVENT_PRIVATE_KEY', 'EVENT_CLIENT_EMAIL', 'EVENT_CLIENT_ID', 
+            'EVENT_AUTH_URI', 'EVENT_TOKEN_URI', 'EVENT_AUTH_PROVIDER_X509_CERT_URL', 
+            'EVENT_CLIENT_X509_CERT_URL', 'EVENT_UNIVERSE_DOMAIN', 'SPREADSHEET_ID'
+        ]
+        
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+        
+        if missing_vars:
+            print("❌ FATAL ERROR: The following required environment variables are missing:")
+            for var in missing_vars:
+                print(f"- {var}")
+            print("Monopoly Cog will not load.")
+            return # Stop initialization
+
+        print("✅ Monopoly Cog: All required environment variables are present.")
+
         scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
+            "https.www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
         
         # 🔹 FIXED: Check for private key before using .replace()
         private_key_env = os.getenv('EVENT_PRIVATE_KEY')
+        # This check is now slightly redundant due to the comprehensive check above,
+        # but the .replace() logic is still needed.
         if not private_key_env:
+            # This should not be reachable if the check above is working
             print("❌ FATAL ERROR: 'EVENT_PRIVATE_KEY' environment variable is not set.")
             private_key_formatted = None
         else:
@@ -158,13 +180,21 @@ class MonopolyCog(commands.Cog):
             sheet = sheet_client.open_by_key(SPREADSHEET_ID)
 
             # 🔹 FIXED: Load all required sheets into self. variables
+            print("Attempting to load worksheets...")
             self.command_log = sheet.worksheet("Command Log")
+            print("... loaded Command Log")
             self.team_data_sheet = sheet.worksheet("TeamData")
+            print("... loaded TeamData")
             self.chest_sheet = sheet.worksheet("ChestCards")
+            print("... loaded ChestCards")
             self.chance_sheet = sheet.worksheet("ChanceCards")
+            print("... loaded ChanceCards")
             self.drop_log_sheet = sheet.worksheet("DropLog")
+            print("... loaded DropLog")
             self.item_values_sheet = sheet.worksheet("ItemValues")
+            print("... loaded ItemValues")
             self.house_data_sheet = sheet.worksheet("HouseData")
+            print("... loaded HouseData")
             
             # This sheet was in your original __init__, but seems to be from a different key
             # self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
@@ -174,6 +204,9 @@ class MonopolyCog(commands.Cog):
 
         except gspread.exceptions.SpreadsheetNotFound:
             print(f"❌ FATAL ERROR: Spreadsheet with ID '{SPREADSHEET_ID}' not found.")
+        except gspread.exceptions.WorksheetNotFound as e:
+            print(f"❌ FATAL ERROR: Could not find a required worksheet in your Google Sheet.")
+            print(f"Details: {e}")
         except gspread.exceptions.APIError as e:
             if "PERMISSION_DENIED" in str(e):
                 print(f"❌ FATAL ERROR: Permission denied for Spreadsheet ID '{SPREADSHEET_ID}'.")
@@ -181,8 +214,10 @@ class MonopolyCog(commands.Cog):
             else:
                 print(f"❌ FATAL ERROR: An API error occurred: {e}")
         except Exception as e:
-            print(f"❌ FATAL ERROR: An unexpected error occurred during GSheets initialization: {e}")
-            print("This might be due to incorrect 'EVENT_' credentials in your .env file or a missing private key.")
+            # 🔹 MODIFIED: Print the full traceback to identify the exact error
+            print(f"❌ FATAL ERROR: An unexpected error occurred during GSheets initialization:")
+            traceback.print_exc() # This will print the full error
+            print("This might be due to incorrect 'EVENT_' credentials in your .env file.")
 
 
     # ========= Helper Functions =========
