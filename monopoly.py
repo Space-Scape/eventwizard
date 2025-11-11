@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 import gspread
 from gspread.utils import rowcol_to_a1
-from oauth2client.service_account import ServiceAccountCredentials
+# 🔹 REMOVED: from oauth2client.service_account import ServiceAccountCredentials (redundant)
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
@@ -126,12 +126,20 @@ class MonopolyCog(commands.Cog):
             "https://www.googleapis.com/auth/drive"
         ]
         
+        # 🔹 FIXED: Check for private key before using .replace()
+        private_key_env = os.getenv('EVENT_PRIVATE_KEY')
+        if not private_key_env:
+            print("❌ FATAL ERROR: 'EVENT_PRIVATE_KEY' environment variable is not set.")
+            private_key_formatted = None
+        else:
+            private_key_formatted = private_key_env.replace("\\n", "\n")
+
         # Load credentials from environment variables
         credentials_dict = {
             "type": os.getenv('EVENT_TYPE'),
             "project_id": os.getenv('EVENT_PROJECT_ID'),
             "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
-            "private_key": os.getenv('EVENT_PRIVATE_KEY').replace("\\n", "\n"),
+            "private_key": private_key_formatted, # 🔹 FIXED: Use formatted key
             "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
             "client_id": os.getenv('EVENT_CLIENT_ID'),
             "auth_uri": os.getenv('EVENT_AUTH_URI'),
@@ -141,11 +149,41 @@ class MonopolyCog(commands.Cog):
             "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
         }
         
-        creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
-        sheet_client = gspread.authorize(creds)
-        sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
-        sheet = sheet_client.open_by_key(sheet_id).sheet1
-        rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+        # 🔹 FIXED: Added try...except block for robust sheet loading
+        try:
+            creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+            sheet_client = gspread.authorize(creds)
+            
+            # 🔹 FIXED: Use the SPREADSHEET_ID from config, not a hardcoded one
+            sheet = sheet_client.open_by_key(SPREADSHEET_ID)
+
+            # 🔹 FIXED: Load all required sheets into self. variables
+            self.command_log = sheet.worksheet("Command Log")
+            self.team_data_sheet = sheet.worksheet("TeamData")
+            self.chest_sheet = sheet.worksheet("ChestCards")
+            self.chance_sheet = sheet.worksheet("ChanceCards")
+            self.drop_log_sheet = sheet.worksheet("DropLog")
+            self.item_values_sheet = sheet.worksheet("ItemValues")
+            self.house_data_sheet = sheet.worksheet("HouseData")
+            
+            # This sheet was in your original __init__, but seems to be from a different key
+            # self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+            # For now, I've commented it out. If you need it, uncomment it and make sure it's assigned to self.
+            
+            print("✅ Monopoly Cog: Google Sheets initialized.")
+
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"❌ FATAL ERROR: Spreadsheet with ID '{SPREADSHEET_ID}' not found.")
+        except gspread.exceptions.APIError as e:
+            if "PERMISSION_DENIED" in str(e):
+                print(f"❌ FATAL ERROR: Permission denied for Spreadsheet ID '{SPREADSHEET_ID}'.")
+                print(f"Ensure the service account '{os.getenv('EVENT_CLIENT_EMAIL')}' has 'Editor' permissions on the Google Sheet.")
+            else:
+                print(f"❌ FATAL ERROR: An API error occurred: {e}")
+        except Exception as e:
+            print(f"❌ FATAL ERROR: An unexpected error occurred during GSheets initialization: {e}")
+            print("This might be due to incorrect 'EVENT_' credentials in your .env file or a missing private key.")
+
 
     # ========= Helper Functions =========
     def log_command(self, player_name, command, args_dict):
