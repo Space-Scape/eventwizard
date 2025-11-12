@@ -1265,7 +1265,7 @@ class MonopolyCog(commands.Cog):
                 name="For Everyone on the Team!",
                 value=(
                     # 🔹 FIXED: Added all commands as requested
-                    "**/team:** View your team's status, GP, and position.\n"
+                    "**/stats:** View your team's status, GP, and position.\n"
                     "**/gp:** Curious about your GP? Use this to check the team's total.\n"
                     "**/show_cards:** See all the cool cards your team is currently holding.\n"
                     "**/show_drops:** Shows every drop available for the tile you're on.\n"
