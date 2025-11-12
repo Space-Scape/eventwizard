@@ -1109,7 +1109,7 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
-    @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
+       @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
         team_name = None
@@ -1125,7 +1125,6 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # 🔹 FIXED: Use self.get_team_data
             team_data = self.get_team_data(team_name)
             if not team_data:
                 await interaction.followup.send("Could not retrieve your team's data.", ephemeral=True)
@@ -1134,19 +1133,7 @@ class MonopolyCog(commands.Cog):
             position = int(team_data.get("Position", 0))
 
             # 1. Find bosses for the current tile
-            # 🔹 FIXED: Define tile_boss_map locally
-            tile_boss_map = {
-                1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-                13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-            }
-            boss_list = tile_boss_map.get(position)
+            boss_list = self.tile_boss_map.get(position)
             
             if not boss_list:
                 await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=True)
@@ -1171,9 +1158,9 @@ class MonopolyCog(commands.Cog):
             drop_list_text = ""
             found_drops = False
             
-            # Assuming ItemValues sheet has 'Boss', 'Item', and 'GP' columns
             for item in all_items:
-                item_boss = item.get("Boss")
+                # 🔹 FIXED: Changed "Boss" to "Boss Name"
+                item_boss = item.get("Boss Name")
                 if item_boss in boss_list:
                     item_name = item.get("Item", "Unknown Item")
                     item_gp = item.get("GP", "0")
@@ -1181,7 +1168,8 @@ class MonopolyCog(commands.Cog):
                     found_drops = True
             
             if not found_drops:
-                drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet may be missing 'Boss' column data)."
+                # 🔹 FIXED: Updated error message hint
+                drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
 
             embed.description = drop_list_text
             await interaction.followup.send(embed=embed, ephemeral=False)
