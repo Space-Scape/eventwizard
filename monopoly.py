@@ -669,11 +669,11 @@ class MonopolyCog(commands.Cog):
                                     owner_gp = int(orec.get("GP", 0) or 0)
                                     new_owner_gp = owner_gp + tax_amount
                                     self.cog.team_data_sheet.update_cell(o_idx, gp_col_index, new_owner_gp)
-                                    print(f"🏠 {owner_team} received {tax_amount:,} GP house tax from {team_name}.")
+                                    print(f"<:houseicon:1438085020156821555> {owner_team} received {tax_amount:,} GP house tax from {team_name}.")
                                     break
                             
                             tax_message = (
-                                f"<:house:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
+                                f"<:houseicon:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
                                 f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
                                 f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
                             )
@@ -1057,9 +1057,9 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error updating Position in sheet: {e}")
 
         roll_embed = discord.Embed(
-            title=f"🎲 {team_name} Rolled!",
-            description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to tile **{new_pos}**.",
-            color=discord.Color.blue()
+            title=f"🎲 {team_name} rolled a {dice_roll}!",
+            description=f"**{interaction.user.display_name}** rolled a **{dice_roll}**! Moving from position **{current_pos}** to **{tile_name}**.",
+            color=interaction.user.color
         )
         await interaction.followup.send(embed=roll_embed)
 
@@ -1274,7 +1274,7 @@ class MonopolyCog(commands.Cog):
                 count_col_gspread = count_col_idx + 1
                 
             except ValueError as e:
-                print(f"❌🏠 Missing column in HouseData: {e}")
+                print(f"❌<:houseicon:1438085020156821555> Missing column in HouseData: {e}")
                 await interaction.followup.send("❌ HouseData sheet is misconfigured.", ephemeral=True)
                 return
 
@@ -1357,7 +1357,7 @@ class MonopolyCog(commands.Cog):
             self.set_bought_house_flag(team_name, "yes")
             
             buy_message = (
-                f"<:house:1438085020156821555> **{team_name}** purchased a house for **{house_cost:,.0f}** GP on tile {current_pos}!\n"
+                f"<:houseicon:1438085020156821555> **{team_name}** purchased a house for **{house_cost:,.0f}** GP on tile {current_pos}!\n"
                 f"Your team's new balance is **{new_gp:,.0f}** GP."
             )
             await interaction.followup.send(buy_message, ephemeral=False)
