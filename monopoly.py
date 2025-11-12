@@ -1050,9 +1050,9 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error updating Position in sheet: {e}")
 
         roll_embed = discord.Embed(
-            title=f"🎲 {team_name} rolled a {result}!",
-            description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving from position **{current_pos}** to **{tile_name}**.",
-            color=interaction.user.color
+            title=f"🎲 {team_name} Rolled!",
+            description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
+            color=discord.Color.blue()
         )
         await interaction.followup.send(embed=roll_embed)
 
@@ -1065,6 +1065,83 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
+    @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
+    @app_commands.checks.has_any_role(*TEAM_ROLES)
+    async def show_drops(self, interaction: Interaction):
+        team_name = None
+        for role in interaction.user.roles:
+            if role.name in TEAM_ROLES:
+                team_name = role.name
+                break
+        
+        if not team_name:
+            await interaction.response.send_message("You are not on a team.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            team_data = self.get_team_data(team_name)
+            if not team_data:
+                await interaction.followup.send("Could not retrieve your team's data.", ephemeral=True)
+                return
+
+            position = int(team_data.get("Position", 0))
+
+            # 1. Find bosses for the current tile
+            boss_list = self.tile_boss_map.get(position)
+            
+            if not boss_list:
+                await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=True)
+                return
+            
+            boss_name_str = ", ".join(boss_list)
+            embed = discord.Embed(
+                title=f"Available Drops for {boss_name_str} (Tile {position})",
+                description="This list shows potential drops and their GP values.",
+                color=discord.Color.gold()
+            )
+
+            # 2. Get all item values
+            try:
+                all_items = self.item_values_sheet.get_all_records()
+            except Exception as e:
+                print(f"Error fetching ItemValues: {e}")
+                await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
+                return
+                
+            # 3. Filter items for the bosses on this tile
+            drop_list_text = ""
+            found_drops = False
+            
+            # Assuming ItemValues sheet has 'Boss', 'Item', and 'GP' columns
+            for item in all_items:
+                item_boss = item.get("Boss")
+                if item_boss in boss_list:
+                    item_name = item.get("Item", "Unknown Item")
+                    item_gp = item.get("GP", "0")
+                    drop_list_text += f"• **{item_name}**: {item_gp} GP\n"
+                    found_drops = True
+            
+            if not found_drops:
+                drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet may be missing 'Boss' column data)."
+
+            embed.description = drop_list_text
+            await interaction.followup.send(embed=embed, ephemeral=False)
+
+        except Exception as e:
+            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+            traceback.print_exc()
+
+    @show_drops.error
+    async def show_drops_error(self, interaction: Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingAnyRole):
+            await interaction.response.send_message("You must be on a team to use this command.", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"An error occurred: {error}", ephemeral=True)
+            print(f"Error in /show_drops: {error}")
+            traceback.print_exc()
+    
     @app_commands.command(name="customize", description="Open the customization panel for your team")
     async def customize(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
