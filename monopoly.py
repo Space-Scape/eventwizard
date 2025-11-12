@@ -208,6 +208,22 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error logging command: {e}")
 
+    # 🔹 FIXED: Added missing get_team_data function
+    def get_team_data(self, team_role_name: str) -> dict:
+        """Fetches all data for a specific team."""
+        try:
+            team_row = self.team_data_sheet.find(team_role_name)
+            data = self.team_data_sheet.row_values(team_row.row)
+            headers = self.team_data_sheet.row_values(1)
+            team_dict = dict(zip(headers, data))
+            return team_dict
+        except gspread.exceptions.CellNotFound:
+            print(f"Error: Team '{team_role_name}' not found in TeamData.")
+            return None
+        except Exception as e:
+            print(f"Error in get_team_data: {e}")
+            return None
+
     def get_team(self, member: discord.Member) -> Optional[str]:
         for role in member.roles:
             if role.name in TEAM_ROLES:
@@ -1049,6 +1065,34 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error updating Position in sheet: {e}")
 
+        # 🔹 FIXED: Define tile_name before using it
+        tile_name = "Unknown Tile"
+        tile_boss_map = {
+            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+        }
+        
+        if new_pos in tile_boss_map:
+            tile_name = ", ".join(tile_boss_map[new_pos])
+        else:
+            try:
+                # Find the property in the HouseData sheet for non-boss tiles
+                all_properties = self.house_data_sheet.get_all_records()
+                for prop in all_properties:
+                    if int(prop.get("Tile", -1)) == new_pos:
+                        tile_name = prop.get("Name", "Unknown Tile")
+                        break
+            except Exception as e:
+                print(f"Error fetching tile name for embed: {e}")
+        # --- End fix ---
+
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
@@ -1081,6 +1125,7 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         try:
+            # 🔹 FIXED: Use self.get_team_data
             team_data = self.get_team_data(team_name)
             if not team_data:
                 await interaction.followup.send("Could not retrieve your team's data.", ephemeral=True)
@@ -1089,7 +1134,19 @@ class MonopolyCog(commands.Cog):
             position = int(team_data.get("Position", 0))
 
             # 1. Find bosses for the current tile
-            boss_list = self.tile_boss_map.get(position)
+            # 🔹 FIXED: Define tile_boss_map locally
+            tile_boss_map = {
+                1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+                4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+                8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+                13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+                18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+                21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+                25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+                31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+                35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+            }
+            boss_list = tile_boss_map.get(position)
             
             if not boss_list:
                 await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=True)
@@ -1916,7 +1973,6 @@ class MonopolyCog(commands.Cog):
                 print(f"❌ Error in clear_all_active_statuses for sheet {sheet_obj.title}: {e}")
                 
         return cards_cleared
-
 
     async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
         """
