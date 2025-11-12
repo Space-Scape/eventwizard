@@ -1123,7 +1123,8 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # 🔹 FIXED: Changed to ephemeral=False to make the response public
+        await interaction.response.defer(ephemeral=False)
         
         try:
             team_data = self.get_team_data(team_name)
@@ -1149,7 +1150,7 @@ class MonopolyCog(commands.Cog):
             boss_list = tile_boss_map.get(position)
             
             if not boss_list:
-                await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=True)
+                await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=False)
                 return
             
             boss_name_str = ", ".join(boss_list)
