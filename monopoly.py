@@ -1109,7 +1109,7 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
- def _format_gp(self, gp_value_str: str) -> str:
+    def _format_gp(self, gp_value_str: str) -> str:
         """Formats a GP string into M (Million) or K (Thousand)."""
         try:
             gp = int(str(gp_value_str).replace(',', ''))
