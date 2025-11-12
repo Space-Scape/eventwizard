@@ -1109,7 +1109,7 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
-       @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
+    @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
         team_name = None
@@ -1122,7 +1122,7 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         
         try:
             team_data = self.get_team_data(team_name)
