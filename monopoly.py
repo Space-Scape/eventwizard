@@ -1200,6 +1200,74 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message(f"An error occurred: {error}", ephemeral=True)
             print(f"Error in /show_drops: {error}")
             traceback.print_exc()
+
+    @app_commands.command(name="monopoly_help", description="Show the help and rules for the Monopoly event.")
+    async def monopoly_help(self, interaction: Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            embed1 = discord.Embed(
+                title="Where to Submit Drops",
+                description=(
+                    "Everyone must use their team channel to submit their drops. You'll use the /submit_drop command here!\n"
+                    "**⁠🎩⎮drop-log:** This is the public channel where you can see all the approved drops as they come in.\n"
+                    "**Your Team Channel:** This is your team's private HQ! It's where you'll use all your game commands "
+                    "(/roll, /use-card, /submit_drop etc.). All your team's game messages (like earning GP, paying tax, "
+                    "or getting attacked) will show up here."
+                ),
+                color=discord.Color.blue()
+            )
+            
+            embed2 = discord.Embed(
+                title="How to Play (The Basics)",
+                description=(
+                    "The whole game runs on drop submissions. Here's the loop:\n"
+                    "1. **Submit a Drop:** A team member uses /submit_drop in the #drop-submission channel\n"
+                    "2. **Get Approved:** Event Staff checks it out and approves it.\n"
+                    "3. **Get GP & a Roll:** Once it's approved, two things happen:\n"
+                    "    - Your team gets GP for the drop.\n"
+                    "    - Your team gets one roll\n"
+                    "4. **Use Your Roll:** Your team's Captain heads to your team channel and uses the /roll command.\n"
+                    "5. **Move:** The bot rolls a 1-6, and your team moves on the board.\n"
+                    "6. **Repeat:** Keep submitting those drops to get more rolls!"
+                ),
+                color=discord.Color.green()
+            )
+            
+            # 🔹 NEW: Embed 4 - Game Commands
+            embed3 = discord.Embed(
+                title="Game Commands",
+                color=discord.Color.green()
+            )
+            embed3.add_field(
+                name="For Team Captains Only!",
+                value=(
+                    "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
+                    "**/use-card:** Lets you see and use the cards your team is holding.\n"
+                    "**/buy-house:** Landed on a tile? Use this to buy a house for it (up to 4).\n"
+                    "**/customize:** Change your character's icon and color!"
+                ),
+                inline=False
+            )
+            embed3.add_field(
+                name="For Everyone on the Team!",
+                value=(
+                    # 🔹 FIXED: Added all commands as requested
+                    "**/team:** View your team's status, GP, and position.\n"
+                    "**/gp:** Curious about your GP? Use this to check the team's total.\n"
+                    "**/show_cards:** See all the cool cards your team is currently holding.\n"
+                    "**/show_drops:** Shows every drop available for the tile you're on.\n"
+                    "**/submit_drop:** Use this in your team channel to submit a drop."
+                ),
+                inline=False
+            )
+            
+            # Send all embeds
+            await interaction.followup.send(embeds=[embed1, embed2, embed3], ephemeral=True)
+        
+        except Exception as e:
+            await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
+            traceback.print_exc()
     
     @app_commands.command(name="customize", description="Open the customization panel for your team")
     async def customize(self, interaction: discord.Interaction):
