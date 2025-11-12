@@ -1109,7 +1109,6 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
-# 🔹 NEW COMMAND
     @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
@@ -1123,7 +1122,6 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
-        # 🔹 FIXED: Changed to ephemeral=False to make the response public
         await interaction.response.defer(ephemeral=False)
         
         try:
@@ -1134,8 +1132,6 @@ class MonopolyCog(commands.Cog):
 
             position = int(team_data.get("Position", 0))
 
-            # 1. Find bosses for the current tile
-            # 🔹 FIXED: Added tile_boss_map definition
             tile_boss_map = {
                 1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
                 4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
@@ -1160,7 +1156,6 @@ class MonopolyCog(commands.Cog):
                 color=discord.Color.gold()
             )
 
-            # 2. Get all item values
             try:
                 all_items = self.item_values_sheet.get_all_records()
             except Exception as e:
@@ -1168,37 +1163,36 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
                 return
                 
-            # 3. Filter items for the bosses on this tile
             drop_list_text = ""
-            found_drops = False
+            found_any_drops = False
             
-            for item in all_items:
-                # 🔹 FIXED: Changed "Boss" to "Boss Name"
-                item_boss = item.get("Boss Name")
-                if item_boss in boss_list:
-                    item_name = item.get("Item", "Unknown Item")
-                    item_gp = item.get("GP", "0")
-                    drop_list_text += f"• **{item_name}**: {item_gp} GP\n"
-                    found_drops = True
-            
-            if not found_drops:
-                # 🔹 FIXED: Updated error message hint
+            for boss in boss_list:
+                boss_drops_text = ""
+                for item in all_items:
+                    item_boss = item.get("Boss Name")
+                    if item_boss == boss:
+                        item_name = item.get("Item", "Unknown Item")
+                        item_gp = item.get("GP", "0")
+                        boss_drops_text += f"• **{item_name}**: {item_gp} GP\n"
+                        found_any_drops = True
+                
+                drop_list_text += f"\n**--- {boss} ---**\n"
+                if not boss_drops_text:
+                    drop_list_text += "No drops found for this boss.\n"
+                else:
+                    drop_list_text += boss_drops_text
+
+            if not found_any_drops:
                 drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
+
+            if len(drop_list_text) > 4096:
+                drop_list_text = drop_list_text[:4090] + "...\n(List too long to display)"
 
             embed.description = drop_list_text
             await interaction.followup.send(embed=embed, ephemeral=False)
 
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
-            traceback.print_exc()
-
-    @show_drops.error
-    async def show_drops_error(self, interaction: Interaction, error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.MissingAnyRole):
-            await interaction.response.send_message("You must be on a team to use this command.", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"An error occurred: {error}", ephemeral=True)
-            print(f"Error in /show_drops: {error}")
             traceback.print_exc()
 
     @app_commands.command(name="monopoly_help", description="Show the help and rules for the Monopoly event.")
