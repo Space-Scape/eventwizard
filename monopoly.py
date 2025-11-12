@@ -1109,6 +1109,26 @@ class MonopolyCog(commands.Cog):
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
+ def _format_gp(self, gp_value_str: str) -> str:
+        """Formats a GP string into M (Million) or K (Thousand)."""
+        try:
+            gp = int(str(gp_value_str).replace(',', ''))
+        except ValueError:
+            return gp_value_str # Return original string if it's not a number
+
+        if gp >= 1_000_000:
+            if (gp % 1_000_000) == 0:
+                return f"{gp // 1_000_000}M"
+            else:
+                return f"{gp / 1_000_000:.1f}M"
+        elif gp >= 1_000:
+            if (gp % 1_000) == 0:
+                return f"{gp // 1_000}K"
+            else:
+                return f"{gp / 1_000:.1f}K"
+        else:
+            return f"{gp:,}" # Just add commas if less than 1K
+
     @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
@@ -1122,6 +1142,7 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
+        # 🔹 FIXED: Changed to ephemeral=False to make the response public
         await interaction.response.defer(ephemeral=False)
         
         try:
@@ -1132,6 +1153,8 @@ class MonopolyCog(commands.Cog):
 
             position = int(team_data.get("Position", 0))
 
+            # 1. Find bosses for the current tile
+            # 🔹 FIXED: Added tile_boss_map definition
             tile_boss_map = {
                 1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
                 4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
@@ -1156,6 +1179,7 @@ class MonopolyCog(commands.Cog):
                 color=discord.Color.gold()
             )
 
+            # 2. Get all item values
             try:
                 all_items = self.item_values_sheet.get_all_records()
             except Exception as e:
@@ -1163,9 +1187,11 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
                 return
                 
+            # 3. Filter items for the bosses on this tile
             drop_list_text = ""
             found_any_drops = False
             
+            # 🔹 FIXED: Group drops by boss
             for boss in boss_list:
                 boss_drops_text = ""
                 for item in all_items:
@@ -1173,9 +1199,12 @@ class MonopolyCog(commands.Cog):
                     if item_boss == boss:
                         item_name = item.get("Item", "Unknown Item")
                         item_gp = item.get("GP", "0")
-                        boss_drops_text += f"• **{item_name}**: {item_gp} GP\n"
+                        # 🔹 FIXED: Use the GP formatter
+                        formatted_gp = self._format_gp(item_gp)
+                        boss_drops_text += f"• **{item_name}**: {formatted_gp} GP\n"
                         found_any_drops = True
                 
+                # Add a header for this boss
                 drop_list_text += f"\n**--- {boss} ---**\n"
                 if not boss_drops_text:
                     drop_list_text += "No drops found for this boss.\n"
@@ -1183,8 +1212,10 @@ class MonopolyCog(commands.Cog):
                     drop_list_text += boss_drops_text
 
             if not found_any_drops:
+                # 🔹 FIXED: Updated error message hint
                 drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
 
+            # Check for embed length limit
             if len(drop_list_text) > 4096:
                 drop_list_text = drop_list_text[:4090] + "...\n(List too long to display)"
 
