@@ -1228,7 +1228,7 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="monopoly_help", description="Show the help and rules for the Monopoly event.")
     async def monopoly_help(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer(ephemeral=True)
 
         try:
             embed1 = discord.Embed(
