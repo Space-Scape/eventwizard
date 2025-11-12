@@ -1203,7 +1203,7 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="monopoly_help", description="Show the help and rules for the Monopoly event.")
     async def monopoly_help(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         try:
             embed1 = discord.Embed(
@@ -1263,7 +1263,7 @@ class MonopolyCog(commands.Cog):
             )
             
             # Send all embeds
-            await interaction.followup.send(embeds=[embed1, embed2, embed3], ephemeral=True)
+            await interaction.followup.send(embeds=[embed1, embed2, embed3], ephemeral=False)
         
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
