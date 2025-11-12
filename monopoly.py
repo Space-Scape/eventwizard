@@ -903,10 +903,6 @@ class MonopolyCog(commands.Cog):
             self.cog = cog
             self.add_item(self.cog.DropSelect(cog, submitting_user, submitted_for, screenshot_url, boss))
 
-
-    # ---------------------------
-    # 🔹 Teleblock Helper Functions
-    # ---------------------------
     def get_teleblock_status(self, team_name):
         """Checks if a team is teleblocked. Returns 'yes' or 'no'."""
         try:
@@ -952,9 +948,6 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ You are not on a team.", ephemeral=True)
             return
             
-        # ---------------------------
-        # 🔹 NEW: Clear Teleblock Status
-        # ---------------------------
         self.set_teleblock_status(team_name, "no")
         
         team_chan = self.get_team_channel(team_name)
@@ -1057,8 +1050,8 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error updating Position in sheet: {e}")
 
         roll_embed = discord.Embed(
-            title=f"🎲 {team_name} rolled a {dice_roll}!",
-            description=f"**{interaction.user.display_name}** rolled a **{dice_roll}**! Moving from position **{current_pos}** to **{tile_name}**.",
+            title=f"🎲 {team_name} rolled a {result}!",
+            description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving from position **{current_pos}** to **{tile_name}**.",
             color=interaction.user.color
         )
         await interaction.followup.send(embed=roll_embed)
