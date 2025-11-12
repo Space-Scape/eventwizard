@@ -21,8 +21,6 @@ from discord import ui, Interaction, SelectOption, TextStyle, Attachment, Member
 SPREADSHEET_ID = "1OVC8HImUpoh2keU-h2v_b2gFDa4zyfWsaJxBWRoSJ08"
 TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"]
 
-# 🔹 Channel and Role IDs
-# 🔹 FIXED: Define as strings for robust comparison
 REVIEW_CHANNEL_ID = "1436465463742824499"
 LOG_CHANNEL_ID = "1436463720401211474"
 
@@ -33,40 +31,38 @@ TEAM_CHANNELS_MAP = {
     "Team 4": 1436461078287749192,
     "Team 5": 1436461117156364439
 }
-# 🔹 FIXED: Create a list of strings for comparison
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 EVENT_STAFF_ROLE_ID = 1286238788716199952
 EVENT_CAPTAIN_ROLE_ID = 1286238713210474559
 
-BOARD_SIZE = 40 # Assuming a 40-tile board
+BOARD_SIZE = 40
 
-# ========== CARD EMOJI MAPPING (NEW) ==========
+# ========== CARD EMOJI MAPPING ==========
 CARD_EMOJIS = {
     "Escape Crystal": "<:dragonstone:1273106857933668444>", 
     "Pickpocket": "<:thieving:1273603030423568514>",
     "Low Alchemy": "<:gold:1273106856515901452>",
     "High Alchemy": "<:gold:1273106856515901452>",
-    "Vengeance": "💀",
-    "Redemption": "💙",
-    "Elder Maul": "🔨",
-    "Vile Vigour": "⚕️",
-    "Varrock Tele": "🏛️",
-    "POH Voucher": "🏠",
-    "Home Tele": "🏡",
-    "Dragon Spear": "👑",
-    "Rogue's Gloves": "🧤",
-    "Lure": "🎣",
-    "Backstab": "🗡️",
-    "Smite": "⛈️",
-    "Tele Other": "🔄",
-    "Tele Block": "🌀",
-    "Chest": "📦",
-    "Chance": "❓",
+    "Vengeance": "<:venge:1438084953559797884>",
+    "Redemption": "<:redemption:1437979567900987493>",
+    "Elder Maul": "<:maul:1437979898865258668>",
+    "Vile Vigour": "<:agility:1437979594257993778>",
+    "Varrock Tele": "<:varrocktele:1438084982491840583>",
+    "POH Voucher": "<:houseicon:1438085020156821555>",
+    "Home Tele": "<:housetele:1437980013831131206>",
+    "Dragon Spear": "<:dragonspear:1437980060567994399>",
+    "Rogue's Gloves": "<:rogue_gloves:1437980096790134914>",
+    "Lure": "<:fishing:1437980297017688114>",
+    "Backstab": "<:boner:1438085053102948383>",
+    "Smite": "<:smite:1437979867084881950>",
+    "Tele Other": "<:teleother:1437980130407350375>",
+    "Tele Block": "<:teleblock:1438088930816819271>",
+    "Chest": "<:chest:1437979807362191441>",
+    "Chance": "<:questioning:1287623035381350441>"
 }
 # ============================================
 
-# For board logic
 GO_TILE = 0
 JAIL_TILE = 10
 BANK_STANDING_TILE = 20
@@ -75,13 +71,11 @@ CHEST_TILES = {2, 17, 33}
 CHANCE_TILES = {7, 22, 36}
 GLIDER_TILES = {12, 28, 38}
 
-# Tiles that grant a free roll if landed on with 0 rolls available
 ROLL_GRANTING_TILES = {GO_TILE, BANK_STANDING_TILE} | GLIDER_TILES | CHEST_TILES | CHANCE_TILES
 
 # ---------------------------
 # 🔹 Boss-Drop Mapping
 # ---------------------------
-
 boss_drops = {
     "Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Jar of venom", "Nid"],
     "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
@@ -120,7 +114,6 @@ class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         
-        # 🔹 NEW: Comprehensive check for all required environment variables
         required_env_vars = [
             'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID', 
             'EVENT_PRIVATE_KEY', 'EVENT_CLIENT_EMAIL', 'EVENT_CLIENT_ID', 
@@ -135,7 +128,7 @@ class MonopolyCog(commands.Cog):
             for var in missing_vars:
                 print(f"- {var}")
             print("Monopoly Cog will not load.")
-            return # Stop initialization
+            return
 
         print("✅ Monopoly Cog: All required environment variables are present.")
 
@@ -144,18 +137,13 @@ class MonopolyCog(commands.Cog):
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # 🔹 FIXED: Check for private key before using .replace()
         private_key_env = os.getenv('EVENT_PRIVATE_KEY')
-        # This check is now slightly redundant due to the comprehensive check above,
-        # but the .replace() logic is still needed.
         if not private_key_env:
-            # This should not be reachable if the check above is working
             print("❌ FATAL ERROR: 'EVENT_PRIVATE_KEY' environment variable is not set.")
             private_key_formatted = None
         else:
             private_key_formatted = private_key_env.replace("\\n", "\n")
 
-        # Load credentials from environment variables
         credentials_dict = {
             "type": os.getenv('EVENT_TYPE'),
             "project_id": os.getenv('EVENT_PROJECT_ID'),
@@ -170,15 +158,12 @@ class MonopolyCog(commands.Cog):
             "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
         }
         
-        # 🔹 FIXED: Added try...except block for robust sheet loading
         try:
             creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
             sheet_client = gspread.authorize(creds)
             
-            # 🔹 FIXED: Use the SPREADSHEET_ID from config, not a hardcoded one
             sheet = sheet_client.open_by_key(SPREADSHEET_ID)
 
-            # 🔹 FIXED: Load all required sheets into self. variables
             print("Attempting to load worksheets...")
             self.command_log = sheet.worksheet("Command Log")
             print("... loaded Command Log")
@@ -195,10 +180,6 @@ class MonopolyCog(commands.Cog):
             self.house_data_sheet = sheet.worksheet("HouseData")
             print("... loaded HouseData")
             
-            # This sheet was in your original __init__, but seems to be from a different key
-            # self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
-            # For now, I've commented it out. If you need it, uncomment it and make sure it's assigned to self.
-            
             print("✅ Monopoly Cog: Google Sheets initialized.")
 
         except gspread.exceptions.SpreadsheetNotFound:
@@ -213,11 +194,9 @@ class MonopolyCog(commands.Cog):
             else:
                 print(f"❌ FATAL ERROR: An API error occurred: {e}")
         except Exception as e:
-            # 🔹 MODIFIED: Print the full traceback to identify the exact error
             print(f"❌ FATAL ERROR: An unexpected error occurred during GSheets initialization:")
-            traceback.print_exc() # This will print the full error
+            traceback.print_exc()
             print("This might be due to incorrect 'EVENT_' credentials in your .env file.")
-
 
     # ========= Helper Functions =========
     def log_command(self, player_name, command, args_dict):
@@ -266,7 +245,6 @@ class MonopolyCog(commands.Cog):
                     return color_hex
         except Exception as e:
             print(f"❌ Error fetching color for {team_name}: {e}")
-        # Default fallback
         return "#FFFFFF"
 
 
@@ -282,7 +260,6 @@ class MonopolyCog(commands.Cog):
                 tile = int(record.get("Tile", 0) or 0)
                 owner = record.get("OwnerTeam", "")
                 if tile > 0 and owner:
-                    # Get team color from TeamData
                     color = self.get_team_house_color(owner)
                     houses.append({"tile": tile, "color": color})
             return houses
@@ -304,22 +281,22 @@ class MonopolyCog(commands.Cog):
                 data = self.house_data_sheet.get_all_records()
                 updated = False
 
-                for idx, row in enumerate(data, start=2):  # row 1 is headers
+                for idx, row in enumerate(data, start=2):
                     if int(row.get("Tile", 0)) == tile_number:
                         if row.get("OwnerTeam", "") == team_name:
                             count = int(row.get("HouseCount", 0)) + 1
                         else:
                             count = 1
 
-                        self.house_data_sheet.update_acell(f"C{idx}", team_name)  # OwnerTeam col
-                        self.house_data_sheet.update_acell(f"D{idx}", str(count))  # HouseCount col
+                        self.house_data_sheet.update_acell(f"C{idx}", team_name)
+                        self.house_data_sheet.update_acell(f"D{idx}", str(count))
                         updated = True
-                        print(f"🏠 Updated existing house on tile {tile_number} for {team_name} (now {count} houses).")
+                        print(f"<:housetele:1437980013831131206> Updated existing house on tile {tile_number} for {team_name} (now {count} houses).")
                         break
 
                 if not updated:
                     self.house_data_sheet.append_row([tile_number, "", team_name, 1])
-                    print(f"🏠 Added new free house for {team_name} on tile {tile_number}.")
+                    print(f"<:housetele:1437980013831131206> Added new free house for {team_name} on tile {tile_number}.")
 
                 return True
 
@@ -580,7 +557,6 @@ class MonopolyCog(commands.Cog):
                 return
 
             try:
-                # 🔹 FIXED: Defer immediately to prevent 10062 timeout error
                 await interaction.response.defer(ephemeral=True)
 
                 embed = self.message.embeds[0]
@@ -629,8 +605,8 @@ class MonopolyCog(commands.Cog):
                     gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
-                    final_gp_value = base_gp_value * gp_multiplier  # Apply multiplier
-                    original_gp_value_pre_tax = final_gp_value # 🔹 Store original value
+                    final_gp_value = base_gp_value * gp_multiplier
+                    original_gp_value_pre_tax = final_gp_value
 
                     if gp_multiplier > 1 and consumed_card_name:
                         emoji = CARD_EMOJIS.get(consumed_card_name, "")
@@ -662,7 +638,7 @@ class MonopolyCog(commands.Cog):
                                 tax_map = {1: 0.05, 2: 0.10, 3: 0.20, 4: 0.40}
                                 tax_percent = tax_map.get(house_count, 0)
                                 tax_amount = int(final_gp_value * tax_percent)
-                                final_gp_value -= tax_amount  # Deduct tax before awarding
+                                final_gp_value -= tax_amount
 
                         headers = self.cog.team_data_sheet.row_values(1)
                         try:
@@ -697,13 +673,13 @@ class MonopolyCog(commands.Cog):
                                     break
                             
                             tax_message = (
-                                f"🏠 **House Tax:** {team_name} paid **{tax_amount:,} GP** "
+                                f"<:house:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
                                 f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
                                 f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
                             )
-                            if team_chan: # Submitter's channel
+                            if team_chan:
                                 await team_chan.send(tax_message)
-                            if owner_team_chan: # Owner's channel
+                            if owner_team_chan:
                                 await owner_team_chan.send(tax_message)
 
                 except Exception as e:
@@ -712,7 +688,6 @@ class MonopolyCog(commands.Cog):
                 # ==========================================================
                 # 🔹 Team Data Sheet Records  
                 # ==========================================================
-
                 if team_name and team_name != "*No team*":
                     try:
                         records = self.cog.team_data_sheet.get_all_records()
@@ -739,7 +714,6 @@ class MonopolyCog(commands.Cog):
                             self.cog.increment_rolls_available(team_name)
                             print(f"✅ Roll granted: Team {team_name} on tile {current_tile} ({self.boss})")
                             
-                            # 🔹 NEW: Notify the team they received a roll
                             if team_chan:
                                 roll_grant_embed = discord.Embed(
                                     title="🎲 Roll Granted!",
@@ -755,13 +729,11 @@ class MonopolyCog(commands.Cog):
                     except Exception as e:
                         print(f"❌ Error checking tile before granting roll: {e}")
 
-                # 🔹 FIXED: Use followup.send instead of response.send_message
                 await interaction.followup.send("✅ Drop approved and logged.", ephemeral=True)
 
             except Exception as e:
                 print(f"❌ Error in approve_button: {e}")
-                # 🔹 FIXED: Use followup.send instead of response.send_message
-                await interaction.followup.send(f"Error approving drop: {e}", ephemeral=True)
+                await interaction.followup.send(f"❌ Error approving drop: {e}", ephemeral=True)
 
         @ui.button(label="Reject Drop", style=discord.ButtonStyle.danger, custom_id="reject_drop")
         async def reject_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -935,7 +907,6 @@ class MonopolyCog(commands.Cog):
     # ---------------------------
     # 🔹 Teleblock Helper Functions
     # ---------------------------
-
     def get_teleblock_status(self, team_name):
         """Checks if a team is teleblocked. Returns 'yes' or 'no'."""
         try:
@@ -963,7 +934,6 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="roll", description="Roll a dice (1-6)")
     async def roll(self, interaction: discord.Interaction):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -999,7 +969,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error clearing active statuses: {e}")
 
-        # Fetch initial data and determine row/indices
         records = self.team_data_sheet.get_all_records()
         team_data_values = self.team_data_sheet.get_all_values()
         headers = team_data_values[0]
@@ -1072,7 +1041,6 @@ class MonopolyCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Error updating sheet for Pass Go: {e}")
 
-        # 2. Apply special tile movement logic (teleports) to the calculated new_pos
         if new_pos == 12:
             new_pos = 28 if current_tile != 38 else 12
         elif new_pos == 28:
@@ -1080,16 +1048,14 @@ class MonopolyCog(commands.Cog):
         elif new_pos == 38:
             new_pos = 12 if current_tile != 28 else 38
         elif new_pos == 30:
-            new_pos = JAIL_TILE # Go to Jail
-            go_message = "🚨 **GO TO JAIL!** You land on tile 30 and are immediately sent to tile 10."
+            new_pos = JAIL_TILE
+            go_message = "⛓️ **GO TO JAIL!** You land on tile 30 and are immediately sent to tile 10."
 
-        # 3. Update position in sheet with the final calculated position
         try:
             self.team_data_sheet.update_cell(team_row_index, pos_col_index, new_pos)
         except Exception as e:
             print(f"❌ Error updating Position in sheet: {e}")
 
-        # 4. Send roll embed and Go message
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to tile **{new_pos}**.",
@@ -1100,27 +1066,22 @@ class MonopolyCog(commands.Cog):
         if go_message:
             await interaction.channel.send(go_message)
             
-        # 5. Handle Post-Move Landings (Card Draw and Free Roll if needed)
         if not team_chan:
             print(f"❌ Log channel {LOG_CHANNEL_ID} not found, can't send card embeds.")
             return
 
-        # This function now handles both card draws AND free roll grants
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
     @app_commands.command(name="customize", description="Open the customization panel for your team")
     async def customize(self, interaction: discord.Interaction):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
             )
             return
 
-        await interaction.response.defer(ephemeral=True) # Defer the response
+        await interaction.response.defer(ephemeral=True)
         team_name = self.get_team(interaction.user) or "*No team*"
-        
-        # 🔹 FIXED: Run blocking sheet I/O in an executor
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
             None,
@@ -1136,7 +1097,6 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="gp", description="Check your team's current GP balance.")
     async def gp(self, interaction: discord.Interaction):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -1144,28 +1104,22 @@ class MonopolyCog(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=False)  
-
         team_name = self.get_team(interaction.user)
         if not team_name:
             await interaction.followup.send("❌ You must be on a team to check GP.", ephemeral=True)
             return
-
         try:
             records = self.team_data_sheet.get_all_records()
             team_gp = 0
-            team_passes = 0
             found_team = False
             for record in records:
                 if record.get("Team") == team_name:
                     team_gp = int(record.get("GP", 0) or 0)
-                    team_passes = int(record.get("Go Passes", 0) or 0) # 🔹 UPDATED: Use "Go Passes"
                     found_team = True
                     break
-            
             if not found_team:
                 await interaction.followup.send(f"❌ Could not find data for **{team_name}**.", ephemeral=True)
                 return
-
             embed = discord.Embed(
                 title=f"<:MaxCash:1347684049040183427> {team_name} Team Status",
                 color=discord.Color.gold()
@@ -1175,51 +1129,36 @@ class MonopolyCog(commands.Cog):
                 value=f"**{team_gp:,} GP**",
                 inline=False
             )
-            embed.add_field(
-                name="Go Passes", # 🔹 UPDATED: Use "Go Passes"
-                value=f"**{team_passes}** passes",
-                inline=False
-            )
             await interaction.followup.send(embed=embed)
-
         except Exception as e:
             print(f"❌ Error in /gp command: {e}")
             await interaction.followup.send("❌ An error occurred while fetching GP balance.", ephemeral=True)
 
     @app_commands.command(name="stats", description="Show GP and Go Passes for all teams.")
     async def stats(self, interaction: discord.Interaction):
-        # 🔹 NEW: Public /stats command
         await interaction.response.defer(ephemeral=False)
-        
         try:
             records = self.team_data_sheet.get_all_records()
-            
             if not records:
                 await interaction.followup.send("❌ Team data is unavailable.", ephemeral=True)
                 return
-
             gp_list = []
             go_passes_list = []
-            
             for record in records:
                 team_name = record.get("Team", "Unknown Team")
                 
-                # GP
                 team_gp_str = str(record.get("GP", 0)).replace(',', '').strip()
                 team_gp = int(team_gp_str) if team_gp_str and team_gp_str.isdigit() else 0
                 
-                # Passes Go Count
-                team_passes_str = str(record.get("Go Passes", 0)).replace(',', '').strip() # 🔹 UPDATED: Use "Go Passes"
+                team_passes_str = str(record.get("Go Passes", 0)).replace(',', '').strip()
                 team_passes = int(team_passes_str) if team_passes_str and team_passes_str.isdigit() else 0
                 
                 gp_list.append({"team": team_name, "value": team_gp})
                 go_passes_list.append({"team": team_name, "value": team_passes})
                 
-            # Sort lists
             gp_list.sort(key=lambda x: x["value"], reverse=True)
             go_passes_list.sort(key=lambda x: x["value"], reverse=True)
 
-            # Format output
             gp_output = ""
             for i, entry in enumerate(gp_list, 1):
                 gp_output += f"**{i}. {entry['team']}**: {entry['value']:,} GP\n"
@@ -1230,7 +1169,7 @@ class MonopolyCog(commands.Cog):
 
             embed = discord.Embed(
                 title="🌐 Monopoly Board Leaderboard",
-                description="Current financial and progress stats for all teams.",
+                description="Current progress stats for all teams.",
                 color=discord.Color.blue()
             )
             
@@ -1238,7 +1177,7 @@ class MonopolyCog(commands.Cog):
                 embed.add_field(name="<:MaxCash:1347684049040183427> GP Holdings", value=gp_output, inline=False)
                 
             if passes_output:
-                embed.add_field(name="🚶 Go Passes", value=passes_output, inline=False) # 🔹 UPDATED: Use "Go Passes"
+                embed.add_field(name="🚶 Go Passes", value=passes_output, inline=False)
                 
             await interaction.followup.send(embed=embed)
 
@@ -1247,29 +1186,24 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ An error occurred while fetching leaderboard data.", ephemeral=True)
 
-
     @app_commands.command(name="buy_house", description="Attempt to buy a house on your current tile.")
     async def buy_house(self, interaction: discord.Interaction):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
             )
             return
-            
         if not self.has_event_captain_role(interaction.user):
             await interaction.response.send_message(
                 "❌ Only the Event Captain can use this command.", ephemeral=True
             )
             return
-
         await interaction.response.defer(ephemeral=False)
         
         team_name = self.get_team(interaction.user)
         if not team_name:
             await interaction.followup.send("❌ You must be on a team to buy a house.", ephemeral=True)
             return
-        
         try:
             COST_MAP = {
                 0: 15_000_000,
@@ -1327,8 +1261,8 @@ class MonopolyCog(commands.Cog):
             property_row_index = -1
 
             if not house_data_values or len(house_data_values) < 2:
-                print("❌🏠 HouseData sheet is empty or has no headers.")
-                await interaction.followup.send("❌🏠 HouseData sheet is empty.", ephemeral=True)
+                print("❌ HouseData sheet is empty or has no headers.")
+                await interaction.followup.send("❌ HouseData sheet is empty.", ephemeral=True)
                 return
                 
             headers = house_data_values[0]
@@ -1355,7 +1289,7 @@ class MonopolyCog(commands.Cog):
             
             if not property_row_data:
                 await interaction.followup.send(
-                    "❌🏠 You cannot buy a house on this tile. (It may not be a buyable property)", 
+                    "❌ You cannot buy a house on this tile. (It may not be a buyable property)", 
                     ephemeral=True
                 )
                 return
@@ -1366,13 +1300,13 @@ class MonopolyCog(commands.Cog):
                 
                 if owner_team and owner_team != team_name:
                     await interaction.followup.send(
-                        f"❌🏠 You cannot buy here. This property is owned by **{owner_team}**.", 
+                        f"❌ You cannot buy here. This property is owned by **{owner_team}**.", 
                         ephemeral=True
                     )
                     return
                 
             except IndexError:
-                await interaction.followup.send("❌🏠 This property does not have an owner column.", ephemeral=True)
+                await interaction.followup.send("❌ This property does not have an owner column.", ephemeral=True)
                 return
 
             house_count = 0
@@ -1380,7 +1314,7 @@ class MonopolyCog(commands.Cog):
                 house_count = int(property_row_data[count_col_idx] or 0)
                 if house_count >= 4:
                     await interaction.followup.send(
-                        "❌🏠 This property already has the maximum of 4 houses.", 
+                        "❌ This property already has the maximum of 4 houses.", 
                         ephemeral=True
                     )
                     return
@@ -1390,12 +1324,12 @@ class MonopolyCog(commands.Cog):
             house_cost = COST_MAP.get(house_count)
             if house_cost is None:  
                 print(f"❌ Error: Could not determine house cost for count {house_count}")
-                await interaction.followup.send("❌🏠 Cannot determine house cost. Max houses may be reached.", ephemeral=True)
+                await interaction.followup.send("❌ Cannot determine house cost. Max houses may be reached.", ephemeral=True)
                 return
 
             if current_gp < house_cost:
                 await interaction.followup.send(
-                    f"❌🏠 You do not have enough GP to buy this house. You need **{house_cost:,.0f}** GP, but you only have **{current_gp:,.0f}** GP.",
+                    f"❌ You do not have enough GP to buy this house. You need **{house_cost:,.0f}** GP, but you only have **{current_gp:,.0f}** GP.",
                     ephemeral=True
                 )
                 return
@@ -1423,18 +1357,17 @@ class MonopolyCog(commands.Cog):
             self.set_bought_house_flag(team_name, "yes")
             
             buy_message = (
-                f"🏠 **{team_name}** purchased a house for **{house_cost:,.0f}** GP on tile {current_pos}!\n"
-                f"This property now has **{new_house_count}** house(s).\n"
+                f"<:house:1438085020156821555> **{team_name}** purchased a house for **{house_cost:,.0f}** GP on tile {current_pos}!\n"
                 f"Your team's new balance is **{new_gp:,.0f}** GP."
             )
-            await interaction.followup.send(buy_message, ephemeral=False) # Team channel
+            await interaction.followup.send(buy_message, ephemeral=False)
             
         except gspread.exceptions.APIError as e:
             print(f"❌ Google Sheets API error in /buy_house: {e}")
             await interaction.followup.send("❌ A database error occurred. Please try again.", ephemeral=True)
         except Exception as e:
             print(f"❌ General error in /buy_house: {e}")
-            traceback.print_exc() # Print full error for debugging
+            traceback.print_exc()
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
@@ -1474,11 +1407,10 @@ class MonopolyCog(commands.Cog):
                 eligible_cards = []
                 for i, row in enumerate(rows, start=2):
                     held_by = str(row.get("Held By Team", ""))
-                    if held_by == "": # Find a card no one holds
+                    if held_by == "":
                         eligible_cards.append({"index": i, "data": row})
                 
                 if not eligible_cards:
-                    # 🔹 FIXED: IndentationError
                     await team_channel.send(f"❗ **{team_name}** tried to draw a Chance card, but none were available!")
                     return
                     
@@ -1504,9 +1436,9 @@ class MonopolyCog(commands.Cog):
                     print(f"✅ Stored wildcard {wildcard_data} for {team_name} in {card_type} sheet")
 
 
-                card_sheet.update_cell(card_row_index, 3, team_name) # Update Col C
+                card_sheet.update_cell(card_row_index, 3, team_name)
             
-            else: # Chest card logic
+            else:
                 eligible_cards = []
                 for i, row in enumerate(rows, start=2):
                     held_by = str(row.get("Held By Team", ""))
@@ -1514,7 +1446,6 @@ class MonopolyCog(commands.Cog):
                         eligible_cards.append({"index": i, "data": row})
                 
                 if not eligible_cards:
-                    # 🔹 FIXED: IndentationError (Just in case, though this logic seems different)
                     await team_channel.send(f"❗ **{team_name}** tried to draw a {card_type} card, but none were available!")
                     return
 
@@ -1525,12 +1456,10 @@ class MonopolyCog(commands.Cog):
                 
                 new_roll = None
 
-
                 if "%d6" in card_text:
                     d6_roll = random.randint(1, 6)
                     new_roll = d6_roll
                     
-
                     try:
                         wildcard_data_str = card_sheet.cell(card_row_index, 4).value or "{}"
                         wildcard_data = json.loads(wildcard_data_str)
@@ -1558,7 +1487,6 @@ class MonopolyCog(commands.Cog):
 
                 held_by_str = str(card_sheet.cell(card_row_index, 3).value or "")
                 
-                # 🔹 BUGFIX: Correctly append team to a list of teams
                 teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
                 if team_name not in teams:
                     teams.append(team_name)
@@ -1571,7 +1499,6 @@ class MonopolyCog(commands.Cog):
                 card_text_display = card_text_display.replace("%d6", str(new_roll))
                 card_text_display = card_text_display.replace("%d3", str(new_roll))
             
-            # 🔹 FIXED: Get specific emoji for the card
             card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type))
 
             embed = discord.Embed(
@@ -1673,7 +1600,7 @@ class MonopolyCog(commands.Cog):
             team_status = vengeance_wildcard_data.get(target_team_name)
             if team_status and isinstance(team_status, str) and team_status.strip() == "active":
                 del vengeance_wildcard_data[target_team_name]
-                self.chance_sheet.update_cell(vengeance_row_index, wildcard_col + 1, json.dumps(vengeance_wildcard_data)) # +1 for 1-based index
+                self.chance_sheet.update_cell(vengeance_row_index, wildcard_col + 1, json.dumps(vengeance_wildcard_data))
                 
                 held_by_str = str(self.chance_sheet.cell(vengeance_row_index, held_by_col + 1).value or "")
                 teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
@@ -1726,7 +1653,7 @@ class MonopolyCog(commands.Cog):
             team_status = redemption_wildcard_data.get(target_team_name)
             if team_status and isinstance(team_status, str) and team_status.strip() == "active":
                 del redemption_wildcard_data[target_team_name]
-                self.chance_sheet.update_cell(redemption_row_index, wildcard_col + 1, json.dumps(redemption_wildcard_data)) # +1 for 1-based index
+                self.chance_sheet.update_cell(redemption_row_index, wildcard_col + 1, json.dumps(redemption_wildcard_data))
                 
                 held_by_str = str(self.chance_sheet.cell(redemption_row_index, held_by_col + 1).value or "")
                 teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
@@ -1774,12 +1701,11 @@ class MonopolyCog(commands.Cog):
             
             if card_row_index == -1:
                 print("❗ Elder Maul card not found on chance sheet.")
-                return False # Card not found
-
+                return False
             team_status = card_wildcard_data.get(target_team_name)
             if team_status and isinstance(team_status, str) and team_status.strip() == "active":
                 del card_wildcard_data[target_team_name]
-                self.chance_sheet.update_cell(card_row_index, wildcard_col + 1, json.dumps(card_wildcard_data)) # +1 for 1-based index
+                self.chance_sheet.update_cell(card_row_index, wildcard_col + 1, json.dumps(card_wildcard_data))
                 
                 held_by_str = str(self.chance_sheet.cell(card_row_index, held_by_col + 1).value or "")
                 teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
@@ -1851,7 +1777,7 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in check_and_consume_alchemy: {e}")
             
-        return 1, None # Default multiplier
+        return 1, None
 
     def clear_all_active_statuses(self, team_name: str):
         """
@@ -1880,7 +1806,6 @@ class MonopolyCog(commands.Cog):
                     if len(row) <= max(name_col, held_by_col, wildcard_col):
                         continue
                     
-                    # 🔹 FIXED: Skip Alchemy cards
                     card_name = row[name_col]
                     if card_name in ("Low Alchemy", "High Alchemy"):
                         continue
@@ -1939,7 +1864,6 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Cannot award card on land: Team channel for {team_name} not found.")
             return
 
-        # 1. Check for Free Roll Grant
         if new_pos in ROLL_GRANTING_TILES:
             try:
                 rolls_available = self.get_team_rolls(team_name)
@@ -1976,7 +1900,6 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="show_cards", description="Show all cards currently held by your team.")
     async def show_cards(self, interaction: discord.Interaction):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -2004,7 +1927,7 @@ class MonopolyCog(commands.Cog):
 
         if chest_cards:
             for i, card in enumerate(chest_cards, start=1):
-                emoji = CARD_EMOJIS.get(card['name'], "📦")
+                emoji = CARD_EMOJIS.get(card['name'], "<:chest:1437979807362191441>")
                 embed.add_field(
                     name=f"{emoji} [{i}] Chest Card — {card['name']}",
                     value=f"```{card['text']}```",
@@ -2014,7 +1937,7 @@ class MonopolyCog(commands.Cog):
         offset = len(chest_cards)
         if chance_cards:
             for i, card in enumerate(chance_cards, start=1):
-                emoji = CARD_EMOJIS.get(card['name'], "❓")
+                emoji = CARD_EMOJIS.get(card['name'], "<:questioning:1287623035381350441>")
                 embed.add_field(
                     name=f"{emoji} [{i+offset}] Chance Card — {card['name']}",
                     value=f"```{card['text']}```",
@@ -2049,11 +1972,11 @@ class MonopolyCog(commands.Cog):
         try:
             team_data_headers = self.team_data_sheet.row_values(1)
             gp_col_index = team_data_headers.index("GP") + 1
-            teleblocked_col_index = team_data_headers.index("Teleblocked") + 1 # 🔹 NEW
+            teleblocked_col_index = team_data_headers.index("Teleblocked") + 1
         except ValueError as e:
             if 'GP' in str(e):
                 await interaction.followup.send("❌ Data sheet error: Missing 'GP' column.", ephemeral=True)
-            elif 'Teleblocked' in str(e): # 🔹 NEW
+            elif 'Teleblocked' in str(e):
                 await interaction.followup.send("❌ Data sheet error: Missing 'Teleblocked' column. Please add it.", ephemeral=True)
             else:
                 await interaction.followup.send(f"❌ Data sheet error: {e}", ephemeral=True)
@@ -2075,19 +1998,19 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(f"❌ Invalid card index. Use `/show_cards` and pick a number between 1 and {len(all_cards)}.", ephemeral=True)
             return
         
-        selected_card = all_cards[index - 1] # Convert 1-based index to 0-based
+        selected_card = all_cards[index - 1]
         card_type = "Chest" if (index - 1) < len(chest_cards) else "Chance"
         card_sheet = self.chest_sheet if card_type == "Chest" else self.chance_sheet
         card_row = selected_card['row_index']
         
         card_name = selected_card['name']
-        card_emoji = CARD_EMOJIS.get(card_name, "✅") # Default to checkmark if not found
+        card_emoji = CARD_EMOJIS.get(card_name, "✅")
         
         stored_roll = None
         final_card_text = selected_card['text']
         
         is_status_activation = False
-        embed_description = "" # Initialize embed description
+        embed_description = ""
         
         loop = asyncio.get_event_loop()
 
@@ -2114,7 +2037,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True # Mark as activation
                 
-                embed_description = f"**{team_name}** used **Vengeance**!\n\n> The next card effect used on them will be rebounded."
+                embed_description = f"<:venge:1438084953559797884> **{team_name}** used **Vengeance**!\n\n> The next card effect used on them will be rebounded."
 
             elif card_name == "Redemption":
                 if team_wildcard_value == "active":
@@ -2125,7 +2048,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True # Mark as activation
                 
-                embed_description = f"**{team_name}** used **Redemption**!\n\n> The next negative card effect used on your team will be fizzled."
+                embed_description = f"<:redemption:1437979567900987493> **{team_name}** used **Redemption**!\n\n> The next negative card effect used on your team will be fizzled."
 
             elif card_name == "Elder Maul":
                 if team_wildcard_value == "active":
@@ -2136,7 +2059,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True # Mark as activation
                 
-                embed_description = f"**{team_name}** used **Elder Maul**!\n\n> The next negative card effect used on your team will be reduced."
+                embed_description = f"<:maul:1437979898865258668> **{team_name}** used **Elder Maul**!\n\n> The next negative card effect used on your team will be reduced."
 
             elif card_name == "Low Alchemy":
                 if team_wildcard_value == "active":
@@ -2147,7 +2070,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True # Mark as activation
                 
-                embed_description = f"**{team_name}** used **Low Alchemy**!\n\n> Your next drop this turn will be worth **double GP**."
+                embed_description = f"<:gold:1273106856515901452> **{team_name}** used **Low Alchemy**!\n\n> Your next drop this turn will be worth **double GP**."
                 
             elif card_name == "High Alchemy":
                 if team_wildcard_value == "active":
@@ -2158,7 +2081,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True # Mark as activation
                 
-                embed_description = f"**{team_name}** used **High Alchemy**!\n\n> Your next drop this turn will be worth **triple GP**."
+                embed_description = f"<:gold:1273106856515901452> **{team_name}** used **High Alchemy**!\n\n> Your next drop this turn will be worth **triple GP**."
                 
             elif card_name == "Vile Vigour" and isinstance(team_wildcard_value, int):
                 stored_roll = team_wildcard_value
@@ -2174,8 +2097,7 @@ class MonopolyCog(commands.Cog):
                 
                 if caster_pos == -1:
                     await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return # Stop, card is not consumed
-
+                    return
                 if rolls_available == 0:
                     self.increment_rolls_available(team_name)
                     embed_description = "> 🎲 You had no rolls available, so you gained one for the forced move/teleport.\n\n"
@@ -2195,7 +2117,7 @@ class MonopolyCog(commands.Cog):
                     "/card_effect_move",  
                     {"team": team_name, "move": stored_roll}
                 )
-                embed_description += f"**{team_name}** used **Vile Vigour** and moved **{stored_roll}** spaces forward!"
+                embed_description += f"<:agility:1437979594257993778> **{team_name}** used **Vile Vigour** and moved **{stored_roll}** spaces forward!"
 
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
 
@@ -2224,41 +2146,41 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Card effect failed: No other teams are on your tile.", ephemeral=True)
                     return 
 
-                embed_description = f"**{team_name}** used **Dragon Spear**!\n\n"
+                embed_description = f"<:dragonspear:1437980060567994399> **{team_name}** used **Dragon Spear**!\n\n"
                 for target_team in targets:
                     victim_channel = self.get_team_channel(target_team)
                     if self.check_and_consume_redemption(target_team):
-                        embed_description += f"🩵 **{target_team}**'s Redemption activated!\n"
+                        embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated!\n"
                         if victim_channel:
-                            fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                            fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", color=discord.Color.blue())
                             await victim_channel.send(embed=fizzle_embed)
-                        continue 
+                        continue  
                             
                     if self.check_and_consume_vengeance(target_team):
                         elder_maul_active = self.check_and_consume_elder_maul(team_name)
                         final_move_amount = move_amount
                         if elder_maul_active:
                             final_move_amount = -(max(0, stored_roll - 1))
-                            embed_description += f"🛡️ **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
-                            maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
+                            embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
+                            maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
                             await interaction.channel.send(embed=maul_embed)
                         
                         new_pos = max(0, caster_pos + final_move_amount)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": team_name, "move": final_move_amount})
-                        embed_description += f"💀 **{target_team}** had Vengeance! The effect was rebounded!\n"
+                        embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n"
                         await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
-                        skull_embed = discord.Embed(title="💀 Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces!", color=discord.Color.dark_red())
+                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
-                        continue 
+                        continue  
                     
                     else:
                         elder_maul_active = self.check_and_consume_elder_maul(target_team)
                         final_move_amount = move_amount
                         if elder_maul_active:
                             final_move_amount = -(max(0, stored_roll - 1))
-                            embed_description += f"🛡️ **{target_team}**'s Elder Maul activated! Effect reduced.\n"
+                            embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Effect reduced.\n"
                             if victim_channel:
-                                maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
+                                maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
                                 await victim_channel.send(embed=maul_embed)
                         
                         target_pos = caster_pos 
@@ -2352,10 +2274,10 @@ class MonopolyCog(commands.Cog):
                 victim_channel = self.get_team_channel(victim_team)
 
                 if self.check_and_consume_redemption(victim_team):
-                    embed_description = f"**{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n🩵 But **{victim_team}**'s Redemption activated!"
+                    embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
                     if victim_channel:
                         fizzle_embed = discord.Embed(
-                            title="🩵 Redemption Activated!",
+                            title="<:redemption:1437979567900987493> Redemption Activated!",
                             description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Redemption** activated!",
                             color=discord.Color.blue()
                         )
@@ -2380,7 +2302,7 @@ class MonopolyCog(commands.Cog):
                     except Exception as e:
                         print(f"❌ Error transferring wildcard data: {e}")
 
-                    embed_description = f"**{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
+                    embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
                     
                     if victim_channel:
                         victim_embed = discord.Embed(
@@ -2424,13 +2346,13 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Card effect failed: No teams have enough wealth to steal from (min 5M GP).", ephemeral=True)
                     return 
 
-                embed_description = f"**{team_name}** used **Pickpocket** on **{target_team}**!\n\n"
+                embed_description = f"<:thieving:1273603030423568514> **{team_name}** used **Pickpocket** on **{target_team}**!\n\n"
                 victim_channel = self.get_team_channel(target_team)
 
                 if self.check_and_consume_redemption(target_team):
-                    embed_description += f"🩵 **{target_team}**'s Redemption activated!"
+                    embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(target_team):
@@ -2438,8 +2360,8 @@ class MonopolyCog(commands.Cog):
                     final_steal_amount = steal_amount
                     if elder_maul_active:
                         final_steal_amount = steal_amount // 2
-                        embed_description += f"🛡️ **{team_name}**'s Elder Maul activated! Rebounded loss halved.\n"
-                        maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"Your **Elder Maul** activated and halved the GP you lost from Vengeance!", color=discord.Color.light_grey())
+                        embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded loss halved.\n"
+                        maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and halved the GP you lost from Vengeance!", color=discord.Color.light_grey())
                         await interaction.channel.send(embed=maul_embed)
                     
                     new_caster_gp = max(0, caster_gp - final_steal_amount)
@@ -2448,8 +2370,8 @@ class MonopolyCog(commands.Cog):
                     self.team_data_sheet.update_cell(caster_row, gp_col_index, new_caster_gp)
                     self.team_data_sheet.update_cell(target_row, gp_col_index, new_target_gp)
 
-                    embed_description += f"💀 **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** loses **{final_steal_amount:,} GP**!"
-                    skull_embed = discord.Embed(title="💀 Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYou lose **{final_steal_amount:,} GP**!", color=discord.Color.dark_red())
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** loses **{final_steal_amount:,} GP**!"
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYou lose **{final_steal_amount:,} GP**!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed)
 
                 else:
@@ -2457,9 +2379,9 @@ class MonopolyCog(commands.Cog):
                     final_steal_amount = steal_amount
                     if elder_maul_active:
                         final_steal_amount = steal_amount // 2
-                        embed_description += f"🛡️ **{target_team}**'s Elder Maul activated! Steal amount halved.\n"
+                        embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Steal amount halved.\n"
                         if victim_channel:
-                            maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Elder Maul** reduced the amount stolen!", color=discord.Color.light_grey())
+                            maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Elder Maul** reduced the amount stolen!", color=discord.Color.light_grey())
                             await victim_channel.send(embed=maul_embed)
                     
                     new_caster_gp = caster_gp + final_steal_amount
@@ -2508,9 +2430,9 @@ class MonopolyCog(commands.Cog):
                 victim_channel = self.get_team_channel(target_team)
 
                 if self.check_and_consume_redemption(target_team):
-                    embed_description = f"**{team_name}** tried to use **Lure** on **{target_team}**...\n\n🩵 But **{target_team}**'s Redemption activated!"
+                    embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
                 
                 else:
@@ -2519,13 +2441,13 @@ class MonopolyCog(commands.Cog):
                         "/card_effect_set_tile",
                         {"team": target_team, "tile": caster_pos}
                     )
-                    embed_description = f"**{team_name}** used **Lure**!\n\n🎣 **{target_team}** (on tile {target_pos}) was lured to your tile (tile {caster_pos})!"
+                    embed_description = f"<:fishing:1437980297017688114> **{team_name}** used **Lure**!\n\n🎣 **{target_team}** (on tile {target_pos}) was lured to your tile (tile {caster_pos})!"
                     
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being lured to")
 
             elif card_name == "Escape Crystal":
                 if self.get_teleblock_status(team_name) == "yes":
-                    await interaction.followup.send("🌀 You are Teleblocked! You cannot use this card, even in jail!", ephemeral=True)
+                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card, even in jail!", ephemeral=True)
                     return 
                 all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
@@ -2539,7 +2461,7 @@ class MonopolyCog(commands.Cog):
                     return 
 
                 self.increment_rolls_available(team_name)
-                embed_description = f"**{team_name}** used the **Escape Crystal** on tile 10!\n\n> 🎲 You have gained a free roll!"
+                embed_description = f"<:dragonstone:1273106857933668444> **{team_name}** used the **Escape Crystal** on tile 10!\n\n> 🎲 You have gained a free roll!"
 
             elif card_name == "Backstab" and isinstance(team_wildcard_value, int):
                 stored_roll = team_wildcard_value
@@ -2574,14 +2496,14 @@ class MonopolyCog(commands.Cog):
                 target_team = sorted_opponents[0][0]
                 target_pos = sorted_opponents[0][1] 
                 
-                embed_description = f"**{team_name}** used **Backstab**!\n\n"
+                embed_description = f"<:boner:1438085053102948383> **{team_name}** used **Backstab**!\n\n"
                 
                 victim_channel = self.get_team_channel(target_team)
 
                 if self.check_and_consume_redemption(target_team):
-                    embed_description += f"🩵 **{target_team}**'s Redemption activated!"
+                    embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(target_team):
@@ -2590,18 +2512,18 @@ class MonopolyCog(commands.Cog):
                     final_roll_val = stored_roll
                     if elder_maul_active:
                         final_roll_val = max(0, stored_roll - 1)
-                        embed_description += f"🛡️ **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
-                        maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
+                        embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
+                        maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
                         await interaction.channel.send(embed=maul_embed) 
                     
                     new_pos = max(0, caster_pos - final_roll_val)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                    embed_description += f"💀 **{target_team}** had Vengeance! The effect was rebounded!\n"
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n"
                     
                     await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
 
-                    skull_embed = discord.Embed(title="💀 Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to tile **{new_pos}**!", color=discord.Color.dark_red())
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to tile **{new_pos}**!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed)
                 
                 else:
@@ -2609,15 +2531,15 @@ class MonopolyCog(commands.Cog):
                     final_roll_val = stored_roll 
                     if elder_maul_active:
                         final_roll_val = max(0, stored_roll - 1)
-                        embed_description += f"🛡️ **{target_team}**'s Elder Maul activated! Effect reduced.\n"
+                        embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Effect reduced.\n"
                         if victim_channel:
-                            maul_embed = discord.Embed(title="🛡️ Elder Maul Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
+                            maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
                             await victim_channel.send(embed=maul_embed)
 
                     new_pos = max(0, target_pos - final_roll_val) 
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                    embed_description += f"🔪 **{target_team}** (on tile {target_pos}) was moved back **{final_roll_val}** tiles to tile {new_pos}!"
+                    embed_description += f"<:boner:1438085053102948383> **{target_team}** (on tile {target_pos}) was moved back **{final_roll_val}** tiles to tile {new_pos}!"
 
                     await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
 
@@ -2655,7 +2577,7 @@ class MonopolyCog(commands.Cog):
                     return 
 
                 victim_team = random.choice(valid_targets)
-                embed_description = f"**{team_name}** used **Smite** on **{victim_team}**!\n\n"
+                embed_description = f"<:smite:1437979867084881950> **{team_name}** used **Smite** on **{victim_team}**!\n\n"
                 
                 victim_channel = self.get_team_channel(victim_team)
 
@@ -2674,13 +2596,13 @@ class MonopolyCog(commands.Cog):
                     return 
 
                 if self.check_and_consume_redemption(victim_team):
-                    embed_description += f"🩵 **{victim_team}**'s Redemption activated!"
+                    embed_description += f"<:redemption:1437979567900987493> **{victim_team}**'s Redemption activated!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(victim_team):
-                    embed_description += f"💀 **{victim_team}** had Vengeance! The effect was rebounded!\n"
+                    embed_description += f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
                     
                     caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
                     caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
@@ -2710,7 +2632,7 @@ class MonopolyCog(commands.Cog):
                         
                         embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card!"
                         
-                        skull_embed = discord.Embed(title="💀 Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
+                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
 
                 else:
@@ -2732,7 +2654,7 @@ class MonopolyCog(commands.Cog):
                         teams.remove(victim_team)
                     remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
 
-                    embed_description += f"⛈️ **{victim_team}** was smote and lost their **{card_to_remove['name']}** card!"
+                    embed_description += f"<:smite:1437979867084881950> **{victim_team}** was smote and lost their **{card_to_remove['name']}** card!"
                     
                     if victim_channel:
                         victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
@@ -2740,7 +2662,7 @@ class MonopolyCog(commands.Cog):
 
             elif card_name == "Varrock Tele":
                 if self.get_teleblock_status(team_name) == "yes":
-                    await interaction.followup.send("🌀 You are Teleblocked! You cannot use this card.", ephemeral=True)
+                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
                     return 
 
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -2758,7 +2680,7 @@ class MonopolyCog(commands.Cog):
 
                 new_pos = BANK_STANDING_TILE 
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                embed_description = f"**{team_name}** used **Varrock Tele** and teleported to **Bank Standing** (Tile 20)!"
+                embed_description = f"<:varrocktele:1438084982491840583> **{team_name}** used **Varrock Tele** and teleported to **Bank Standing** (Tile 20)!"
 
                 if rolls_available == 0:
                     self.increment_rolls_available(team_name)
@@ -2781,11 +2703,11 @@ class MonopolyCog(commands.Cog):
                 
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_place_house_free", {"team": team_name, "tile": caster_pos})
                 
-                embed_description = f"**{team_name}** used **POH Voucher**!\n\n> 🏠 Placed a **free house** on tile **{caster_pos}**!"
+                embed_description = f"<:houseicon:1438085020156821555> **{team_name}** used **POH Voucher**!\n\n> <:houseicon:1438085020156821555> Placed a **free house** on tile **{caster_pos}**!"
                 
             elif card_name == "Home Tele":
                 if self.get_teleblock_status(team_name) == "yes":
-                    await interaction.followup.send("🌀 You are Teleblocked! You cannot use this card.", ephemeral=True)
+                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
                     return 
 
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -2826,8 +2748,8 @@ class MonopolyCog(commands.Cog):
                     return  
 
                 new_pos = closest_house_pos
-                embed_description = f"**{team_name}** used **Home Tele**!\n\n"
-                embed_description += f"🏠 Teleported to the **nearest house tile ahead** (tile **{new_pos}**)."
+                embed_description = f"<:housetele:1437980013831131206> **{team_name}** used **Home Tele**!\n\n"
+                embed_description += f"<:houseicon:1438085020156821555> Teleported to the **nearest house tile ahead** (tile **{new_pos}**)."
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
 
@@ -2858,25 +2780,25 @@ class MonopolyCog(commands.Cog):
                 target_team = target["team"]
                 target_pos = target["pos"]
                 victim_channel = self.get_team_channel(target_team)
-                embed_description = f"**{team_name}** used **Tele Other** on **{target_team}**!\n\n"
+                embed_description = f"<:teleother:1437980130407350375> **{team_name}** used **Tele Other** on **{target_team}**!\n\n"
                 
                 if self.check_and_consume_vengeance(target_team):
-                    embed_description += f"💀 But **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed!"
+                    embed_description += f"<:venge:1438084953559797884> But **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed!"
                 
                 elif self.check_and_consume_redemption(target_team):
-                    embed_description += f"🩵 But **{target_team}**'s Redemption activated! The teleport was cancelled!"
+                    embed_description += f"<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated! The teleport was cancelled!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
 
                 else:
-                    embed_description += f"🔄 **{team_name}** (from tile {caster_pos}) has swapped places with **{target_team}** (from tile {target_pos})!"
+                    embed_description += f"<:teleother:1437980130407350375> **{team_name}** (from tile {caster_pos}) has swapped places with **{target_team}** (from tile {target_pos})!"
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": target_pos})
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": caster_pos})
 
                     if victim_channel:
-                        swap_embed = discord.Embed(title="🔄 You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on **Tile {caster_pos}**.", color=discord.Color.orange())
+                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on **Tile {caster_pos}**.", color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
 
                     await self.check_and_award_card_on_land(team_name, target_pos, "being teleported to")
@@ -2903,27 +2825,27 @@ class MonopolyCog(commands.Cog):
                     return 
                 
                 target_team = random.choice(opponents_on_tile)
-                embed_description = f"**{team_name}** used **Tele Block** on **{target_team}**!\n\n"
+                embed_description = f"<:teleblock:1438088930816819271> **{team_name}** used **Tele Block** on **{target_team}**!\n\n"
                 victim_channel = self.get_team_channel(target_team)
 
                 if self.check_and_consume_redemption(target_team):
-                    embed_description += f"🩵 But **{target_team}**'s Redemption activated! The effect fizzled!"
+                    embed_description += f"<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated! The effect fizzled!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(title="🩵 Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
 
                 elif self.check_and_consume_vengeance(target_team):
-                    embed_description += f"💀 **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** is now Teleblocked!"
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** is now Teleblocked!"
                     self.set_teleblock_status(team_name, "yes") 
-                    skull_embed = discord.Embed(title="💀 Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed) 
 
                 else:
-                    embed_description += f"🌀 **{target_team}** is now **Teleblocked**! They cannot use teleport cards until after their next roll."
+                    embed_description += f"<:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked**! They cannot use teleport cards until after their next roll."
                     self.set_teleblock_status(target_team, "yes") 
 
                     if victim_channel:
-                        tb_embed = discord.Embed(title="🌀 You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
+                        tb_embed = discord.Embed(title="<:teleblock:1438088930816819271> You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
                         await victim_channel.send(embed=tb_embed)
 
             else:
@@ -2963,6 +2885,5 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send(f"❌ An error occurred while using the card: {e}", ephemeral=True)
 
-# ========== COG SETUP FUNCTION ==========
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
