@@ -1232,18 +1232,6 @@ class MonopolyCog(commands.Cog):
 
         try:
             embed1 = discord.Embed(
-                title="Where to Submit Drops",
-                description=(
-                    "Everyone must use their team channel to submit their drops. You'll use the /submit_drop command here!\n"
-                    "**⁠🎩⎮drop-log:** This is the public channel where you can see all the approved drops as they come in.\n"
-                    "**Your Team Channel:** This is your team's private HQ! It's where you'll use all your game commands "
-                    "(/roll, /use-card, /submit_drop etc.). All your team's game messages (like earning GP, paying tax, "
-                    "or getting attacked) will show up here."
-                ),
-                color=discord.Color.blue()
-            )
-            
-            embed2 = discord.Embed(
                 title="How to Play (The Basics)",
                 description=(
                     "The whole game runs on drop submissions. Here's the loop:\n"
@@ -1259,12 +1247,11 @@ class MonopolyCog(commands.Cog):
                 color=discord.Color.green()
             )
             
-            # 🔹 NEW: Embed 4 - Game Commands
-            embed3 = discord.Embed(
+            embed2 = discord.Embed(
                 title="Game Commands",
                 color=discord.Color.green()
             )
-            embed3.add_field(
+            embed2.add_field(
                 name="For Team Captains Only!",
                 value=(
                     "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
@@ -1274,7 +1261,7 @@ class MonopolyCog(commands.Cog):
                 ),
                 inline=False
             )
-            embed3.add_field(
+            embed2.add_field(
                 name="For Everyone on the Team!",
                 value=(
                     # 🔹 FIXED: Added all commands as requested
@@ -1288,7 +1275,7 @@ class MonopolyCog(commands.Cog):
             )
             
             # Send all embeds
-            await interaction.followup.send(embeds=[embed1, embed2, embed3], ephemeral=False)
+            await interaction.followup.send(embeds=[embed1, embed2], ephemeral=False)
         
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
