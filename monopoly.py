@@ -61,7 +61,6 @@ CARD_EMOJIS = {
     "Chest": "<:chest:1437979807362191441>",
     "Chance": "<:questioning:1287623035381350441>"
 }
-# ============================================
 
 GO_TILE = 0
 JAIL_TILE = 10
@@ -148,7 +147,7 @@ class MonopolyCog(commands.Cog):
             "type": os.getenv('EVENT_TYPE'),
             "project_id": os.getenv('EVENT_PROJECT_ID'),
             "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
-            "private_key": private_key_formatted, # 🔹 FIXED: Use formatted key
+            "private_key": private_key_formatted,
             "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
             "client_id": os.getenv('EVENT_CLIENT_ID'),
             "auth_uri": os.getenv('EVENT_AUTH_URI'),
@@ -198,7 +197,6 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             print("This might be due to incorrect 'EVENT_' credentials in your .env file.")
 
-    # ========= Helper Functions =========
     def log_command(self, player_name, command, args_dict):
         try:
             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -208,7 +206,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error logging command: {e}")
 
-    # 🔹 FIXED: Added missing get_team_data function
     def get_team_data(self, team_role_name: str) -> dict:
         """Fetches all data for a specific team."""
         try:
@@ -445,7 +442,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in set_bought_house_flag: {e}")
 
-    # ======= Modal (for rejection) =======
     class RejectModal(ui.Modal, title="Reject Drop Submission"):
         reason = ui.TextInput(
             label="Reason for rejection",
@@ -488,7 +484,6 @@ class MonopolyCog(commands.Cog):
                 await interaction.response.send_message(f"Error processing rejection: {e}", ephemeral=True)
 
 
-    # ======= Unified Drop Logging =======
     def log_drop_to_sheet(self, submitted_for: str, team: str, boss: str, drop: str, verified_by: str, screenshot: str):
         try:
             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -506,7 +501,6 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error writing to DropLog sheet: {e}")
 
 
-    # ======= DropReviewButtons view (approve/reject) =======
     class DropReviewButtons(ui.View):
         def __init__(self, cog: 'MonopolyCog', submitted_user, drop, image_url, submitting_user, team_mention, boss):
             super().__init__(timeout=None)
@@ -593,7 +587,7 @@ class MonopolyCog(commands.Cog):
                 
                 await self.message.delete()
 
-                log_chan = self.cog.bot.get_channel(int(LOG_CHANNEL_ID)) # 🔹 FIXED: Cast to int
+                log_chan = self.cog.bot.get_channel(int(LOG_CHANNEL_ID))
                 team_chan = self.cog.get_team_channel(self.cog.get_team(self.submitted_user))
 
                 if log_chan:
@@ -701,9 +695,6 @@ class MonopolyCog(commands.Cog):
                 except Exception as e:
                     print(f"❌ Error in GP/tax logic: {e}")
                 
-                # ==========================================================
-                # 🔹 Team Data Sheet Records  
-                # ==========================================================
                 if team_name and team_name != "*No team*":
                     try:
                         records = self.cog.team_data_sheet.get_all_records()
@@ -758,7 +749,6 @@ class MonopolyCog(commands.Cog):
                 return
             await interaction.response.send_modal(self.cog.RejectModal(self.message, self.submitted_user))
 
-    # ======= BossSelect Modal + View =======
     class BossSelectView(ui.View):
         def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str):
             super().__init__(timeout=180)
@@ -967,7 +957,7 @@ class MonopolyCog(commands.Cog):
         self.set_teleblock_status(team_name, "no")
         
         team_chan = self.get_team_channel(team_name)
-        log_chan = self.bot.get_channel(int(LOG_CHANNEL_ID)) # 🔹 FIXED: Cast to int
+        log_chan = self.bot.get_channel(int(LOG_CHANNEL_ID))
 
         try:
             cleared_cards = self.clear_all_active_statuses(team_name)
@@ -1033,13 +1023,11 @@ class MonopolyCog(commands.Cog):
         
         if raw_pos >= BOARD_SIZE and new_pos != 30: 
             try:
-                # Update Pass Count
                 current_pass_count_str = self.team_data_sheet.cell(team_row_index, pass_go_col_index).value
                 current_pass_count = int(current_pass_count_str) if current_pass_count_str and str(current_pass_count_str).replace(',', '').isdigit() else 0
                 new_pass_count = current_pass_count + 1
                 self.team_data_sheet.update_cell(team_row_index, pass_go_col_index, new_pass_count)
                 
-                # Award GP
                 pass_go_bonus = 20_000_000
                 current_gp_str = self.team_data_sheet.cell(team_row_index, gp_col_index).value
                 current_gp = int(current_gp_str) if current_gp_str and str(current_gp_str).replace(',', '').isdigit() else 0
@@ -1065,7 +1053,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error updating Position in sheet: {e}")
 
-        # 🔹 FIXED: Define tile_name before using it
         tile_name = "Unknown Tile"
         tile_boss_map = {
             1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
@@ -1083,7 +1070,6 @@ class MonopolyCog(commands.Cog):
             tile_name = ", ".join(tile_boss_map[new_pos])
         else:
             try:
-                # Find the property in the HouseData sheet for non-boss tiles
                 all_properties = self.house_data_sheet.get_all_records()
                 for prop in all_properties:
                     if int(prop.get("Tile", -1)) == new_pos:
@@ -1091,7 +1077,6 @@ class MonopolyCog(commands.Cog):
                         break
             except Exception as e:
                 print(f"Error fetching tile name for embed: {e}")
-        # --- End fix ---
 
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
@@ -1114,7 +1099,7 @@ class MonopolyCog(commands.Cog):
         try:
             gp = int(str(gp_value_str).replace(',', ''))
         except ValueError:
-            return gp_value_str # Return original string if it's not a number
+            return gp_value_str
 
         if gp >= 1_000_000:
             if (gp % 1_000_000) == 0:
@@ -1127,7 +1112,7 @@ class MonopolyCog(commands.Cog):
             else:
                 return f"{gp / 1_000:.1f}K"
         else:
-            return f"{gp:,}" # Just add commas if less than 1K
+            return f"{gp:,}"
 
     @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
@@ -1142,7 +1127,6 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
-        # 🔹 FIXED: Changed to ephemeral=False to make the response public
         await interaction.response.defer(ephemeral=False)
         
         try:
@@ -1153,8 +1137,6 @@ class MonopolyCog(commands.Cog):
 
             position = int(team_data.get("Position", 0))
 
-            # 1. Find bosses for the current tile
-            # 🔹 FIXED: Added tile_boss_map definition
             tile_boss_map = {
                 1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
                 4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
@@ -1179,7 +1161,6 @@ class MonopolyCog(commands.Cog):
                 color=discord.Color.gold()
             )
 
-            # 2. Get all item values
             try:
                 all_items = self.item_values_sheet.get_all_records()
             except Exception as e:
@@ -1187,11 +1168,9 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
                 return
                 
-            # 3. Filter items for the bosses on this tile
             drop_list_text = ""
             found_any_drops = False
             
-            # 🔹 FIXED: Group drops by boss
             for boss in boss_list:
                 boss_drops_text = ""
                 for item in all_items:
@@ -1199,12 +1178,10 @@ class MonopolyCog(commands.Cog):
                     if item_boss == boss:
                         item_name = item.get("Item", "Unknown Item")
                         item_gp = item.get("GP", "0")
-                        # 🔹 FIXED: Use the GP formatter
                         formatted_gp = self._format_gp(item_gp)
                         boss_drops_text += f"• **{item_name}**: {formatted_gp} GP\n"
                         found_any_drops = True
                 
-                # Add a header for this boss
                 drop_list_text += f"\n**--- {boss} ---**\n"
                 if not boss_drops_text:
                     drop_list_text += "No drops found for this boss.\n"
@@ -1212,10 +1189,8 @@ class MonopolyCog(commands.Cog):
                     drop_list_text += boss_drops_text
 
             if not found_any_drops:
-                # 🔹 FIXED: Updated error message hint
                 drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
 
-            # Check for embed length limit
             if len(drop_list_text) > 4096:
                 drop_list_text = drop_list_text[:4090] + "...\n(List too long to display)"
 
@@ -1264,7 +1239,6 @@ class MonopolyCog(commands.Cog):
             embed2.add_field(
                 name="For Everyone on the Team!",
                 value=(
-                    # 🔹 FIXED: Added all commands as requested
                     "**/stats:** View your team's status, GP, and position.\n"
                     "**/gp:** Curious about your GP? Use this to check the team's total.\n"
                     "**/show_cards:** See all the cool cards your team is currently holding.\n"
@@ -1274,7 +1248,6 @@ class MonopolyCog(commands.Cog):
                 inline=False
             )
             
-            # Send all embeds
             await interaction.followup.send(embeds=[embed1, embed2], ephemeral=False)
         
         except Exception as e:
@@ -2096,7 +2069,6 @@ class MonopolyCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Error during roll protection check for {team_name}: {e}")
 
-        # 2. Check for Card Draw
         if new_pos in CHEST_TILES:
             print(f"❗ {team_name} is {reason} CHEST tile {new_pos}")
             await self.team_receives_card(team_name, "Chest", team_channel)
@@ -2158,7 +2130,6 @@ class MonopolyCog(commands.Cog):
     @app_commands.command(name="use_card", description="Use a held card by its index from /show_cards")
     @app_commands.describe(index="The index of the card you want to use (starts at 1)")
     async def use_card(self, interaction: discord.Interaction, index: int):
-        # 🔹 FIXED: Compare as strings
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -2243,7 +2214,7 @@ class MonopolyCog(commands.Cog):
                 
                 wildcard_data[team_name] = "active"
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True # Mark as activation
+                is_status_activation = True
                 
                 embed_description = f"<:venge:1438084953559797884> **{team_name}** used **Vengeance**!\n\n> The next card effect used on them will be rebounded."
 
@@ -2254,7 +2225,7 @@ class MonopolyCog(commands.Cog):
                 
                 wildcard_data[team_name] = "active"
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True # Mark as activation
+                is_status_activation = True
                 
                 embed_description = f"<:redemption:1437979567900987493> **{team_name}** used **Redemption**!\n\n> The next negative card effect used on your team will be fizzled."
 
@@ -2265,7 +2236,7 @@ class MonopolyCog(commands.Cog):
                 
                 wildcard_data[team_name] = "active"
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True # Mark as activation
+                is_status_activation = True
                 
                 embed_description = f"<:maul:1437979898865258668> **{team_name}** used **Elder Maul**!\n\n> The next negative card effect used on your team will be reduced."
 
@@ -2276,7 +2247,7 @@ class MonopolyCog(commands.Cog):
 
                 wildcard_data[team_name] = "active"
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True # Mark as activation
+                is_status_activation = True
                 
                 embed_description = f"<:gold:1273106856515901452> **{team_name}** used **Low Alchemy**!\n\n> Your next drop this turn will be worth **double GP**."
                 
@@ -2287,7 +2258,7 @@ class MonopolyCog(commands.Cog):
                     
                 wildcard_data[team_name] = "active"
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True # Mark as activation
+                is_status_activation = True
                 
                 embed_description = f"<:gold:1273106856515901452> **{team_name}** used **High Alchemy**!\n\n> Your next drop this turn will be worth **triple GP**."
                 
