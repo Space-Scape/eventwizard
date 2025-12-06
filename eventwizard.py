@@ -438,12 +438,33 @@ class DuoSignupModal(Modal):
             default=default_rsn,
             required=True
         )
+        self.duo_partner = TextInput(
+            label="Duo Partner (RSN)",
+            placeholder="Your partner's in-game name",
+            required=True
+        )
+        self.playtime = TextInput(
+            label="Playtime",
+            placeholder="e.g., 5-10 hours/week, evenings EST",
+            required=True
+        )
+        self.timezone = TextInput(
+            label="Timezone/Location",
+            placeholder="e.g., EST, PST, GMT+1",
+            required=True
+        )
+        self.comments = TextInput(
+            label="Comments (Optional)",
+            placeholder="Any additional notes",
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
 
         self.add_item(self.account)
         self.add_item(self.duo_partner)
         self.add_item(self.playtime)
         self.add_item(self.timezone)
-        self.add_item(self.account)
+        self.add_item(self.comments)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -455,8 +476,8 @@ class DuoSignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
-
-        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot]
+        comments = self.comments.value.strip() if self.comments.value else ""
+        is_duo = "✅"
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
@@ -473,7 +494,7 @@ class DuoSignupModal(Modal):
                         if partner_screenshot_cell:
                             partner_screenshot = partner_screenshot_cell
                         # Create hyperlink to partner's row
-                        partner_link = f'=HYPERLINK("#gid=140334082&range=A{partner_row}", "{duo_partner_rsn}")'
+                        partner_link = f'=HYPERLINK("#gid=0&range=A{partner_row}", "{duo_partner_rsn}")'
                         break
             except Exception:
                 pass
@@ -489,6 +510,8 @@ class DuoSignupModal(Modal):
             confirm_embed.add_field(name="Duo Partner", value=duo_partner_rsn, inline=True)
             confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
             confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
+            if partner_screenshot:
+                confirm_embed.add_field(name="Partner Found", value="Partner's signup was linked!", inline=False)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
         except Exception as e:
             print(f"Error submitting duo signup: {e}")
