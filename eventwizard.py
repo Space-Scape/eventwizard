@@ -479,12 +479,32 @@ class DuoSignupModal(Modal):
         comments = self.comments.value.strip() if self.comments.value else ""
         is_duo = "✅"
 
+        # Validate partner RSN exists in RSN Tracker sheet
+        partner_valid = False
+        try:
+            all_tracker_rsns = rsn_sheet.col_values(4)  # Column 4 contains RSNs in tracker
+            for tracker_rsn in all_tracker_rsns:
+                if tracker_rsn.lower() == duo_partner_rsn.lower():
+                    partner_valid = True
+                    break
+        except Exception:
+            pass
+
+        if not partner_valid:
+            await interaction.followup.send(
+                f"❌ **Duo Partner not found.** The RSN `{duo_partner_rsn}` was not found in the RSN registry. "
+                f"Please ensure your partner's name matches their exact RSN.",
+                ephemeral=True
+            )
+            return
+
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
 
-            # Search for partner's row by RSN in column C
+            # Search for partner's row by RSN in column C of signup sheet
             partner_screenshot = ""
             partner_link = ""
+            partner_row = None
             try:
                 all_rsns = signup_sheet.col_values(3)  # Column C contains RSNs
                 for idx, cell_rsn in enumerate(all_rsns):
@@ -494,7 +514,7 @@ class DuoSignupModal(Modal):
                         if partner_screenshot_cell:
                             partner_screenshot = partner_screenshot_cell
                         # Create hyperlink to partner's row
-                        partner_link = f'=HYPERLINK("#gid=0&range=A{partner_row}", "{duo_partner_rsn}")'
+                        partner_link = f'=HYPERLINK("#gid=140334082&range=A{partner_row}", "{duo_partner_rsn}")'
                         break
             except Exception:
                 pass
@@ -504,6 +524,15 @@ class DuoSignupModal(Modal):
 
             signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner_value, partner_screenshot]
             signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+
+            # Update partner's row with this user's screenshot (column J - Duo Buy In Screenshot)
+            if partner_row:
+                try:
+                    # Also update partner's Duo Partner column (I) with hyperlink to this row
+                    partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
+                    signup_sheet.update(range_name=f"I{partner_row}:J{partner_row}", values=[[partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
+                except Exception as e:
+                    print(f"Error updating partner's row: {e}")
 
             confirm_embed = discord.Embed(title="Duo Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
