@@ -52,7 +52,7 @@ events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs
 
 # Signup Sheet
 SIGNUP_SHEET_ID = "1mfhnWsa1GsMYTvskpUfjs7eeQmkt3Tdxj4ajPccOQc4"
-signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(140334082)
+signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(0)
 
 
 # ---------------------------
@@ -727,3 +727,4 @@ async def on_ready():
 
 
 bot.run(os.getenv("BOT_TOKEN"))
+
