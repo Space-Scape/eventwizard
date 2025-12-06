@@ -385,10 +385,16 @@ class SignupModal(Modal):
             default=default_rsn,
             required=True
         )
+        self.account = TextInput(
+            label="Comments (optional)",
+            placeholder="optional comments",
+            required=False
+        )
 
         self.add_item(self.playtime)
         self.add_item(self.timezone)
         self.add_item(self.account)
+        self.add_item(self.comments)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -399,8 +405,9 @@ class SignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
+        comments = self.comments.value.strip()
 
-        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot]
+        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments]
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
@@ -410,6 +417,7 @@ class SignupModal(Modal):
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
             confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
             confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
+            confirm_embed.add_field(name="Comments", value=timezone_location, inline=True)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
         except Exception as e:
             print(f"Error submitting signup: {e}")
@@ -625,4 +633,5 @@ async def on_ready():
 
 
 bot.run(os.getenv("BOT_TOKEN"))
+
 
