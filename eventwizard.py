@@ -52,7 +52,7 @@ events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs
 
 # Signup Sheet
 SIGNUP_SHEET_ID = "1mfhnWsa1GsMYTvskpUfjs7eeQmkt3Tdxj4ajPccOQc4"
-signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(0)
+signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(140334082)
 
 
 # ---------------------------
@@ -364,11 +364,17 @@ async def deleteevent(interaction: discord.Interaction, event_id: int):
         await interaction.response.send_message(f"An unexpected error occurred: {e}", ephemeral=True)
 
 
-class SignupModal(Modal):
+class SoloSignupModal(Modal):
     def __init__(self, screenshot_url: str, default_rsn: str = ""):
-        super().__init__(title="Event Signup")
+        super().__init__(title="Solo Signup")
         self.screenshot_url = screenshot_url
 
+        self.account = TextInput(
+            label="Account (RSN)",
+            placeholder="Your in-game name",
+            default=default_rsn,
+            required=True
+        )
         self.playtime = TextInput(
             label="Playtime",
             placeholder="e.g., 5-10 hours/week, evenings EST",
@@ -379,21 +385,16 @@ class SignupModal(Modal):
             placeholder="e.g., EST, PST, GMT+1",
             required=True
         )
-        self.account = TextInput(
-            label="Account (RSN)",
-            placeholder="Your in-game name",
-            default=default_rsn,
-            required=True
-        )
-        self.account = TextInput(
-            label="Comments (optional)",
-            placeholder="optional comments",
+        self.comments = TextInput(
+            label="Comments (Optional)",
+            placeholder="Any additional notes",
+            style=discord.TextStyle.paragraph,
             required=False
         )
 
+        self.add_item(self.account)
         self.add_item(self.playtime)
         self.add_item(self.timezone)
-        self.add_item(self.account)
         self.add_item(self.comments)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -405,23 +406,131 @@ class SignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
-        comments = self.comments.value.strip()
+        comments = self.comments.value.strip() if self.comments.value else ""
+        is_duo = "❌"
+        duo_partner = ""
+        duo_screenshot = ""
 
-        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments]
+        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner, duo_screenshot]
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
-            signup_sheet.update(range_name=f"A{next_row}:G{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+            signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
-            confirm_embed = discord.Embed(title="Signup Submitted!", color=discord.Color.green())
+            confirm_embed = discord.Embed(title="Solo Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
             confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
             confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
-            confirm_embed.add_field(name="Comments", value=timezone_location, inline=True)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
         except Exception as e:
-            print(f"Error submitting signup: {e}")
+            print(f"Error submitting solo signup: {e}")
             await interaction.followup.send(f"An error occurred while submitting your signup: {e}", ephemeral=True)
+
+
+class DuoSignupModal(Modal):
+    def __init__(self, screenshot_url: str, default_rsn: str = ""):
+        super().__init__(title="Duo Signup")
+        self.screenshot_url = screenshot_url
+
+        self.account = TextInput(
+            label="Account (RSN)",
+            placeholder="Your in-game name",
+            default=default_rsn,
+            required=True
+        )
+        self.duo_partner = TextInput(
+            label="Duo Partner (RSN)",
+            placeholder="Your partner's in-game name",
+            required=True
+        )
+        self.playtime = TextInput(
+            label="Playtime",
+            placeholder="e.g., 5-10 hours/week, evenings EST",
+            required=True
+        )
+        self.timezone = TextInput(
+            label="Timezone/Location",
+            placeholder="e.g., EST, PST, GMT+1",
+            required=True
+        )
+        self.comments = TextInput(
+            label="Comments (Optional)",
+            placeholder="Any additional notes",
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
+
+        self.add_item(self.account)
+        self.add_item(self.duo_partner)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+        self.add_item(self.comments)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        discord_name = interaction.user.display_name
+        discord_id = str(interaction.user.id)
+        rsn = self.account.value.strip()
+        duo_partner_rsn = self.duo_partner.value.strip()
+        playtime = self.playtime.value.strip()
+        timezone_location = self.timezone.value.strip()
+        screenshot = self.screenshot_url
+        comments = self.comments.value.strip() if self.comments.value else ""
+        is_duo = "✅"
+
+        try:
+            next_row = len(signup_sheet.col_values(1)) + 1
+
+            # Search for partner's row by RSN in column C
+            partner_screenshot = ""
+            partner_link = ""
+            try:
+                all_rsns = signup_sheet.col_values(3)  # Column C contains RSNs
+                for idx, cell_rsn in enumerate(all_rsns):
+                    if cell_rsn.lower() == duo_partner_rsn.lower():
+                        partner_row = idx + 1
+                        partner_screenshot_cell = signup_sheet.cell(partner_row, 6).value  # Column F
+                        if partner_screenshot_cell:
+                            partner_screenshot = partner_screenshot_cell
+                        # Create hyperlink to partner's row
+                        partner_link = f'=HYPERLINK("#gid=140334082&range=A{partner_row}", "{duo_partner_rsn}")'
+                        break
+            except Exception:
+                pass
+
+            # If no hyperlink formula, just use the partner RSN
+            duo_partner_value = partner_link if partner_link else duo_partner_rsn
+
+            signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner_value, partner_screenshot]
+            signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+
+            confirm_embed = discord.Embed(title="Duo Signup Submitted!", color=discord.Color.green())
+            confirm_embed.add_field(name="RSN", value=rsn, inline=True)
+            confirm_embed.add_field(name="Duo Partner", value=duo_partner_rsn, inline=True)
+            confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
+            confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
+            if partner_screenshot:
+                confirm_embed.add_field(name="Partner Found", value="Partner's signup was linked!", inline=False)
+            await interaction.followup.send(embed=confirm_embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error submitting duo signup: {e}")
+            await interaction.followup.send(f"An error occurred while submitting your signup: {e}", ephemeral=True)
+
+
+class SignupView(View):
+    def __init__(self, screenshot_url: str, default_rsn: str = ""):
+        super().__init__(timeout=300)
+        self.screenshot_url = screenshot_url
+        self.default_rsn = default_rsn
+
+    @discord.ui.button(label="Solo Signup", style=discord.ButtonStyle.primary)
+    async def solo_signup(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_modal(SoloSignupModal(self.screenshot_url, self.default_rsn))
+
+    @discord.ui.button(label="Duo Signup", style=discord.ButtonStyle.secondary)
+    async def duo_signup(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_modal(DuoSignupModal(self.screenshot_url, self.default_rsn))
 
 
 @tree.command(name="signup", description="Sign up for an event with your account details.")
@@ -441,7 +550,15 @@ async def signup(interaction: discord.Interaction, screenshot: discord.Attachmen
     except Exception:
         pass
 
-    await interaction.response.send_modal(SignupModal(screenshot_url, default_rsn))
+    embed = discord.Embed(
+        title="Event Signup",
+        description="Choose your signup type:",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Solo Signup", value="Sign up individually", inline=True)
+    embed.add_field(name="Duo Signup", value="Sign up with a partner", inline=True)
+
+    await interaction.response.send_message(embed=embed, view=SignupView(screenshot_url, default_rsn), ephemeral=True)
 
 
 @tree.command(name="schedule", description="Manually posts/updates the weekly event schedule.")
