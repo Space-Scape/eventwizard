@@ -52,7 +52,7 @@ events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs
 
 # Signup Sheet
 SIGNUP_SHEET_ID = "1mfhnWsa1GsMYTvskpUfjs7eeQmkt3Tdxj4ajPccOQc4"
-signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(140334082)
+signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(0)
 
 
 # ---------------------------
@@ -385,10 +385,9 @@ class SignupModal(Modal):
             default=default_rsn,
             required=True
         )
-        self.comments = TextInput(
-            label="Comments (Optional)",
-            placeholder="Any additional notes",
-            style=discord.TextStyle.paragraph,
+        self.account = TextInput(
+            label="Comments (optional)",
+            placeholder="optional comments",
             required=False
         )
 
@@ -406,7 +405,7 @@ class SignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
-        comments = self.comments.value.strip() if self.comments.value else ""
+        comments = self.comments.value.strip()
 
         signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments]
 
@@ -418,6 +417,7 @@ class SignupModal(Modal):
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
             confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
             confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
+            confirm_embed.add_field(name="Comments", value=timezone_location, inline=True)
             await interaction.followup.send(embed=confirm_embed, ephemeral=True)
         except Exception as e:
             print(f"Error submitting signup: {e}")
@@ -633,3 +633,5 @@ async def on_ready():
 
 
 bot.run(os.getenv("BOT_TOKEN"))
+
+
