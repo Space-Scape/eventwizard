@@ -50,6 +50,10 @@ rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl
 EVENTS_SHEET_ID = "1ycltDSLJeKTLAHzVeYZ6JKwIV5A7md8Lh7IetvVljEc"
 events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs")
 
+# Signup Sheet
+SIGNUP_SHEET_ID = "1mfhnWsa1GsMYTvskpUfjs7eeQmkt3Tdxj4ajPccOQc4"
+signup_sheet = sheet_client.open_by_key(SIGNUP_SHEET_ID).get_worksheet_by_id(140334082)
+
 
 # ---------------------------
 # 🔹 Discord Bot Setup
@@ -349,7 +353,7 @@ async def deleteevent(interaction: discord.Interaction, event_id: int):
         if event_id < 5: raise ValueError("Invalid ID")
         row_data = events_sheet.row_values(event_id)
         if not any(row_data): raise ValueError("No event found")
-        
+
         desc, owner, start_date = row_data[1], row_data[2], row_data[5]
         embed = discord.Embed(title="⚠️ Confirm Deletion", description="Are you sure you want to delete this event? This action cannot be undone.", color=discord.Color.red())
         embed.add_field(name="ID", value=f"`{event_id}`").add_field(name="Description", value=desc).add_field(name="Host", value=owner).add_field(name="Date", value=start_date)
@@ -358,6 +362,79 @@ async def deleteevent(interaction: discord.Interaction, event_id: int):
         await interaction.response.send_message(f"❌ Could not find an event with ID `{event_id}`.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"An unexpected error occurred: {e}", ephemeral=True)
+
+
+class SignupModal(Modal):
+    def __init__(self, screenshot_url: str, default_rsn: str = ""):
+        super().__init__(title="Event Signup")
+        self.screenshot_url = screenshot_url
+
+        self.playtime = TextInput(
+            label="Playtime",
+            placeholder="e.g., 5-10 hours/week, evenings EST",
+            required=True
+        )
+        self.timezone = TextInput(
+            label="Timezone/Location",
+            placeholder="e.g., EST, PST, GMT+1",
+            required=True
+        )
+        self.account = TextInput(
+            label="Account (RSN)",
+            placeholder="Your in-game name",
+            default=default_rsn,
+            required=True
+        )
+
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+        self.add_item(self.account)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        discord_name = interaction.user.display_name
+        discord_id = str(interaction.user.id)
+        rsn = self.account.value.strip()
+        playtime = self.playtime.value.strip()
+        timezone_location = self.timezone.value.strip()
+        screenshot = self.screenshot_url
+
+        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot]
+
+        try:
+            next_row = len(signup_sheet.col_values(1)) + 1
+            signup_sheet.update(range_name=f"A{next_row}:F{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+
+            confirm_embed = discord.Embed(title="Signup Submitted!", color=discord.Color.green())
+            confirm_embed.add_field(name="RSN", value=rsn, inline=True)
+            confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
+            confirm_embed.add_field(name="Timezone", value=timezone_location, inline=True)
+            await interaction.followup.send(embed=confirm_embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error submitting signup: {e}")
+            await interaction.followup.send(f"An error occurred while submitting your signup: {e}", ephemeral=True)
+
+
+@tree.command(name="signup", description="Sign up for an event with your account details.")
+@app_commands.describe(screenshot="Screenshot of your buy-in (required)")
+async def signup(interaction: discord.Interaction, screenshot: discord.Attachment):
+    if not screenshot.content_type or not screenshot.content_type.startswith("image/"):
+        await interaction.response.send_message("Please attach a valid image file for your screenshot.", ephemeral=True)
+        return
+
+    screenshot_url = screenshot.url
+
+    default_rsn = ""
+    try:
+        cell = rsn_sheet.find(str(interaction.user.id))
+        if cell:
+            default_rsn = rsn_sheet.cell(cell.row, 4).value or ""
+    except Exception:
+        pass
+
+    await interaction.response.send_modal(SignupModal(screenshot_url, default_rsn))
+
 
 @tree.command(name="schedule", description="Manually posts/updates the weekly event schedule.")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
