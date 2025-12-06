@@ -411,7 +411,7 @@ class SignupModal(Modal):
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
-            signup_sheet.update(range_name=f"A{next_row}:F{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+            signup_sheet.update(range_name=f"A{next_row}:G{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
             confirm_embed = discord.Embed(title="Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
