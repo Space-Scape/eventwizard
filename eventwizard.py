@@ -385,10 +385,17 @@ class SignupModal(Modal):
             default=default_rsn,
             required=True
         )
+        self.comments = TextInput(
+            label="Comments (Optional)",
+            placeholder="Any additional notes",
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
 
         self.add_item(self.playtime)
         self.add_item(self.timezone)
         self.add_item(self.account)
+        self.add_item(self.comments)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -399,12 +406,13 @@ class SignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
+        comments = self.comments.value.strip() if self.comments.value else ""
 
-        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot]
+        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments]
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
-            signup_sheet.update(range_name=f"A{next_row}:F{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+            signup_sheet.update(range_name=f"A{next_row}:G{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
             confirm_embed = discord.Embed(title="Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
