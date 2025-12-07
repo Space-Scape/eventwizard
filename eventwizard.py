@@ -753,6 +753,13 @@ async def on_ready():
         traceback.print_exc()
 
     try:
+        await bot.load_extension("bingo_cog")
+        print("✅ Loaded extension: bingo_cog")
+    except Exception as e:
+        print(f"❌ Failed to load extension: bingo_cog - {e}")
+        traceback.print_exc()
+
+    try:
         synced = await tree.sync()
         print(f"✅ Synced {len(synced)} slash commands.")
     except Exception as e:

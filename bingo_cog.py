@@ -3,63 +3,14 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import gspread
-from google.oauth2.service_account import Credentials   # <-- modern import
+from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import asyncio
 from typing import Optional
 
-# ---------------------------
-# 🔹 Google Sheets Setup
-# ---------------------------
-scope = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
-credentials_dict = {
-    "type": os.getenv('EVENT_TYPE'),
-    "project_id": os.getenv('EVENT_PROJECT_ID'),
-    "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
-    "private_key": os.getenv('EVENT_PRIVATE_KEY').replace("\\n", "\n"),
-    "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
-    "client_id": os.getenv('EVENT_CLIENT_ID'),
-    "auth_uri": os.getenv('EVENT_AUTH_URI'),
-    "token_uri": os.getenv('EVENT_TOKEN_URI'),
-    "auth_provider_x509_cert_url": os.getenv('EVENT_AUTH_PROVIDER_X509_CERT_URL'),
-    "client_x509_cert_url": os.getenv('EVENT_CLIENT_X509_CERT_URL'),
-    "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
-}
-
-creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
-sheet_client = gspread.authorize(creds)
-
-sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
-
-sheet = sheet_client.open_by_key(sheet_id).sheet1
-
-RSN_SHEET_TAB_NAME = "Tracker"
-rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
-
 
 # ---------------------------
-# 🔹 Discord Bot Setup
-# ---------------------------
-intents = discord.Intents.default()
-intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
-
-# ---------------------------
-# 🔹 Channel IDs + Role
-# ---------------------------
-SUBMISSION_CHANNEL_ID = 1401523115808526438
-REVIEW_CHANNEL_ID = 1401510165764771950
-LOG_CHANNEL_ID = 1401514384001601607
-REQUIRED_ROLE_NAME = "Event Staff"
-REGISTERED_ROLE_NAME = "Registered"
-
-# ---------------------------
-# 🔹 Boss-Drop Mapping
+# Boss-Drop Mapping
 # ---------------------------
 
 #Master List
@@ -119,7 +70,7 @@ REGISTERED_ROLE_NAME = "Registered"
     #"Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
     #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
 
-boss_drops = {
+BOSS_DROPS = {
     "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
     "Alchemical Hydra": ["Ikkle hydra", "Jar of chemicals"],
     "Araxxor": ["Araxyte fang", "Nid"],
@@ -165,36 +116,131 @@ boss_drops = {
 }
 
 
+class BingoCog(commands.Cog):
+    """Cog for handling bingo drop submissions and reviews."""
 
-# ---------------------------
-# 🔹 Slash Command
-# ---------------------------
-@tree.command(name="submitdrop", description="Submit a boss drop for review")
-@app_commands.describe(
-    screenshot="Attach a screenshot of your drop",
-    submitted_for="Optionally specify the user you're submitting this drop for"
-)
-async def submit_drop(interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: discord.Member = None):
-    if interaction.channel.id != SUBMISSION_CHANNEL_ID:
-        await interaction.response.send_message("❌ This command can only be used in the drop submission channel.", ephemeral=True)
-        return
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
 
-    target_user = submitted_for or interaction.user
+        # Check for required environment variables
+        required_env_vars = [
+            'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID',
+            'EVENT_PRIVATE_KEY', 'EVENT_CLIENT_EMAIL', 'EVENT_CLIENT_ID',
+            'EVENT_AUTH_URI', 'EVENT_TOKEN_URI', 'EVENT_AUTH_PROVIDER_X509_CERT_URL',
+            'EVENT_CLIENT_X509_CERT_URL', 'EVENT_UNIVERSE_DOMAIN'
+        ]
 
-    await interaction.response.send_message(
-        content=f"Submitting drop for {target_user.display_name}. Select the boss you received the drop from:",
-        view=BossView(interaction.user, target_user, screenshot),
-        ephemeral=True
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+
+        if missing_vars:
+            print("Bingo Cog: The following required environment variables are missing:")
+            for var in missing_vars:
+                print(f"  - {var}")
+            print("Bingo Cog will not function properly without these.")
+            self.sheet = None
+            self.rsn_sheet = None
+            return
+
+        print("Bingo Cog: All required environment variables are present.")
+
+        # Google Sheets Setup
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        private_key_env = os.getenv('EVENT_PRIVATE_KEY')
+        if not private_key_env:
+            print("Bingo Cog: 'EVENT_PRIVATE_KEY' environment variable is not set.")
+            self.sheet = None
+            self.rsn_sheet = None
+            return
+
+        private_key_formatted = private_key_env.replace("\\n", "\n")
+
+        credentials_dict = {
+            "type": os.getenv('EVENT_TYPE'),
+            "project_id": os.getenv('EVENT_PROJECT_ID'),
+            "private_key_id": os.getenv('EVENT_PRIVATE_KEY_ID'),
+            "private_key": private_key_formatted,
+            "client_email": os.getenv('EVENT_CLIENT_EMAIL'),
+            "client_id": os.getenv('EVENT_CLIENT_ID'),
+            "auth_uri": os.getenv('EVENT_AUTH_URI'),
+            "token_uri": os.getenv('EVENT_TOKEN_URI'),
+            "auth_provider_x509_cert_url": os.getenv('EVENT_AUTH_PROVIDER_X509_CERT_URL'),
+            "client_x509_cert_url": os.getenv('EVENT_CLIENT_X509_CERT_URL'),
+            "universe_domain": os.getenv('EVENT_UNIVERSE_DOMAIN')
+        }
+
+        creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+        sheet_client = gspread.authorize(creds)
+
+        # Drop Submission Sheet
+        sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
+        self.sheet = sheet_client.open_by_key(sheet_id).sheet1
+
+        # RSN Tracker Sheet
+        self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+
+        # Channel IDs + Role
+        self.SUBMISSION_CHANNEL_ID = 1401523115808526438
+        self.REVIEW_CHANNEL_ID = 1401510165764771950
+        self.LOG_CHANNEL_ID = 1401514384001601607
+        self.REQUIRED_ROLE_NAME = "Event Staff"
+        self.REGISTERED_ROLE_NAME = "Registered"
+
+        print("Bingo Cog: Initialized successfully.")
+
+    def get_team_role_mention(self, member: discord.Member) -> str:
+        """Get the team role mention for a member."""
+        for role in member.roles:
+            if role.name.startswith("Team "):
+                return role.mention
+        return "*No team*"
+
+    @app_commands.command(name="bingo_submitdrop", description="Submit a boss drop for bingo review")
+    @app_commands.describe(
+        screenshot="Attach a screenshot of your drop",
+        submitted_for="Optionally specify the user you're submitting this drop for"
     )
+    async def submit_drop(
+        self,
+        interaction: discord.Interaction,
+        screenshot: discord.Attachment,
+        submitted_for: discord.Member = None
+    ):
+        if self.sheet is None:
+            await interaction.response.send_message(
+                "Bingo system is not properly configured. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.channel.id != self.SUBMISSION_CHANNEL_ID:
+            await interaction.response.send_message(
+                "This command can only be used in the drop submission channel.",
+                ephemeral=True
+            )
+            return
+
+        target_user = submitted_for or interaction.user
+
+        await interaction.response.send_message(
+            content=f"Submitting drop for {target_user.display_name}. Select the boss you received the drop from:",
+            view=BossView(self, interaction.user, target_user, screenshot),
+            ephemeral=True
+        )
+
 
 class BossSelect(discord.ui.Select):
-    def __init__(self, submitting_user, target_user, screenshot, page=0):
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, page=0):
+        self.cog = cog
         self.submitting_user = submitting_user
         self.target_user = target_user
         self.screenshot = screenshot
         self.page = page
 
-        bosses = list(boss_drops.keys())
+        bosses = list(BOSS_DROPS.keys())
         max_pages = (len(bosses) - 1) // 25
         page = max(0, min(page, max_pages))
 
@@ -207,66 +253,65 @@ class BossSelect(discord.ui.Select):
         boss = self.values[0]
         await interaction.response.edit_message(
             content=f"Selected boss: {boss}. Now select the drop you received.",
-            view=DropView(self.submitting_user, self.target_user, self.screenshot, boss, page=self.page)
+            view=DropView(self.cog, self.submitting_user, self.target_user, self.screenshot, boss, page=self.page)
         )
 
 
 class BossView(discord.ui.View):
-    def __init__(self, submitting_user, target_user, screenshot, page=0):
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, page=0):
         super().__init__()
-        self.add_item(BossSelect(submitting_user, target_user, screenshot, page))
+        self.cog = cog
+        self.add_item(BossSelect(cog, submitting_user, target_user, screenshot, page))
         if page > 0:
-            self.add_item(PreviousPageButton(submitting_user, target_user, screenshot, page))
-        max_pages = (len(boss_drops) - 1) // 25
+            self.add_item(PreviousPageButton(cog, submitting_user, target_user, screenshot, page))
+        max_pages = (len(BOSS_DROPS) - 1) // 25
         if page < max_pages:
-            self.add_item(NextPageButton(submitting_user, target_user, screenshot, page))
+            self.add_item(NextPageButton(cog, submitting_user, target_user, screenshot, page))
+
 
 class PreviousPageButton(discord.ui.Button):
-    def __init__(self, submitting_user, target_user, screenshot, page):
-        super().__init__(label="◀️ Previous Page", style=discord.ButtonStyle.secondary)
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, page):
+        super().__init__(label="Previous Page", style=discord.ButtonStyle.secondary)
+        self.cog = cog
         self.submitting_user = submitting_user
         self.target_user = target_user
         self.screenshot = screenshot
         self.page = page
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(view=BossView(self.submitting_user, self.target_user, self.screenshot, self.page - 1))
+        await interaction.response.edit_message(
+            view=BossView(self.cog, self.submitting_user, self.target_user, self.screenshot, self.page - 1)
+        )
+
 
 class NextPageButton(discord.ui.Button):
-    def __init__(self, submitting_user, target_user, screenshot, page):
-        super().__init__(label="Next Page ▶️", style=discord.ButtonStyle.secondary)
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, page):
+        super().__init__(label="Next Page", style=discord.ButtonStyle.secondary)
+        self.cog = cog
         self.submitting_user = submitting_user
         self.target_user = target_user
         self.screenshot = screenshot
         self.page = page
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(view=BossView(self.submitting_user, self.target_user, self.screenshot, self.page + 1))
+        await interaction.response.edit_message(
+            view=BossView(self.cog, self.submitting_user, self.target_user, self.screenshot, self.page + 1)
+        )
 
-# ---------------------------
-# 🔹 Utility: Get team role mention
-# ---------------------------
-def get_team_role_mention(member: discord.Member) -> str:
-    for role in member.roles:
-        if role.name.startswith("Team "):
-            return role.mention
-    return "*No team*"
 
-# ---------------------------
-# 🔹 Drop Select
-# ---------------------------
 class DropSelect(discord.ui.Select):
-    def __init__(self, submitting_user, target_user, screenshot, boss):
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, boss):
+        self.cog = cog
         self.submitting_user = submitting_user
         self.target_user = target_user
         self.screenshot = screenshot
         self.boss = boss
-        options = [discord.SelectOption(label=drop) for drop in boss_drops[boss]]
+        options = [discord.SelectOption(label=drop) for drop in BOSS_DROPS[boss]]
         super().__init__(placeholder=f"Select a drop from {boss}", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
         drop_name = self.values[0]
-        review_channel = bot.get_channel(REVIEW_CHANNEL_ID)
+        review_channel = self.cog.bot.get_channel(self.cog.REVIEW_CHANNEL_ID)
 
         embed = discord.Embed(title=f"{self.boss} Drop Submission", colour=discord.Colour.blurple())
         embed.add_field(name="Submitted For", value=f"{self.target_user.mention} ({self.target_user.id})", inline=False)
@@ -274,57 +319,64 @@ class DropSelect(discord.ui.Select):
         embed.add_field(name="Submitted By", value=f"{self.submitting_user.mention} ({self.submitting_user.id})", inline=False)
         embed.set_image(url=self.screenshot.url)
 
-        await interaction.response.edit_message(content="✅ Submitted for review.", embed=embed, view=None)
+        await interaction.response.edit_message(content="Submitted for review.", embed=embed, view=None)
 
         if review_channel:
-            team_mention = get_team_role_mention(self.target_user)
+            team_mention = self.cog.get_team_role_mention(self.target_user)
             await review_channel.send(
                 embed=embed,
-                view=DropReviewButtons(self.target_user, drop_name, self.screenshot.url, self.submitting_user, team_mention)
+                view=DropReviewButtons(self.cog, self.target_user, drop_name, self.screenshot.url, self.submitting_user, team_mention)
             )
 
+
 class DropView(discord.ui.View):
-    def __init__(self, submitting_user, target_user, screenshot, boss, page=0):
+    def __init__(self, cog: BingoCog, submitting_user, target_user, screenshot, boss, page=0):
         super().__init__()
+        self.cog = cog
         self.submitting_user = submitting_user
         self.target_user = target_user
         self.screenshot = screenshot
         self.boss = boss
         self.page = page
 
-        self.add_item(DropSelect(submitting_user, target_user, screenshot, boss))
-        self.add_item(self.BackButton())
+        self.add_item(DropSelect(cog, submitting_user, target_user, screenshot, boss))
+        self.add_item(self.BackButton(cog, submitting_user, target_user, screenshot, page))
 
     class BackButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="⬅️ Back", style=discord.ButtonStyle.secondary)
+        def __init__(self, cog, submitting_user, target_user, screenshot, page):
+            super().__init__(label="Back", style=discord.ButtonStyle.secondary)
+            self.cog = cog
+            self.submitting_user = submitting_user
+            self.target_user = target_user
+            self.screenshot = screenshot
+            self.page = page
 
         async def callback(self, interaction: discord.Interaction):
             await interaction.response.edit_message(
-                content=f"Submitting drop for {self.view.target_user.display_name}. Select the boss you received the drop from:",
+                content=f"Submitting drop for {self.target_user.display_name}. Select the boss you received the drop from:",
                 view=BossView(
-                    self.view.submitting_user,
-                    self.view.target_user,
-                    self.view.screenshot,
-                    page=self.view.page
+                    self.cog,
+                    self.submitting_user,
+                    self.target_user,
+                    self.screenshot,
+                    page=self.page
                 )
             )
 
-# ---------------------------
-# 🔹 DropReviewButtons
-# ---------------------------
+
 class DropReviewButtons(discord.ui.View):
-    def __init__(self, submitted_user: discord.Member, drop: str, image_url: str, submitting_user: discord.Member, team_mention: str):
+    def __init__(self, cog: BingoCog, submitted_user: discord.Member, drop: str, image_url: str, submitting_user: discord.Member, team_mention: str):
         super().__init__(timeout=None)
+        self.cog = cog
         self.submitted_user = submitted_user
         self.drop = drop
         self.image_url = image_url
         self.submitting_user = submitting_user
         self.team_mention = team_mention
-        self.reviewer: Optional[int] = None 
+        self.reviewer: Optional[int] = None
 
     def has_drop_manager_role(self, member: discord.Member) -> bool:
-        return any(role.name == REQUIRED_ROLE_NAME for role in member.roles)
+        return any(role.name == self.cog.REQUIRED_ROLE_NAME for role in member.roles)
 
     def is_moderator(self, member: discord.Member) -> bool:
         return any(role.name == "Moderators" for role in member.roles)
@@ -334,10 +386,10 @@ class DropReviewButtons(discord.ui.View):
         user = interaction.user
 
         if not self.has_drop_manager_role(user) and not self.is_moderator(user):
-            await interaction.response.send_message("❌ You do not have permission to review.", ephemeral=True)
+            await interaction.response.send_message("You do not have permission to review.", ephemeral=True)
             return
 
-        # --- Moderator ---
+        # Moderator logic
         if self.is_moderator(user):
             if self.reviewer is None:
                 self.reviewer = user.id
@@ -345,7 +397,7 @@ class DropReviewButtons(discord.ui.View):
                     if child.label.startswith("Approve") or child.label.startswith("Reject"):
                         child.disabled = False
                 await interaction.message.edit(
-                    content=f"👤 Being reviewed by Moderator: {user.display_name}",
+                    content=f"Being reviewed by Moderator: {user.display_name}",
                     view=self
                 )
                 await interaction.response.defer()
@@ -356,7 +408,7 @@ class DropReviewButtons(discord.ui.View):
                     if child.label.startswith("Approve") or child.label.startswith("Reject"):
                         child.disabled = True
                 await interaction.message.edit(
-                    content=f"👤 Moderator {user.display_name} canceled the review. No one is currently reviewing this.",
+                    content=f"Moderator {user.display_name} canceled the review. No one is currently reviewing this.",
                     view=self
                 )
                 await interaction.response.defer()
@@ -367,20 +419,20 @@ class DropReviewButtons(discord.ui.View):
                     if child.label.startswith("Approve") or child.label.startswith("Reject"):
                         child.disabled = True
                 await interaction.message.edit(
-                    content=f"👤 No one is currently reviewing this.",
+                    content="No one is currently reviewing this.",
                     view=self
                 )
                 await interaction.response.defer()
             return
 
-        # --- drop manager ---
+        # Drop manager logic
         if self.reviewer is None:
             self.reviewer = user.id
             for child in self.children:
                 if child.label.startswith("Approve") or child.label.startswith("Reject"):
                     child.disabled = False
             await interaction.message.edit(
-                content=f"👤 Being reviewed by: {user.display_name}",
+                content=f"Being reviewed by: {user.display_name}",
                 view=self
             )
             await interaction.response.defer()
@@ -391,27 +443,27 @@ class DropReviewButtons(discord.ui.View):
                 if child.label.startswith("Approve") or child.label.startswith("Reject"):
                     child.disabled = True
             await interaction.message.edit(
-                content=f"👤 No one is currently reviewing this.",
+                content="No one is currently reviewing this.",
                 view=self
             )
             await interaction.response.defer()
 
         else:
             await interaction.response.send_message(
-                f"❌ This is currently being reviewed by <@{self.reviewer}>.",
+                f"This is currently being reviewed by <@{self.reviewer}>.",
                 ephemeral=True
             )
 
-    @discord.ui.button(label="Approve ✅", style=discord.ButtonStyle.green, disabled=True)
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green, disabled=True)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.reviewer != interaction.user.id:
             await interaction.response.send_message(
-                "❌ You are not the reviewer of this submission.",
+                "You are not the reviewer of this submission.",
                 ephemeral=True
             )
             return
 
-        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(title="Drop Approved", colour=discord.Colour.green())
             embed.add_field(name="Approved By", value=interaction.user.display_name, inline=False)
@@ -422,7 +474,7 @@ class DropReviewButtons(discord.ui.View):
             embed.set_image(url=self.image_url)
             await log_channel.send(embed=embed)
 
-        sheet.append_row([
+        self.cog.sheet.append_row([
             interaction.user.display_name,
             self.submitted_user.display_name,
             str(self.submitted_user.id),
@@ -431,26 +483,28 @@ class DropReviewButtons(discord.ui.View):
             datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         ])
 
-        await interaction.response.send_message("✅ Approved and logged. This message will now be removed.", ephemeral=True)
+        await interaction.response.send_message("Approved and logged. This message will now be removed.", ephemeral=True)
 
         await asyncio.sleep(1)
         await interaction.message.delete()
 
-    @discord.ui.button(label="Reject ❌", style=discord.ButtonStyle.red, disabled=True)
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red, disabled=True)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.reviewer != interaction.user.id:
             await interaction.response.send_message(
-                "❌ You are not the reviewer of this submission.",
+                "You are not the reviewer of this submission.",
                 ephemeral=True
             )
             return
 
-        modal = RejectReasonModal(self, interaction)
+        modal = RejectReasonModal(self.cog, self, interaction)
         await interaction.response.send_modal(modal)
 
+
 class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
-    def __init__(self, parent_view: discord.ui.View, interaction: discord.Interaction):
+    def __init__(self, cog: BingoCog, parent_view: discord.ui.View, interaction: discord.Interaction):
         super().__init__()
+        self.cog = cog
         self.parent_view = parent_view
         self.message = interaction.message
 
@@ -464,7 +518,7 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction):
-        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(title="Drop Rejected", colour=discord.Colour.red())
             embed.add_field(name="Rejected By", value=interaction.user.display_name, inline=False)
@@ -476,31 +530,11 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
             embed.set_image(url=self.parent_view.image_url)
             await log_channel.send(embed=embed)
 
-        await interaction.response.send_message("❌ Submission rejected and logged. This message will now be removed.", ephemeral=True)
+        await interaction.response.send_message("Submission rejected and logged. This message will now be removed.", ephemeral=True)
 
         await asyncio.sleep(1)
         await self.message.delete()
 
 
-# ---------------------------
-# 🔹 On Ready
-# ---------------------------
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    synced = await tree.sync()
-    print(f"✅ Synced {len(synced)} slash commands.")
-
-bot.run(os.getenv('BOT_TOKEN'))
-
-
-
-
-
-
-
-
-
-
-
-
+async def setup(bot: commands.Bot):
+    await bot.add_cog(BingoCog(bot))
