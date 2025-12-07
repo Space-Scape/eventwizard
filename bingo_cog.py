@@ -192,7 +192,7 @@ class BingoCog(commands.Cog):
                 return role.mention
         return "*No team*"
 
-    @app_commands.command(name="bingo_submitdrop", description="Submit a boss drop for bingo review")
+    @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
         screenshot="Attach a screenshot of your drop",
         submitted_for="Optionally specify the user you're submitting this drop for"
