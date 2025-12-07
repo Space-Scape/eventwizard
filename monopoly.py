@@ -21,8 +21,8 @@ from discord import ui, Interaction, SelectOption, TextStyle, Attachment, Member
 SPREADSHEET_ID = "1OVC8HImUpoh2keU-h2v_b2gFDa4zyfWsaJxBWRoSJ08"
 TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"]
 
-REVIEW_CHANNEL_ID = "1436465463742824499"
-LOG_CHANNEL_ID = "1436463720401211474"
+REVIEW_CHANNEL = "1436465463742824499"
+LOG_CHANNEL = "1436463720401211474"
 
 TEAM_CHANNELS_MAP = {
     "Team 1": 1436460767145754845,
@@ -458,14 +458,14 @@ class MonopolyCog(commands.Cog):
 
         async def on_submit(self, interaction: discord.Interaction):
             try:
-                log_chan = interaction.client.get_channel(int(LOG_CHANNEL_ID)) # 🔹 FIXED: Cast to int
+                log_chan = interaction.client.get_channel(int(LOG_CHANNEL)) # 🔹 FIXED: Cast to int
                 if log_chan:
                     await log_chan.send(
                         f"❌ Drop submission rejected for {self.submitter.mention} by {interaction.user.mention}.\n"
                         f"**Reason:** {self.reason.value}"
                     )
                 else:
-                    print(f"❌ RejectModal: Log channel {LOG_CHANNEL_ID} not found.")
+                    print(f"❌ RejectModal: Log channel {LOG_CHANNEL} not found.")
 
                 embed = self.review_message.embeds[0]
                 embed.color = discord.Color.red()
@@ -587,7 +587,7 @@ class MonopolyCog(commands.Cog):
                 
                 await self.message.delete()
 
-                log_chan = self.cog.bot.get_channel(int(LOG_CHANNEL_ID))
+                log_chan = self.cog.bot.get_channel(int(LOG_CHANNEL))
                 team_chan = self.cog.get_team_channel(self.cog.get_team(self.submitted_user))
 
                 if log_chan:
@@ -595,7 +595,7 @@ class MonopolyCog(commands.Cog):
                     await log_chan.send(content=f"{mention} Drop submission approved by {interaction.user.mention}.", embed=embed)
                     print(f"✅ Sent approval to DropLog ({log_chan.name})")
                 else:
-                    print(f"❌ DropLog channel {LOG_CHANNEL_ID} not found")
+                    print(f"❌ DropLog channel {LOG_CHANNEL} not found")
 
                 team_name = self.cog.get_team(self.submitted_user) or "*No team*"
                 self.cog.log_drop_to_sheet(
@@ -874,9 +874,9 @@ class MonopolyCog(commands.Cog):
             embed.add_field(name="Submitted By", value=f"{self.submitting_user.mention} `({self.submitting_user.id})`", inline=False)
             embed.set_image(url=self.screenshot_url)
 
-            review_channel = self.cog.bot.get_channel(int(REVIEW_CHANNEL_ID)) # 🔹 FIXED: Cast to int
+            review_channel = self.cog.bot.get_channel(int(REVIEW_CHANNEL)) # 🔹 FIXED: Cast to int
             if not review_channel:
-                print(f"❌ Review channel {REVIEW_CHANNEL_ID} not found")
+                print(f"❌ Review channel {REVIEW_CHANNEL} not found")
                 await interaction.response.edit_message(content="❌ Review channel not found.", view=None, embed=None)
                 return
 
@@ -957,7 +957,7 @@ class MonopolyCog(commands.Cog):
         self.set_teleblock_status(team_name, "no")
         
         team_chan = self.get_team_channel(team_name)
-        log_chan = self.bot.get_channel(int(LOG_CHANNEL_ID))
+        log_chan = self.bot.get_channel(int(LOG_CHANNEL))
 
         try:
             cleared_cards = self.clear_all_active_statuses(team_name)
@@ -1089,7 +1089,7 @@ class MonopolyCog(commands.Cog):
             await interaction.channel.send(go_message)
             
         if not team_chan:
-            print(f"❌ Log channel {LOG_CHANNEL_ID} not found, can't send card embeds.")
+            print(f"❌ Log channel {LOG_CHANNEL} not found, can't send card embeds.")
             return
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
@@ -1552,29 +1552,29 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
-    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
-    @app_commands.describe(
-        screenshot="Attach a screenshot of the drop",
-        submitted_for="User you are submitting the drop for (optional)",
-    )
-    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
-        try:
-            await interaction.response.defer(ephemeral=True)
-        except discord.NotFound:
-            print("❌ Interaction not found. (Original timeout)")
-            return
-        except discord.errors.InteractionResponded:
-            print("❌ Interaction already responded to. (Likely >3s lag before defer)")
-            return
-            
-        if submitted_for is None:
-            submitted_for = interaction.user
-
-        await interaction.followup.send(
-            content=f"Submitting drop for {submitted_for.display_name}. Select the boss you received the drop from:",
-            view=self.BossSelectView(cog=self, submitting_user=interaction.user, submitted_for=submitted_for, screenshot_url=screenshot.url),
-            ephemeral=True
-        )
+#    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
+#    @app_commands.describe(
+#        screenshot="Attach a screenshot of the drop",
+#        submitted_for="User you are submitting the drop for (optional)",
+#    )
+#    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
+#        try:
+#            await interaction.response.defer(ephemeral=True)
+#        except discord.NotFound:
+#            print("❌ Interaction not found. (Original timeout)")
+#            return
+#        except discord.errors.InteractionResponded:
+#            print("❌ Interaction already responded to. (Likely >3s lag before defer)")
+#            return
+#            
+#        if submitted_for is None:
+#            submitted_for = interaction.user
+#
+#        await interaction.followup.send(
+#            content=f"Submitting drop for {submitted_for.display_name}. Select the boss you received the drop from:",
+#            view=self.BossSelectView(cog=self, submitting_user=interaction.user, submitted_for=submitted_for, screenshot_url=screenshot.url),
+#            ephemeral=True
+#        )
 
     async def team_receives_card(self, team_name: str, card_type: str, team_channel: discord.TextChannel):
         card_sheet = self.chance_sheet if card_type == "Chance" else self.chest_sheet
