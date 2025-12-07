@@ -179,7 +179,7 @@ class BingoCog(commands.Cog):
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1447066849291272446
-        self.LOG_CHANNEL_ID = 1447066849291272446
+        self.LOG_CHANNEL_ID = 1447083513168924713
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
 
