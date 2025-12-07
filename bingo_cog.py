@@ -115,14 +115,12 @@ BOSS_DROPS = {
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
 }
 
-
 class BingoCog(commands.Cog):
     """Cog for handling bingo drop submissions and reviews."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-        # Check for required environment variables
         required_env_vars = [
             'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID',
             'EVENT_PRIVATE_KEY', 'EVENT_CLIENT_EMAIL', 'EVENT_CLIENT_ID',
@@ -143,7 +141,6 @@ class BingoCog(commands.Cog):
 
         print("Bingo Cog: All required environment variables are present.")
 
-        # Google Sheets Setup
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -175,17 +172,14 @@ class BingoCog(commands.Cog):
         creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
         sheet_client = gspread.authorize(creds)
 
-        # Drop Submission Sheet
         sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
         self.sheet = sheet_client.open_by_key(sheet_id).sheet1
 
-        # RSN Tracker Sheet
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
-        # Channel IDs + Role
-        self.SUBMISSION_CHANNEL_ID = 1401523115808526438
-        self.REVIEW_CHANNEL_ID = 1401510165764771950
-        self.LOG_CHANNEL_ID = 1401514384001601607
+        self.SUBMISSION_CHANNEL_ID = 1447066912159830149
+        self.REVIEW_CHANNEL_ID = 1447066849291272446
+        self.LOG_CHANNEL_ID = 1447066849291272446
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
 
