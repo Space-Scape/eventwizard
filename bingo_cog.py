@@ -457,30 +457,58 @@ class DropReviewButtons(discord.ui.View):
             )
             return
 
+        errors = []
+
+        # Try to send to log channel
         log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
-            embed = discord.Embed(title="Drop Approved", colour=discord.Colour.green())
-            embed.add_field(name="Approved By", value=interaction.user.display_name, inline=False)
-            embed.add_field(name="Drop For", value=self.submitted_user.mention, inline=False)
-            embed.add_field(name="Team", value=self.team_mention, inline=False)
-            embed.add_field(name="Drop", value=self.drop, inline=False)
-            embed.add_field(name="Submitted By", value=self.submitting_user.mention, inline=False)
-            embed.set_image(url=self.image_url)
-            await log_channel.send(embed=embed)
+            try:
+                embed = discord.Embed(title="Drop Approved", colour=discord.Colour.green())
+                embed.add_field(name="Approved By", value=interaction.user.display_name, inline=False)
+                embed.add_field(name="Drop For", value=self.submitted_user.mention, inline=False)
+                embed.add_field(name="Team", value=self.team_mention, inline=False)
+                embed.add_field(name="Drop", value=self.drop, inline=False)
+                embed.add_field(name="Submitted By", value=self.submitting_user.mention, inline=False)
+                embed.set_image(url=self.image_url)
+                await log_channel.send(embed=embed)
+            except Exception as e:
+                print(f"Bingo Cog: Failed to send to log channel: {e}")
+                errors.append("Failed to log to channel")
+        else:
+            errors.append("Log channel not found")
 
-        self.cog.sheet.append_row([
-            interaction.user.display_name,
-            self.submitted_user.display_name,
-            str(self.submitted_user.id),
-            self.drop,
-            self.image_url,
-            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        ])
+        # Try to append to sheet
+        try:
+            self.cog.sheet.append_row([
+                interaction.user.display_name,
+                self.submitted_user.display_name,
+                str(self.submitted_user.id),
+                self.drop,
+                self.image_url,
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            ])
+        except Exception as e:
+            print(f"Bingo Cog: Failed to append to sheet: {e}")
+            errors.append("Failed to log to spreadsheet")
 
-        await interaction.response.send_message("Approved and logged. This message will now be removed.", ephemeral=True)
+        # Send response
+        if errors:
+            await interaction.response.send_message(
+                f"Approved but with issues: {', '.join(errors)}. Message will be removed.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Approved and logged. This message will now be removed.",
+                ephemeral=True
+            )
 
-        await asyncio.sleep(1)
-        await interaction.message.delete()
+        # Always try to delete the message
+        try:
+            await asyncio.sleep(1)
+            await interaction.message.delete()
+        except Exception as e:
+            print(f"Bingo Cog: Failed to delete review message: {e}")
 
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.red, disabled=True)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -512,22 +540,42 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction):
+        logged = False
+
+        # Try to send to log channel
         log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
-            embed = discord.Embed(title="Drop Rejected", colour=discord.Colour.red())
-            embed.add_field(name="Rejected By", value=interaction.user.display_name, inline=False)
-            embed.add_field(name="Drop For", value=self.parent_view.submitted_user.mention, inline=False)
-            embed.add_field(name="Team", value=self.parent_view.team_mention, inline=False)
-            embed.add_field(name="Drop", value=self.parent_view.drop, inline=False)
-            embed.add_field(name="Submitted By", value=self.parent_view.submitting_user.mention, inline=False)
-            embed.add_field(name="Reason", value=self.reason.value, inline=False)
-            embed.set_image(url=self.parent_view.image_url)
-            await log_channel.send(embed=embed)
+            try:
+                embed = discord.Embed(title="Drop Rejected", colour=discord.Colour.red())
+                embed.add_field(name="Rejected By", value=interaction.user.display_name, inline=False)
+                embed.add_field(name="Drop For", value=self.parent_view.submitted_user.mention, inline=False)
+                embed.add_field(name="Team", value=self.parent_view.team_mention, inline=False)
+                embed.add_field(name="Drop", value=self.parent_view.drop, inline=False)
+                embed.add_field(name="Submitted By", value=self.parent_view.submitting_user.mention, inline=False)
+                embed.add_field(name="Reason", value=self.reason.value, inline=False)
+                embed.set_image(url=self.parent_view.image_url)
+                await log_channel.send(embed=embed)
+                logged = True
+            except Exception as e:
+                print(f"Bingo Cog: Failed to send rejection to log channel: {e}")
 
-        await interaction.response.send_message("Submission rejected and logged. This message will now be removed.", ephemeral=True)
+        if logged:
+            await interaction.response.send_message(
+                "Submission rejected and logged. This message will now be removed.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Submission rejected but failed to log. This message will now be removed.",
+                ephemeral=True
+            )
 
-        await asyncio.sleep(1)
-        await self.message.delete()
+        # Always try to delete the message
+        try:
+            await asyncio.sleep(1)
+            await self.message.delete()
+        except Exception as e:
+            print(f"Bingo Cog: Failed to delete review message: {e}")
 
 
 async def setup(bot: commands.Bot):
