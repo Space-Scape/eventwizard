@@ -1552,12 +1552,12 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
-    @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
+    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
     @app_commands.describe(
         screenshot="Attach a screenshot of the drop",
         submitted_for="User you are submitting the drop for (optional)",
     )
-    async def submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
+    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
         try:
             await interaction.response.defer(ephemeral=True)
         except discord.NotFound:
