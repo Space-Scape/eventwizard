@@ -417,6 +417,14 @@ class SoloSignupModal(Modal):
             next_row = len(signup_sheet.col_values(1)) + 1
             signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
+            # Post public signup announcement with screenshot
+            public_embed = discord.Embed(title="New Solo Signup!", color=discord.Color.blue())
+            public_embed.add_field(name="Player", value=interaction.user.mention, inline=True)
+            public_embed.add_field(name="RSN", value=rsn, inline=True)
+            public_embed.set_image(url=screenshot)
+            await interaction.channel.send(embed=public_embed)
+
+            # Send private confirmation to user
             confirm_embed = discord.Embed(title="Solo Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
             confirm_embed.add_field(name="Playtime", value=playtime, inline=True)
@@ -534,6 +542,15 @@ class DuoSignupModal(Modal):
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
 
+            # Post public signup announcement with screenshot
+            public_embed = discord.Embed(title="New Duo Signup!", color=discord.Color.blue())
+            public_embed.add_field(name="Player", value=interaction.user.mention, inline=True)
+            public_embed.add_field(name="RSN", value=rsn, inline=True)
+            public_embed.add_field(name="Duo Partner", value=duo_partner_rsn, inline=True)
+            public_embed.set_image(url=screenshot)
+            await interaction.channel.send(embed=public_embed)
+
+            # Send private confirmation to user
             confirm_embed = discord.Embed(title="Duo Signup Submitted!", color=discord.Color.green())
             confirm_embed.add_field(name="RSN", value=rsn, inline=True)
             confirm_embed.add_field(name="Duo Partner", value=duo_partner_rsn, inline=True)
