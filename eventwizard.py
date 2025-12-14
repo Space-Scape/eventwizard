@@ -525,12 +525,12 @@ class DuoSignupModal(Modal):
             signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner_value, partner_screenshot]
             signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
-            # Update partner's row with this user's screenshot (column J - Duo Buy In Screenshot)
+            # Update partner's row: set Is Duo to ✅, add partner link and screenshot
             if partner_row:
                 try:
-                    # Also update partner's Duo Partner column (I) with hyperlink to this row
+                    # Update columns H (Is Duo), I (Duo Partner), and J (Duo Screenshot)
                     partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
-                    signup_sheet.update(range_name=f"I{partner_row}:J{partner_row}", values=[[partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
+                    signup_sheet.update(range_name=f"H{partner_row}:J{partner_row}", values=[["✅", partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
 
