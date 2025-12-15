@@ -417,6 +417,11 @@ class SoloSignupModal(Modal):
             next_row = len(signup_sheet.col_values(1)) + 1
             signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
+            # Assign Bingo Player role
+            bingo_player_role = interaction.guild.get_role(1339970052266528840)
+            if bingo_player_role:
+                await interaction.user.add_roles(bingo_player_role)
+
             # Post public signup announcement with screenshot
             public_embed = discord.Embed(title="New Solo Signup!", color=discord.Color.blue())
             public_embed.add_field(name="Player", value=interaction.user.mention, inline=True)
@@ -541,6 +546,11 @@ class DuoSignupModal(Modal):
                     signup_sheet.update(range_name=f"H{partner_row}:J{partner_row}", values=[["✅", partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
+
+            # Assign Bingo Player role
+            bingo_player_role = interaction.guild.get_role(1339970052266528840)
+            if bingo_player_role:
+                await interaction.user.add_roles(bingo_player_role)
 
             # Post public signup announcement with screenshot
             public_embed = discord.Embed(title="New Duo Signup!", color=discord.Color.blue())
