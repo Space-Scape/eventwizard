@@ -629,22 +629,24 @@ async def bingosignups(interaction: discord.Interaction):
         duo_indicators = all_values[1:] if all_values else []
 
         solo_count = 0
-        duo_entries = 0
+        duo_count = 0
 
         for indicator in duo_indicators:
             if indicator == "❌":
                 solo_count += 1
             elif indicator == "✅":
-                duo_entries += 1
+                duo_count += 1
 
-        # Each duo team has 2 entries, so divide by 2
-        duo_count = duo_entries // 2
+        # Duo combined = duo teams (2 players = 1 team)
+        duo_combined = duo_count // 2
+        # Total = all players
         total = solo_count + duo_count
 
         embed = discord.Embed(title="Bingo Signups", color=discord.Color.blue())
         embed.add_field(name="Solo", value=str(solo_count), inline=True)
         embed.add_field(name="Duo", value=str(duo_count), inline=True)
-        embed.add_field(name="Total", value=str(total), inline=True)
+        embed.add_field(name="Duo Combined", value=str(duo_combined), inline=True)
+        embed.add_field(name="Total", value=str(total), inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
     except Exception as e:
