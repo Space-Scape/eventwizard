@@ -617,6 +617,41 @@ async def signup(interaction: discord.Interaction, screenshot: discord.Attachmen
     await interaction.response.send_message(embed=embed, view=SignupView(screenshot_url, default_rsn), ephemeral=True)
 
 
+@tree.command(name="bingosignups", description="View the current bingo signup counts.")
+async def bingosignups(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Get column H (Is Duo) - index 8 since it's 1-based
+        all_values = signup_sheet.col_values(8)
+
+        # Skip header row if present
+        duo_indicators = all_values[1:] if all_values else []
+
+        solo_count = 0
+        duo_entries = 0
+
+        for indicator in duo_indicators:
+            if indicator == "❌":
+                solo_count += 1
+            elif indicator == "✅":
+                duo_entries += 1
+
+        # Each duo team has 2 entries, so divide by 2
+        duo_count = duo_entries // 2
+        total = solo_count + duo_count
+
+        embed = discord.Embed(title="Bingo Signups", color=discord.Color.blue())
+        embed.add_field(name="Solo", value=str(solo_count), inline=True)
+        embed.add_field(name="Duo", value=str(duo_count), inline=True)
+        embed.add_field(name="Total", value=str(total), inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        print(f"Error fetching signup counts: {e}")
+        await interaction.followup.send(f"An error occurred while fetching signup counts: {e}", ephemeral=True)
+
+
 @tree.command(name="schedule", description="Manually posts/updates the weekly event schedule.")
 @app_commands.checks.has_role(REQUIRED_ROLE_NAME)
 async def schedule(interaction: discord.Interaction):
