@@ -492,16 +492,18 @@ class DuoSignupModal(Modal):
         comments = self.comments.value.strip() if self.comments.value else ""
         is_duo = "✅"
 
-        # Validate partner RSN exists in RSN Tracker sheet and get their Discord ID
+        # Validate partner RSN exists in RSN Tracker sheet and get their Discord ID and username
         partner_valid = False
         partner_discord_id = None
+        partner_discord_name = ""
         try:
             all_tracker_rsns = rsn_sheet.col_values(4)  # Column 4 contains RSNs in tracker
             for idx, tracker_rsn in enumerate(all_tracker_rsns):
                 if tracker_rsn.lower() == duo_partner_rsn.lower():
                     partner_valid = True
-                    # Get partner's Discord ID from column 1 (same row)
+                    # Get partner's Discord ID from column 1 and username from column 2 (same row)
                     partner_discord_id = rsn_sheet.cell(idx + 1, 1).value
+                    partner_discord_name = rsn_sheet.cell(idx + 1, 2).value or ""
                     break
         except Exception:
             pass
@@ -558,27 +560,17 @@ class DuoSignupModal(Modal):
                     partner_row_num = len(signup_sheet.col_values(1)) + 1
                     partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
 
-                    # Get partner's Discord display name
-                    partner_discord_name = ""
-                    if partner_discord_id:
-                        try:
-                            partner_member = await interaction.guild.fetch_member(int(partner_discord_id))
-                            if partner_member:
-                                partner_discord_name = partner_member.display_name
-                        except Exception:
-                            pass
-
-                    # Create partner's signup row with: Discord Name, Discord ID, RSN, empty fields, Is Duo, Duo Partner link, Partner screenshot
+                    # Create partner's signup row using data from RSN registry and signup user's info
                     partner_signup_data = [
-                        partner_discord_name,  # Column A: Partner's Discord username
-                        partner_discord_id or "",  # Column B: Partner's Discord ID
+                        partner_discord_name,  # Column A: Partner's Discord username (from RSN registry)
+                        partner_discord_id or "",  # Column B: Partner's Discord ID (from RSN registry)
                         duo_partner_rsn,  # Column C: Partner's RSN
-                        "",  # Column D: Playtime (empty - they'll fill in later if they sign up)
-                        "",  # Column E: Timezone (empty)
-                        "",  # Column F: Screenshot (empty - they haven't provided one)
-                        "",  # Column G: Comments (empty)
+                        playtime,  # Column D: Signup user's playtime
+                        timezone_location,  # Column E: Signup user's timezone
+                        screenshot,  # Column F: Signup user's screenshot
+                        comments,  # Column G: Signup user's comments
                         "✅",  # Column H: Is Duo
-                        partner_link_to_me,  # Column I: Duo Partner (link to the person who signed them up)
+                        partner_link_to_me,  # Column I: Duo Partner (link to the signup user with their RSN)
                         screenshot  # Column J: Duo Partner Screenshot (the signup user's screenshot)
                     ]
                     signup_sheet.update(range_name=f"A{partner_row_num}:J{partner_row_num}", values=[partner_signup_data], value_input_option='USER_ENTERED')
