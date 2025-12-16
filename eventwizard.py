@@ -492,13 +492,16 @@ class DuoSignupModal(Modal):
         comments = self.comments.value.strip() if self.comments.value else ""
         is_duo = "✅"
 
-        # Validate partner RSN exists in RSN Tracker sheet
+        # Validate partner RSN exists in RSN Tracker sheet and get their Discord ID
         partner_valid = False
+        partner_discord_id = None
         try:
             all_tracker_rsns = rsn_sheet.col_values(4)  # Column 4 contains RSNs in tracker
-            for tracker_rsn in all_tracker_rsns:
+            for idx, tracker_rsn in enumerate(all_tracker_rsns):
                 if tracker_rsn.lower() == duo_partner_rsn.lower():
                     partner_valid = True
+                    # Get partner's Discord ID from column 1 (same row)
+                    partner_discord_id = rsn_sheet.cell(idx + 1, 1).value
                     break
         except Exception:
             pass
@@ -544,13 +547,24 @@ class DuoSignupModal(Modal):
                     # Update columns H (Is Duo), I (Duo Partner), and J (Duo Screenshot)
                     partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
                     signup_sheet.update(range_name=f"H{partner_row}:J{partner_row}", values=[["✅", partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
+                    # Also update partner's Discord ID (column B) with their correct ID
+                    if partner_discord_id:
+                        signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
 
-            # Assign Bingo Player role
+            # Assign Bingo Player role to both the submitter and their partner
             bingo_player_role = interaction.guild.get_role(1339970052266528840)
             if bingo_player_role:
                 await interaction.user.add_roles(bingo_player_role)
+                # Also give partner the role if we have their Discord ID
+                if partner_discord_id:
+                    try:
+                        partner_member = await interaction.guild.fetch_member(int(partner_discord_id))
+                        if partner_member:
+                            await partner_member.add_roles(bingo_player_role)
+                    except Exception as e:
+                        print(f"Error adding role to partner: {e}")
 
             # Post public signup announcement with screenshot
             public_embed = discord.Embed(title="New Duo Signup!", color=discord.Color.blue())
