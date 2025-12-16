@@ -552,6 +552,42 @@ class DuoSignupModal(Modal):
                         signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
+            else:
+                # Partner hasn't signed up yet - create a row for them
+                try:
+                    partner_row_num = len(signup_sheet.col_values(1)) + 1
+                    partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
+
+                    # Get partner's Discord display name
+                    partner_discord_name = ""
+                    if partner_discord_id:
+                        try:
+                            partner_member = await interaction.guild.fetch_member(int(partner_discord_id))
+                            if partner_member:
+                                partner_discord_name = partner_member.display_name
+                        except Exception:
+                            pass
+
+                    # Create partner's signup row with: Discord Name, Discord ID, RSN, empty fields, Is Duo, Duo Partner link, Partner screenshot
+                    partner_signup_data = [
+                        partner_discord_name,  # Column A: Partner's Discord username
+                        partner_discord_id or "",  # Column B: Partner's Discord ID
+                        duo_partner_rsn,  # Column C: Partner's RSN
+                        "",  # Column D: Playtime (empty - they'll fill in later if they sign up)
+                        "",  # Column E: Timezone (empty)
+                        "",  # Column F: Screenshot (empty - they haven't provided one)
+                        "",  # Column G: Comments (empty)
+                        "✅",  # Column H: Is Duo
+                        partner_link_to_me,  # Column I: Duo Partner (link to the person who signed them up)
+                        screenshot  # Column J: Duo Partner Screenshot (the signup user's screenshot)
+                    ]
+                    signup_sheet.update(range_name=f"A{partner_row_num}:J{partner_row_num}", values=[partner_signup_data], value_input_option='USER_ENTERED')
+
+                    # Update the current user's duo_partner_value to link to the new partner row
+                    partner_link_to_partner = f'=HYPERLINK("#gid=140334082&range=A{partner_row_num}", "{duo_partner_rsn}")'
+                    signup_sheet.update(range_name=f"I{next_row}", values=[[partner_link_to_partner]], value_input_option='USER_ENTERED')
+                except Exception as e:
+                    print(f"Error creating partner's signup row: {e}")
 
             # Assign Bingo Player role to both the submitter and their partner
             bingo_player_role = interaction.guild.get_role(1339970052266528840)
