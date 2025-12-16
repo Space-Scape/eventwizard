@@ -385,6 +385,11 @@ class SoloSignupModal(Modal):
             placeholder="e.g., EST, PST, GMT+1",
             required=True
         )
+        self.ironman = TextInput(
+            label="Ironman Account? (yes/no)",
+            placeholder="yes or no",
+            required=True
+        )
         self.comments = TextInput(
             label="Comments (Optional)",
             placeholder="Any additional notes",
@@ -395,6 +400,7 @@ class SoloSignupModal(Modal):
         self.add_item(self.account)
         self.add_item(self.playtime)
         self.add_item(self.timezone)
+        self.add_item(self.ironman)
         self.add_item(self.comments)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -410,12 +416,13 @@ class SoloSignupModal(Modal):
         is_duo = "❌"
         duo_partner = ""
         duo_screenshot = ""
+        ironman = "✅" if self.ironman.value.strip().lower() in ["yes", "y"] else "❌"
 
-        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner, duo_screenshot]
+        signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner, duo_screenshot, ironman]
 
         try:
             next_row = len(signup_sheet.col_values(1)) + 1
-            signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+            signup_sheet.update(range_name=f"A{next_row}:K{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
             # Assign Bingo Player role
             bingo_player_role = interaction.guild.get_role(1339970052266528840)
@@ -466,18 +473,17 @@ class DuoSignupModal(Modal):
             placeholder="e.g., EST, PST, GMT+1",
             required=True
         )
-        self.comments = TextInput(
-            label="Comments (Optional)",
-            placeholder="Any additional notes",
-            style=discord.TextStyle.paragraph,
-            required=False
+        self.ironman = TextInput(
+            label="Ironman Account? (yes/no)",
+            placeholder="yes or no",
+            required=True
         )
 
         self.add_item(self.account)
         self.add_item(self.duo_partner)
         self.add_item(self.playtime)
         self.add_item(self.timezone)
-        self.add_item(self.comments)
+        self.add_item(self.ironman)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -489,8 +495,9 @@ class DuoSignupModal(Modal):
         playtime = self.playtime.value.strip()
         timezone_location = self.timezone.value.strip()
         screenshot = self.screenshot_url
-        comments = self.comments.value.strip() if self.comments.value else ""
+        comments = ""
         is_duo = "✅"
+        ironman = "✅" if self.ironman.value.strip().lower() in ["yes", "y"] else "❌"
 
         # Validate partner RSN exists in RSN Tracker sheet and get their Discord ID
         partner_valid = False
@@ -538,8 +545,8 @@ class DuoSignupModal(Modal):
             # If no hyperlink formula, just use the partner RSN
             duo_partner_value = partner_link if partner_link else duo_partner_rsn
 
-            signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner_value, partner_screenshot]
-            signup_sheet.update(range_name=f"A{next_row}:J{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
+            signup_data = [discord_name, discord_id, rsn, playtime, timezone_location, screenshot, comments, is_duo, duo_partner_value, partner_screenshot, ironman]
+            signup_sheet.update(range_name=f"A{next_row}:K{next_row}", values=[signup_data], value_input_option='USER_ENTERED')
 
             # Update partner's row: set Is Duo to ✅, add partner link and screenshot
             if partner_row:
@@ -547,9 +554,17 @@ class DuoSignupModal(Modal):
                     # Update columns H (Is Duo), I (Duo Partner), and J (Duo Screenshot)
                     partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
                     signup_sheet.update(range_name=f"H{partner_row}:J{partner_row}", values=[["✅", partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
-                    # Also update partner's Discord ID (column B) with their correct ID
+                    # Also update partner's Discord Name (column A) and Discord ID (column B)
                     if partner_discord_id:
-                        signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
+                        try:
+                            partner_member = await interaction.guild.fetch_member(int(partner_discord_id))
+                            partner_discord_name = partner_member.display_name if partner_member else ""
+                            if partner_discord_name:
+                                signup_sheet.update(range_name=f"A{partner_row}:B{partner_row}", values=[[partner_discord_name, partner_discord_id]], value_input_option='USER_ENTERED')
+                            else:
+                                signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
+                        except Exception:
+                            signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
 
