@@ -375,14 +375,9 @@ class SoloSignupModal(Modal):
             default=default_rsn,
             required=True
         )
-        self.playtime = TextInput(
-            label="Playtime",
-            placeholder="e.g., 5-10 hours/week, evenings EST",
-            required=True
-        )
-        self.timezone = TextInput(
-            label="Timezone/Location",
-            placeholder="e.g., EST, PST, GMT+1",
+        self.availability = TextInput(
+            label="Playtime & Timezone",
+            placeholder="e.g., 5-10 hrs/week, evenings EST",
             required=True
         )
         self.ironman = TextInput(
@@ -398,8 +393,7 @@ class SoloSignupModal(Modal):
         )
 
         self.add_item(self.account)
-        self.add_item(self.playtime)
-        self.add_item(self.timezone)
+        self.add_item(self.availability)
         self.add_item(self.ironman)
         self.add_item(self.comments)
 
@@ -409,8 +403,9 @@ class SoloSignupModal(Modal):
         discord_name = interaction.user.display_name
         discord_id = str(interaction.user.id)
         rsn = self.account.value.strip()
-        playtime = self.playtime.value.strip()
-        timezone_location = self.timezone.value.strip()
+        availability = self.availability.value.strip()
+        playtime = availability  # Combined field
+        timezone_location = ""   # Combined into playtime
         screenshot = self.screenshot_url
         comments = self.comments.value.strip() if self.comments.value else ""
         is_duo = "❌"
