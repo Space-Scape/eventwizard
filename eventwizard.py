@@ -547,9 +547,6 @@ class DuoSignupModal(Modal):
                     # Update columns H (Is Duo), I (Duo Partner), and J (Duo Screenshot)
                     partner_link_to_me = f'=HYPERLINK("#gid=140334082&range=A{next_row}", "{rsn}")'
                     signup_sheet.update(range_name=f"H{partner_row}:J{partner_row}", values=[["✅", partner_link_to_me, screenshot]], value_input_option='USER_ENTERED')
-                    # Also update partner's Discord ID (column B) with their correct ID
-                    if partner_discord_id:
-                        signup_sheet.update(range_name=f"B{partner_row}", values=[[partner_discord_id]], value_input_option='USER_ENTERED')
                 except Exception as e:
                     print(f"Error updating partner's row: {e}")
 
@@ -823,19 +820,21 @@ async def on_ready():
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
 
-    try:
-        await bot.load_extension("monopoly")
-        print("✅ Loaded extension: monopoly")
-    except Exception as e:
-        print(f"❌ Failed to load extension: monopoly - {e}")
-        traceback.print_exc()
+    if "monopoly" not in bot.extensions:
+        try:
+            await bot.load_extension("monopoly")
+            print("✅ Loaded extension: monopoly")
+        except Exception as e:
+            print(f"❌ Failed to load extension: monopoly - {e}")
+            traceback.print_exc()
 
-    try:
-        await bot.load_extension("bingo_cog")
-        print("✅ Loaded extension: bingo_cog")
-    except Exception as e:
-        print(f"❌ Failed to load extension: bingo_cog - {e}")
-        traceback.print_exc()
+    if "bingo_cog" not in bot.extensions:
+        try:
+            await bot.load_extension("bingo_cog")
+            print("✅ Loaded extension: bingo_cog")
+        except Exception as e:
+            print(f"❌ Failed to load extension: bingo_cog - {e}")
+            traceback.print_exc()
 
     try:
         synced = await tree.sync()
