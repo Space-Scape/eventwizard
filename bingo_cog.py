@@ -178,16 +178,15 @@ class BingoCog(commands.Cog):
         sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
         main_spreadsheet = sheet_client.open_by_key(sheet_id)
         
-        # Primary sheet for drops
+        # Primary submission sheet
         self.sheet = main_spreadsheet.sheet1
         
-        # New sheet for roll data
+        # Roll data sheet
         try:
             self.roll_sheet = main_spreadsheet.worksheet("rolldata")
         except gspread.exceptions.WorksheetNotFound:
             print("Bingo Cog: 'rolldata' worksheet not found. Creating it...")
             self.roll_sheet = main_spreadsheet.add_worksheet(title="rolldata", rows="100", cols="20")
-            # Set headers if new
             self.roll_sheet.update('A1:D1', [['Discord ID', 'Display Name', 'Rolls', 'Guessed Number']])
 
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
@@ -197,13 +196,16 @@ class BingoCog(commands.Cog):
         self.LOG_CHANNEL_ID = 1447083513168924713
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
+        
+        # The correct answer
+        self.CORRECT_GUESS = "jaltevas"
 
         print("Bingo Cog: Initialized successfully.")
 
-    # --- Helper Methods ---
+    # --- Internal Helpers ---
 
     def _get_user_row_index(self, user_id: int):
-        """Finds the row index for a specific user ID in the rolldata sheet."""
+        """Finds the row index for a user ID in the rolldata sheet."""
         ids = self.roll_sheet.col_values(1)
         try:
             return ids.index(str(user_id)) + 1
@@ -211,45 +213,91 @@ class BingoCog(commands.Cog):
             return None
 
     async def _ensure_user_exists(self, user: discord.User):
-        """Ensures a user has a row in the spreadsheet, creating one if necessary."""
+        """Ensures a user has a row in the spreadsheet."""
         row_idx = self._get_user_row_index(user.id)
         if row_idx is None:
-            # Append new user: ID, Name, Rolls (0), Guess (empty)
+            # New user: ID (A), Name (B), Rolls (C), Guess (D)
             self.roll_sheet.append_row([str(user.id), user.display_name, "0", ""])
             return self._get_user_row_index(user.id)
         return row_idx
 
-    # --- Commands ---
+    # --- Roll Management Commands ---
 
-    @app_commands.command(name="addroll", description="Give a player a spin (Event Staff only)")
-    @app_commands.describe(player="The player to grant a roll to")
+    @app_commands.command(name="addroll", description="Manually grant a roll to a player (Staff only)")
+    @app_commands.describe(player="The player to receive a roll")
     async def add_roll(self, interaction: discord.Interaction, player: discord.Member):
-        # Check permissions
         if not any(role.name == self.REQUIRED_ROLE_NAME for role in interaction.user.roles):
-            await interaction.response.send_message("Only Event Staff can grant rolls.", ephemeral=True)
+            await interaction.response.send_message("Only Event Staff can use this command.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
         
         row_idx = await self._ensure_user_exists(player)
-        # Update Rolls (Column C / Index 3) to 1
+        # Update Rolls (Col 3) to 1
         self.roll_sheet.update_cell(row_idx, 3, "1")
         
         await interaction.followup.send(f"Granted 1 roll to {player.display_name}.")
 
-    @app_commands.command(name="guess", description="Guess a number for the bingo event")
-    @app_commands.describe(number="The number you want to guess")
-    async def guess(self, interaction: discord.Interaction, number: int):
+    @app_commands.command(name="guess", description="Submit your guess. If correct, you earn a roll!")
+    @app_commands.describe(guess="Your answer (text or number)")
+    async def guess(self, interaction: discord.Interaction, guess: str):
         await interaction.response.defer(ephemeral=True)
 
         row_idx = await self._ensure_user_exists(interaction.user)
         
-        # Update Display Name (B) and Guessed Number (D)
-        # Column B = 2, Column D = 4
-        self.roll_sheet.update_cell(row_idx, 2, interaction.user.display_name)
-        self.roll_sheet.update_cell(row_idx, 4, str(number))
+        # Check if guess is correct
+        is_correct = guess.strip().lower() == self.CORRECT_GUESS
+        roll_count = "1" if is_correct else "0"
+        
+        # Update Display Name (Col 2), Rolls (Col 3), and Guess (Col 4)
+        # We update Rolls automatically if they get it right
+        updates = [
+            {'range': f'B{row_idx}', 'values': [[interaction.user.display_name]]},
+            {'range': f'C{row_idx}', 'values': [[roll_count]]},
+            {'range': f'D{row_idx}', 'values': [[guess]]}
+        ]
+        self.roll_sheet.batch_update(updates)
 
-        await interaction.followup.send(f"Your guess of **{number}** has been recorded, {interaction.user.display_name}!")
+        if is_correct:
+            await interaction.followup.send(f"🎉 **Correct!** Your guess was '{guess}'. You have earned 1 roll! Use `/spin` to roll your number.")
+        else:
+            await interaction.followup.send(f"Recorded guess: **{guess}**. That is not the correct answer, but your entry has been saved.")
+
+    @app_commands.command(name="spin", description="Spin the bingo wheel (1-28)")
+    async def spin(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        row_idx = self._get_user_row_index(interaction.user.id)
+        if row_idx is None:
+            await interaction.followup.send("You haven't participated yet. Use `/guess` first!")
+            return
+
+        # Check Rolls (Col 3)
+        rolls_val = self.roll_sheet.cell(row_idx, 3).value
+        try:
+            available = int(rolls_val) if rolls_val else 0
+        except ValueError:
+            available = 0
+
+        if available <= 0:
+            await interaction.followup.send("You don't have any rolls available! Win the guess to earn a spin.")
+            return
+
+        # Perform the roll
+        result = random.randint(1, 28)
+        
+        # Reset Rolls to 0
+        self.roll_sheet.update_cell(row_idx, 3, "0")
+
+        embed = discord.Embed(
+            title="🎰 Bingo Spin",
+            description=f"{interaction.user.mention} rolled a...",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Number", value=f"**{result}**", inline=False)
+        embed.set_footer(text="Roll consumed. Good luck with your bingo card!")
+
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="spin", description="Spin the wheel (requires a roll)")
     async def spin(self, interaction: discord.Interaction):
