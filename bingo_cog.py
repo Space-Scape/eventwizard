@@ -116,7 +116,7 @@ BOSS_DROPS = {
 }
 
 class BingoCog(commands.Cog):
-    """Cog for handling bingo drop submissions and reviews."""
+    """Cog for handling bingo drop submissions, reviews, and player rolls."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -137,6 +137,7 @@ class BingoCog(commands.Cog):
             print("Bingo Cog will not function properly without these.")
             self.sheet = None
             self.rsn_sheet = None
+            self.roll_sheet = None
             return
 
         print("Bingo Cog: All required environment variables are present.")
@@ -151,6 +152,7 @@ class BingoCog(commands.Cog):
             print("Bingo Cog: 'EVENT_PRIVATE_KEY' environment variable is not set.")
             self.sheet = None
             self.rsn_sheet = None
+            self.roll_sheet = None
             return
 
         private_key_formatted = private_key_env.replace("\\n", "\n")
@@ -173,7 +175,19 @@ class BingoCog(commands.Cog):
         sheet_client = gspread.authorize(creds)
 
         sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
-        self.sheet = sheet_client.open_by_key(sheet_id).sheet1
+        main_spreadsheet = sheet_client.open_by_key(sheet_id)
+        
+        # Primary sheet for drops
+        self.sheet = main_spreadsheet.sheet1
+        
+        # New sheet for roll data
+        try:
+            self.roll_sheet = main_spreadsheet.worksheet("rolldata")
+        except gspread.exceptions.WorksheetNotFound:
+            print("Bingo Cog: 'rolldata' worksheet not found. Creating it...")
+            self.roll_sheet = main_spreadsheet.add_worksheet(title="rolldata", rows="100", cols="20")
+            # Set headers if new
+            self.roll_sheet.update('A1:D1', [['Discord ID', 'Display Name', 'Rolls', 'Guessed Number']])
 
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
@@ -185,12 +199,93 @@ class BingoCog(commands.Cog):
 
         print("Bingo Cog: Initialized successfully.")
 
-    def get_team_role_mention(self, member: discord.Member) -> str:
-        """Get the team role mention for a member."""
-        for role in member.roles:
-            if role.name.startswith("Team "):
-                return role.mention
-        return "*No team*"
+    # --- Helper Methods ---
+
+    def _get_user_row_index(self, user_id: int):
+        """Finds the row index for a specific user ID in the rolldata sheet."""
+        ids = self.roll_sheet.col_values(1)
+        try:
+            return ids.index(str(user_id)) + 1
+        except ValueError:
+            return None
+
+    async def _ensure_user_exists(self, user: discord.User):
+        """Ensures a user has a row in the spreadsheet, creating one if necessary."""
+        row_idx = self._get_user_row_index(user.id)
+        if row_idx is None:
+            # Append new user: ID, Name, Rolls (0), Guess (empty)
+            self.roll_sheet.append_row([str(user.id), user.display_name, "0", ""])
+            return self._get_user_row_index(user.id)
+        return row_idx
+
+    # --- Commands ---
+
+    @app_commands.command(name="addroll", description="Give a player a spin (Event Staff only)")
+    @app_commands.describe(player="The player to grant a roll to")
+    async def add_roll(self, interaction: discord.Interaction, player: discord.Member):
+        # Check permissions
+        if not any(role.name == self.REQUIRED_ROLE_NAME for role in interaction.user.roles):
+            await interaction.response.send_message("Only Event Staff can grant rolls.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        row_idx = await self._ensure_user_exists(player)
+        # Update Rolls (Column C / Index 3) to 1
+        self.roll_sheet.update_cell(row_idx, 3, "1")
+        
+        await interaction.followup.send(f"Granted 1 roll to {player.display_name}.")
+
+    @app_commands.command(name="guess", description="Guess a number for the bingo event")
+    @app_commands.describe(number="The number you want to guess")
+    async def guess(self, interaction: discord.Interaction, number: int):
+        await interaction.response.defer(ephemeral=True)
+
+        row_idx = await self._ensure_user_exists(interaction.user)
+        
+        # Update Display Name (B) and Guessed Number (D)
+        # Column B = 2, Column D = 4
+        self.roll_sheet.update_cell(row_idx, 2, interaction.user.display_name)
+        self.roll_sheet.update_cell(row_idx, 4, str(number))
+
+        await interaction.followup.send(f"Your guess of **{number}** has been recorded, {interaction.user.display_name}!")
+
+    @app_commands.command(name="spin", description="Spin the wheel (requires a roll)")
+    async def spin(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        row_idx = self._get_user_row_index(interaction.user.id)
+        
+        if row_idx is None:
+            await interaction.followup.send("You don't have any rolls available. Have you participated in a guess yet?")
+            return
+
+        # Check Rolls (Column C / Index 3)
+        rolls_val = self.roll_sheet.cell(row_idx, 3).value
+        try:
+            rolls_count = int(rolls_val) if rolls_val else 0
+        except ValueError:
+            rolls_count = 0
+
+        if rolls_count <= 0:
+            await interaction.followup.send("You have 0 rolls available. Win a guess to get a spin!")
+            return
+
+        # Perform Spin
+        result = random.randint(1, 28)
+        
+        # Reset Rolls to 0
+        self.roll_sheet.update_cell(row_idx, 3, "0")
+
+        embed = discord.Embed(
+            title="🎰 Bingo Spin!",
+            description=f"{interaction.user.mention} spun the wheel and got...",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Result", value=f"**{result}**", inline=False)
+        embed.set_footer(text="Your rolls have been consumed.")
+
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
