@@ -299,12 +299,12 @@ class BingoCog(commands.Cog):
             return
 
         # Generate unique number
-        result = random.randint(1, 28)
+        result = random.randint(1, 100)
         max_attempts = 100
         attempts = 0
         
         while str(result) in taken_numbers and attempts < max_attempts:
-            result = random.randint(1, 28)
+            result = random.randint(1, 100)
             attempts += 1
 
         if str(result) in taken_numbers:
