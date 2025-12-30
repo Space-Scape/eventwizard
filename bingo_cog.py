@@ -294,7 +294,7 @@ class BingoCog(commands.Cog):
         taken_numbers = [str(n).strip() for n in taken_numbers if n]
 
         # Check if any numbers are even left (1-28)
-        if len(set(taken_numbers)) >= 28:
+        if len(set(taken_numbers)) >= 100:
             await interaction.followup.send("🚨 All 28 bingo numbers have already been claimed by other players!")
             return
 
