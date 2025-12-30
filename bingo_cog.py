@@ -181,13 +181,13 @@ class BingoCog(commands.Cog):
         # Primary submission sheet
         self.sheet = main_spreadsheet.sheet1
         
-        # Roll data sheet setup (Discord ID | Display Name | Rolls | Guess)
+        # Roll data sheet setup (Discord ID | Display Name | Rolls | Guess | Spin)
         try:
             self.roll_sheet = main_spreadsheet.worksheet("rolldata")
         except gspread.exceptions.WorksheetNotFound:
             print("Bingo Cog: 'rolldata' worksheet not found. Creating it...")
             self.roll_sheet = main_spreadsheet.add_worksheet(title="rolldata", rows="100", cols="20")
-            self.roll_sheet.update('A1:D1', [['Discord ID', 'Display Name', 'Rolls', 'Guess']])
+            self.roll_sheet.update('A1:E1', [['Discord ID', 'Display Name', 'Rolls', 'Guess', 'Spin']])
 
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
@@ -216,9 +216,8 @@ class BingoCog(commands.Cog):
         """Ensures a user has a row in the spreadsheet. Returns the row index."""
         row_idx = self._get_user_row_index(user.id)
         if row_idx is None:
-            # New user entry: ID (A), Name (B), Rolls (C), Guess (D)
-            self.roll_sheet.append_row([str(user.id), user.display_name, "0", ""])
-            # Re-fetch the index after appending
+            # New user entry: ID (A), Name (B), Rolls (C), Guess (D), Spin (E)
+            self.roll_sheet.append_row([str(user.id), user.display_name, "0", "", ""])
             return self._get_user_row_index(user.id)
         return row_idx
 
@@ -234,7 +233,6 @@ class BingoCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         row_idx = await self._ensure_user_exists(player)
-        # Set Rolls (Column C / Index 3) to 1
         self.roll_sheet.update_cell(row_idx, 3, "1")
         
         await interaction.followup.send(f"Successfully granted 1 roll to {player.display_name}.")
@@ -245,18 +243,13 @@ class BingoCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         row_idx = await self._ensure_user_exists(interaction.user)
-        
-        # Check if the guess matches (case-insensitive)
         is_correct = guess.strip().lower() == self.CORRECT_GUESS.lower()
         
-        # Prepare batch updates for efficiency
-        # Col B: Display Name, Col D: Guess
         updates = [
             {'range': f'B{row_idx}', 'values': [[interaction.user.display_name]]},
             {'range': f'D{row_idx}', 'values': [[guess]]}
         ]
         
-        # If correct, also update Col C (Rolls) to 1
         if is_correct:
             updates.append({'range': f'C{row_idx}', 'values': [["1"]]})
         
@@ -273,7 +266,7 @@ class BingoCog(commands.Cog):
                 f"Unfortunately, that's not the correct answer. Keep trying!"
             )
 
-    @app_commands.command(name="spin", description="Spin the bingo wheel (1-100)")
+    @app_commands.command(name="spin", description="Spin the bingo wheel (1-28). Numbers are unique!")
     async def spin(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -282,10 +275,13 @@ class BingoCog(commands.Cog):
             await interaction.followup.send("You haven't participated yet! Try using `/guess` first.")
             return
 
-        # Check Rolls (Col C / Index 3)
-        rolls_data = self.roll_sheet.cell(row_idx, 3).value
+        # Check Rolls (Col C)
+        cells = self.roll_sheet.row_values(row_idx)
+        # Handle cases where row_values might be shorter than expected
+        rolls_val = cells[2] if len(cells) >= 3 else "0"
+        
         try:
-            available_rolls = int(rolls_data) if rolls_data else 0
+            available_rolls = int(rolls_val) if rolls_val else 0
         except ValueError:
             available_rolls = 0
 
@@ -293,19 +289,42 @@ class BingoCog(commands.Cog):
             await interaction.followup.send("You don't have any spins available! Get the correct answer in `/guess` to earn one.")
             return
 
-        # Generate the random bingo number
-        result = random.randint(1, 100)
+        # Get all currently taken numbers from Column E (Spin)
+        taken_numbers = self.roll_sheet.col_values(5)[1:] # Skip header
+        taken_numbers = [str(n).strip() for n in taken_numbers if n]
+
+        # Check if any numbers are even left (1-28)
+        if len(set(taken_numbers)) >= 28:
+            await interaction.followup.send("🚨 All 28 bingo numbers have already been claimed by other players!")
+            return
+
+        # Generate unique number
+        result = random.randint(1, 28)
+        max_attempts = 100
+        attempts = 0
         
-        # Consume the roll (set to 0)
-        self.roll_sheet.update_cell(row_idx, 3, "0")
+        while str(result) in taken_numbers and attempts < max_attempts:
+            result = random.randint(1, 28)
+            attempts += 1
+
+        if str(result) in taken_numbers:
+            await interaction.followup.send("Error: Could not find a unique number. Please try again or contact staff.")
+            return
+        
+        # Batch update: Set Rolls to 0 (C) and set Spin to result (E)
+        updates = [
+            {'range': f'C{row_idx}', 'values': [["0"]]},
+            {'range': f'E{row_idx}', 'values': [[str(result)]]}
+        ]
+        self.roll_sheet.batch_update(updates)
 
         embed = discord.Embed(
-            title="🎰 Bingo Spinner",
-            description=f"{interaction.user.mention}, your lucky number is...",
-            color=discord.Color.gold()
+            title="🎰 Unique Bingo Spin",
+            description=f"{interaction.user.mention}, you claimed a unique number!",
+            color=discord.Color.purple()
         )
-        embed.add_field(name="Result", value=f"**{result}**", inline=False)
-        embed.set_footer(text="Spin consumed. Best of luck on your card!")
+        embed.add_field(name="Your Number", value=f"**{result}**", inline=False)
+        embed.set_footer(text="This number is now taken and cannot be rolled by others.")
 
         await interaction.followup.send(embed=embed)
 
