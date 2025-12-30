@@ -273,7 +273,7 @@ class BingoCog(commands.Cog):
                 f"Unfortunately, that's not the correct answer. Keep trying!"
             )
 
-    @app_commands.command(name="spin", description="Spin the bingo wheel (1-28)")
+    @app_commands.command(name="spin", description="Spin the bingo wheel (1-100)")
     async def spin(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -294,7 +294,7 @@ class BingoCog(commands.Cog):
             return
 
         # Generate the random bingo number
-        result = random.randint(1, 28)
+        result = random.randint(1, 100)
         
         # Consume the roll (set to 0)
         self.roll_sheet.update_cell(row_idx, 3, "0")
