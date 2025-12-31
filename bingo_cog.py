@@ -204,6 +204,13 @@ class BingoCog(commands.Cog):
 
     # --- Internal Helpers ---
 
+    def get_team_role_mention(self, member: discord.Member) -> str:
+        """Get the team role mention for a member."""
+        for role in member.roles:
+            if role.name.startswith("Team "):
+                return role.mention
+        return "*No team*"
+
     def _get_user_row_index(self, user_id: int):
         """Finds the row index for a user ID in the rolldata sheet (Col A)."""
         ids = self.roll_sheet.col_values(1)
@@ -294,17 +301,17 @@ class BingoCog(commands.Cog):
         taken_numbers = [str(n).strip() for n in taken_numbers if n]
 
         # Check if any numbers are even left (1-28)
-        if len(set(taken_numbers)) >= 100:
+        if len(set(taken_numbers)) >= 28:
             await interaction.followup.send("🚨 All 28 bingo numbers have already been claimed by other players!")
             return
 
         # Generate unique number
-        result = random.randint(1, 100)
+        result = random.randint(1, 28)
         max_attempts = 100
         attempts = 0
         
         while str(result) in taken_numbers and attempts < max_attempts:
-            result = random.randint(1, 100)
+            result = random.randint(1, 28)
             attempts += 1
 
         if str(result) in taken_numbers:
