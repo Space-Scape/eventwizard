@@ -99,7 +99,6 @@ BOSS_DROPS = {
     "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
     "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
     "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
-    "Phantom Muspah": ["Muphin", "Venator shard"],
     "Royal Titans": ["Bran", "Fire element staff crown", "Ice element staff crown"],
     "Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
     "Scorpia": ["Scorpia's Offspring"],
@@ -140,7 +139,6 @@ class BingoCog(commands.Cog):
             print("Bingo Cog will not function properly without these.")
             self.sheet = None
             self.rsn_sheet = None
-            self.roll_sheet = None
             return
 
         print("Bingo Cog: All required environment variables are present.")
@@ -155,7 +153,6 @@ class BingoCog(commands.Cog):
             print("Bingo Cog: 'EVENT_PRIVATE_KEY' environment variable is not set.")
             self.sheet = None
             self.rsn_sheet = None
-            self.roll_sheet = None
             return
 
         private_key_formatted = private_key_env.replace("\\n", "\n")
@@ -183,14 +180,6 @@ class BingoCog(commands.Cog):
         # Primary submission sheet
         self.sheet = main_spreadsheet.sheet1
         
-        # Roll data sheet setup (Discord ID | Display Name | Rolls | Guess | Spin)
-        try:
-            self.roll_sheet = main_spreadsheet.worksheet("rolldata")
-        except gspread.exceptions.WorksheetNotFound:
-            print("Bingo Cog: 'rolldata' worksheet not found. Creating it...")
-            self.roll_sheet = main_spreadsheet.add_worksheet(title="rolldata", rows="100", cols="20")
-            self.roll_sheet.update('A1:E1', [['Discord ID', 'Display Name', 'Rolls', 'Guess', 'Spin']])
-
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
@@ -199,12 +188,9 @@ class BingoCog(commands.Cog):
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         
-        # Correct guess configuration
-        self.CORRECT_GUESS = "jaltevas"
-
         print("Bingo Cog: Initialized successfully.")
 
-    # --- Internal Helpers ---
+    # --- Helpers ---
 
     def get_team_role_mention(self, member: discord.Member) -> str:
         """Get the team role mention for a member."""
@@ -212,130 +198,6 @@ class BingoCog(commands.Cog):
             if role.name.startswith("Team "):
                 return role.mention
         return "*No team*"
-
-    def _get_user_row_index(self, user_id: int):
-        """Finds the row index for a user ID in the rolldata sheet (Col A)."""
-        ids = self.roll_sheet.col_values(1)
-        try:
-            return ids.index(str(user_id)) + 1
-        except ValueError:
-            return None
-
-    async def _ensure_user_exists(self, user: discord.User):
-        """Ensures a user has a row in the spreadsheet. Returns the row index."""
-        row_idx = self._get_user_row_index(user.id)
-        if row_idx is None:
-            # New user entry: ID (A), Name (B), Rolls (C), Guess (D), Spin (E)
-            self.roll_sheet.append_row([str(user.id), user.display_name, "0", "", ""])
-            return self._get_user_row_index(user.id)
-        return row_idx
-
-    # --- Roll Management Commands ---
-
-    @app_commands.command(name="addroll", description="Manually grant a roll to a player (Staff only)")
-    @app_commands.describe(player="The player to receive a roll")
-    async def add_roll(self, interaction: discord.Interaction, player: discord.Member):
-        if not any(role.name == self.REQUIRED_ROLE_NAME for role in interaction.user.roles):
-            await interaction.response.send_message("Only Event Staff can use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        
-        row_idx = await self._ensure_user_exists(player)
-        self.roll_sheet.update_cell(row_idx, 3, "1")
-        
-        await interaction.followup.send(f"Successfully granted 1 roll to {player.display_name}.")
-
-    @app_commands.command(name="guess", description="Guess the secret word! If correct, you earn a roll.")
-    @app_commands.describe(guess="Your answer")
-    async def guess(self, interaction: discord.Interaction, guess: str):
-        await interaction.response.defer(ephemeral=True)
-
-        row_idx = await self._ensure_user_exists(interaction.user)
-        is_correct = guess.strip().lower() == self.CORRECT_GUESS.lower()
-        
-        updates = [
-            {'range': f'B{row_idx}', 'values': [[interaction.user.display_name]]},
-            {'range': f'D{row_idx}', 'values': [[guess]]}
-        ]
-        
-        if is_correct:
-            updates.append({'range': f'C{row_idx}', 'values': [["1"]]})
-        
-        self.roll_sheet.batch_update(updates)
-
-        if is_correct:
-            await interaction.followup.send(
-                f"🎉 **Correct!** The secret word was indeed '{guess}'.\n"
-                f"You have earned **1 roll**! Use `/spin` to get your bingo number."
-            )
-        else:
-            await interaction.followup.send(
-                f"Guess recorded: **{guess}**.\n"
-                f"Unfortunately, that's not the correct answer. Keep trying!"
-            )
-
-    @app_commands.command(name="spin", description="Spin the bingo wheel (1-28). Numbers are unique!")
-    async def spin(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        row_idx = self._get_user_row_index(interaction.user.id)
-        if row_idx is None:
-            await interaction.followup.send("You haven't participated yet! Try using `/guess` first.")
-            return
-
-        # Check Rolls (Col C)
-        cells = self.roll_sheet.row_values(row_idx)
-        # Handle cases where row_values might be shorter than expected
-        rolls_val = cells[2] if len(cells) >= 3 else "0"
-        
-        try:
-            available_rolls = int(rolls_val) if rolls_val else 0
-        except ValueError:
-            available_rolls = 0
-
-        if available_rolls <= 0:
-            await interaction.followup.send("You don't have any spins available! Get the correct answer in `/guess` to earn one.")
-            return
-
-        # Get all currently taken numbers from Column E (Spin)
-        taken_numbers = self.roll_sheet.col_values(5)[1:] # Skip header
-        taken_numbers = [str(n).strip() for n in taken_numbers if n]
-
-        # Check if any numbers are even left (1-28)
-        if len(set(taken_numbers)) >= 28:
-            await interaction.followup.send("🚨 All 28 bingo numbers have already been claimed by other players!")
-            return
-
-        # Generate unique number
-        result = random.randint(1, 28)
-        max_attempts = 100
-        attempts = 0
-        
-        while str(result) in taken_numbers and attempts < max_attempts:
-            result = random.randint(1, 28)
-            attempts += 1
-
-        if str(result) in taken_numbers:
-            await interaction.followup.send("Error: Could not find a unique number. Please try again or contact staff.")
-            return
-        
-        # Batch update: Set Rolls to 0 (C) and set Spin to result (E)
-        updates = [
-            {'range': f'C{row_idx}', 'values': [["0"]]},
-            {'range': f'E{row_idx}', 'values': [[str(result)]]}
-        ]
-        self.roll_sheet.batch_update(updates)
-
-        embed = discord.Embed(
-            title="🎰 Unique Bingo Spin",
-            description=f"{interaction.user.mention}, you claimed a unique number!",
-            color=discord.Color.purple()
-        )
-        embed.add_field(name="Your Number", value=f"**{result}**", inline=False)
-        embed.set_footer(text="This number is now taken and cannot be rolled by others.")
-
-        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
@@ -528,7 +390,6 @@ class DropReviewButtons(discord.ui.View):
             await interaction.response.send_message("You do not have permission to review.", ephemeral=True)
             return
 
-        # Moderator logic
         if self.is_moderator(user):
             if self.reviewer is None:
                 self.reviewer = user.id
@@ -564,7 +425,6 @@ class DropReviewButtons(discord.ui.View):
                 await interaction.response.defer()
             return
 
-        # Drop manager logic
         if self.reviewer is None:
             self.reviewer = user.id
             for child in self.children:
@@ -604,7 +464,6 @@ class DropReviewButtons(discord.ui.View):
 
         errors = []
 
-        # Try to send to log channel
         log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
             try:
@@ -622,7 +481,6 @@ class DropReviewButtons(discord.ui.View):
         else:
             errors.append("Log channel not found")
 
-        # Try to append to sheet
         try:
             self.cog.sheet.append_row([
                 interaction.user.display_name,
@@ -636,7 +494,6 @@ class DropReviewButtons(discord.ui.View):
             print(f"Bingo Cog: Failed to append to sheet: {e}")
             errors.append("Failed to log to spreadsheet")
 
-        # Send response
         if errors:
             await interaction.response.send_message(
                 f"Approved but with issues: {', '.join(errors)}. Message will be removed.",
@@ -648,7 +505,6 @@ class DropReviewButtons(discord.ui.View):
                 ephemeral=True
             )
 
-        # Always try to delete the message
         try:
             await asyncio.sleep(1)
             await interaction.message.delete()
@@ -687,7 +543,6 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
     async def on_submit(self, interaction: discord.Interaction):
         logged = False
 
-        # Try to send to log channel
         log_channel = self.cog.bot.get_channel(self.cog.LOG_CHANNEL_ID)
         if log_channel:
             try:
@@ -715,7 +570,6 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
                 ephemeral=True
             )
 
-        # Always try to delete the message
         try:
             await asyncio.sleep(1)
             await self.message.delete()
