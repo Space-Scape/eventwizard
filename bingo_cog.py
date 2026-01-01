@@ -74,13 +74,13 @@ import random
 BOSS_DROPS = {
     "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
     "Alchemical Hydra": ["Ikkle hydra", "Jar of chemicals"],
-    "Araxxor": ["Araxyte fang", "Nid"],
+    "Araxxor": ["Araxyte fang", "Nid", "Jar of venom"],
     "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
     "Callisto": ["Callisto cub", "Voidwaker hilt"],
     "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
-    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Dragon hunter crossbow", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Kodai insignia", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Elder maul", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
     "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
-    "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt"],
+    "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin's light"],
     "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
     "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
     "Demonic Gorilla": ["Zenyte shard"],
@@ -90,11 +90,11 @@ BOSS_DROPS = {
     "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots"],
     "Giant Mole": ["Baby mole"],
     "Grotesque Guardians": ["Noon/midnight", "Jar of stone"],
-    "Hueycoatl": ["Huberte", "Dragon Hunter Wand"],
+    "Hueycoatl": ["Huberte", "Dragon hunter wand"],
     "Kalphite Queen": ["Kalphite princess", "Jar of sand"],
-    "Kraken": ["Pet kraken"],
+    "Kraken": ["Pet kraken", "Jar of Dirt"],
     "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt"],
-    "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff"],
+    "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Staff of the dead", "Zamorak hilt"],
     "King black dragon": ["Prince black dragon"],
     "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
     "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
@@ -115,6 +115,7 @@ BOSS_DROPS = {
     "Vorkath": ["Vorki", "Jar of decay"],
     "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
+    "Misc": ["Gull", "Muphin", "Smolcano", "Pet Drop", "Moxi", "Jar of feathers", "Prince black dragon", "Abyssal orphan"]
 }
 
 class BingoCog(commands.Cog):
