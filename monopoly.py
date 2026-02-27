@@ -44,8 +44,8 @@ BOARD_SIZE = 40
 CARD_EMOJIS = {
     "Escape Crystal": "<:dragonstone:1273106857933668444>", 
     "Pickpocket": "<:thieving:1273603030423568514>",
-    "Low Alchemy": "<:gold:1273106856515901452>",
-    "High Alchemy": "<:gold:1273106856515901452>",
+    "Low Alchemy": "<:gold:1406230459301630043>",
+    "High Alchemy": "<:MaxCash:1347684049040183427>",
     "Vengeance": "<:venge:1438084953559797884>",
     "Redemption": "<:redemption:1437979567900987493>",
     "Elder Maul": "<:maul:1437979898865258668>",
