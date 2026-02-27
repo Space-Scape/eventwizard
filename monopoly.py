@@ -2272,7 +2272,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True
                 
-                embed_description = f"<:gold:1273106856515901452> **{team_name}** used **Low Alchemy**!\n\n> Your next drop this turn will be worth **double GP**."
+                embed_description = f"<:gold:1406230459301630043> **{team_name}** used **Low Alchemy**!\n\n> Your next drop this turn will be worth **double GP**."
                 
             elif card_name == "High Alchemy":
                 if team_wildcard_value == "active":
@@ -2283,7 +2283,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
                 is_status_activation = True
                 
-                embed_description = f"<:gold:1273106856515901452> **{team_name}** used **High Alchemy**!\n\n> Your next drop this turn will be worth **triple GP**."
+                embed_description = f"<:MaxCash:1347684049040183427> **{team_name}** used **High Alchemy**!\n\n> Your next drop this turn will be worth **triple GP**."
                 
             elif card_name == "Vile Vigour" and isinstance(team_wildcard_value, int):
                 stored_roll = team_wildcard_value
@@ -2680,7 +2680,7 @@ class MonopolyCog(commands.Cog):
                     return 
 
                 self.increment_rolls_available(team_name)
-                embed_description = f"<:dragonstone:1273106857933668444> **{team_name}** used the **Escape Crystal** on tile 10!\n\n> 🎲 You have gained a free roll!"
+                embed_description = f"<:dragonstone:1437979925863862363> **{team_name}** used the **Escape Crystal** on tile 10!\n\n> 🎲 You have gained a free roll!"
 
             elif card_name == "Backstab" and isinstance(team_wildcard_value, int):
                 stored_roll = team_wildcard_value
