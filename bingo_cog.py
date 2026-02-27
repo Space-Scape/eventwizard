@@ -200,38 +200,38 @@ class BingoCog(commands.Cog):
                 return role.mention
         return "*No team*"
 
-    @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
-    @app_commands.describe(
-        screenshot="Attach a screenshot of your drop",
-        submitted_for="Optionally specify the user you're submitting this drop for"
-    )
-    async def submit_drop(
-        self,
-        interaction: discord.Interaction,
-        screenshot: discord.Attachment,
-        submitted_for: discord.Member = None
-    ):
-        if self.sheet is None:
-            await interaction.response.send_message(
-                "Bingo system is not properly configured. Please contact an administrator.",
-                ephemeral=True
-            )
-            return
-
-        if interaction.channel.id != self.SUBMISSION_CHANNEL_ID:
-            await interaction.response.send_message(
-                "This command can only be used in the drop submission channel.",
-                ephemeral=True
-            )
-            return
-
-        target_user = submitted_for or interaction.user
-
-        await interaction.response.send_message(
-            content=f"Submitting drop for {target_user.display_name}. Select the boss you received the drop from:",
-            view=BossView(self, interaction.user, target_user, screenshot),
-            ephemeral=True
-        )
+#    @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
+#    @app_commands.describe(
+#        screenshot="Attach a screenshot of your drop",
+#        submitted_for="Optionally specify the user you're submitting this drop for"
+#    )
+#    async def submit_drop(
+#        self,
+#        interaction: discord.Interaction,
+#        screenshot: discord.Attachment,
+#        submitted_for: discord.Member = None
+#    ):
+#        if self.sheet is None:
+#            await interaction.response.send_message(
+#                "Bingo system is not properly configured. Please contact an administrator.",
+#                ephemeral=True
+#            )
+#            return
+#
+#        if interaction.channel.id != self.SUBMISSION_CHANNEL_ID:
+#            await interaction.response.send_message(
+#                "This command can only be used in the drop submission channel.",
+#                ephemeral=True
+#            )
+#            return
+#
+#        target_user = submitted_for or interaction.user
+#
+#        await interaction.response.send_message(
+#            content=f"Submitting drop for {target_user.display_name}. Select the boss you received the drop from:",
+#            view=BossView(self, interaction.user, target_user, screenshot),
+#            ephemeral=True
+#        )
 
 
 class BossSelect(discord.ui.Select):
