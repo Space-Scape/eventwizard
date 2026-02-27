@@ -42,8 +42,8 @@ BOARD_SIZE = 40
 
 # ========== CARD EMOJI MAPPING ==========
 CARD_EMOJIS = {
-    "Escape Crystal": "<:dragonstone:1273106857933668444>", 
-    "Pickpocket": "<:thieving:1273603030423568514>",
+    "Escape Crystal": "<:dragonstone:1437979925863862363>", 
+    "Pickpocket": "<:thieving:1437980167791448237>",
     "Low Alchemy": "<:gold:1406230459301630043>",
     "High Alchemy": "<:MaxCash:1347684049040183427>",
     "Vengeance": "<:venge:1438084953559797884>",
@@ -2660,7 +2660,7 @@ class MonopolyCog(commands.Cog):
                         "/card_effect_set_tile",
                         {"team": target_team, "tile": caster_pos}
                     )
-                    embed_description = f"<:fishing:1437980297017688114> **{team_name}** used **Lure**!\n\n🎣 **{target_team}** (on tile {target_pos}) was lured to your tile (tile {caster_pos})!"
+                    embed_description = f"<:fishing:1437980297017688114> **{target_team}** (on tile {target_pos}) was lured to your tile (tile {caster_pos})!"
                     
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being lured to")
 
