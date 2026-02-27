@@ -2352,7 +2352,7 @@ class MonopolyCog(commands.Cog):
                 for target_team in targets:
                     victim_channel = self.get_team_channel(target_team)
                     if self.check_and_consume_redemption(target_team):
-                        embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated!\n"
+                        embed_description += f"• <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
                         if victim_channel:
                             fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", color=discord.Color.blue())
                             await victim_channel.send(embed=fizzle_embed)
@@ -2361,15 +2361,16 @@ class MonopolyCog(commands.Cog):
                     if self.check_and_consume_vengeance(target_team):
                         elder_maul_active = self.check_and_consume_elder_maul(team_name)
                         final_move_amount = move_amount
+                        maul_suffix = ""
                         if elder_maul_active:
                             final_move_amount = -(max(0, stored_roll - 1))
-                            embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
+                            maul_suffix = " (Elder Maul reduced the rebound by 1)"
                             maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
                             await interaction.channel.send(embed=maul_embed)
                         
                         new_pos = max(0, caster_pos + final_move_amount)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": team_name, "move": final_move_amount})
-                        embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n"
+                        embed_description += f"• <:venge:1438084953559797884> **{target_team}** had Vengeance! **{team_name}** was moved back **{abs(final_move_amount)}** tiles (stops at Go){maul_suffix}.\n"
                         await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
                         skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
@@ -2378,9 +2379,10 @@ class MonopolyCog(commands.Cog):
                     else:
                         elder_maul_active = self.check_and_consume_elder_maul(target_team)
                         final_move_amount = move_amount
+                        maul_suffix = ""
                         if elder_maul_active:
                             final_move_amount = -(max(0, stored_roll - 1))
-                            embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Effect reduced.\n"
+                            maul_suffix = " (Elder Maul reduced the effect by 1)"
                             if victim_channel:
                                 maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
                                 await victim_channel.send(embed=maul_embed)
@@ -2388,7 +2390,7 @@ class MonopolyCog(commands.Cog):
                         target_pos = caster_pos 
                         new_pos = max(0, target_pos + final_move_amount)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": target_team, "move": final_move_amount})
-                        embed_description += f"**{target_team}** was moved back **{abs(final_move_amount)}** tiles (stops at Go)!\n"
+                        embed_description += f"• **{target_team}** was moved back **{abs(final_move_amount)}** tiles (stops at Go){maul_suffix}.\n"
                         await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
 
             elif card_name == "Rogue's Gloves":
@@ -2756,16 +2758,17 @@ class MonopolyCog(commands.Cog):
                     
                     elder_maul_active = self.check_and_consume_elder_maul(team_name) 
                     final_roll_val = stored_roll
+                    maul_suffix = ""
                     if elder_maul_active:
                         final_roll_val = max(0, stored_roll - 1)
-                        embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded effect reduced.\n"
+                        maul_suffix = " (Elder Maul reduced the rebound by 1)"
                         maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and reduced the Vengeance effect!", color=discord.Color.light_grey())
                         await interaction.channel.send(embed=maul_embed) 
                     
                     new_pos = max(0, caster_pos - final_roll_val)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n"
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! **{team_name}** was moved to tile **{new_pos}**{maul_suffix}."
                     
                     await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
 
@@ -2775,9 +2778,10 @@ class MonopolyCog(commands.Cog):
                 else:
                     elder_maul_active = self.check_and_consume_elder_maul(target_team)
                     final_roll_val = stored_roll 
+                    maul_suffix = ""
                     if elder_maul_active:
                         final_roll_val = max(0, stored_roll - 1)
-                        embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Effect reduced.\n"
+                        maul_suffix = " (Elder Maul reduced the effect by 1)"
                         if victim_channel:
                             maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Elder Maul** reduced the effect!", color=discord.Color.light_grey())
                             await victim_channel.send(embed=maul_embed)
@@ -2785,7 +2789,7 @@ class MonopolyCog(commands.Cog):
                     new_pos = max(0, target_pos - final_roll_val) 
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                    embed_description += f"<:boner:1438085053102948383> **{target_team}** (on tile {target_pos}) was moved back **{final_roll_val}** tiles to tile {new_pos}!"
+                    embed_description += f"<:boner:1438085053102948383> **{target_team}** (tile {target_pos}) was moved back **{final_roll_val}** tiles to tile **{new_pos}**{maul_suffix}."
 
                     await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
 
@@ -2848,7 +2852,7 @@ class MonopolyCog(commands.Cog):
                         await victim_channel.send(embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(victim_team):
-                    embed_description += f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
+                    embed_description += f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect rebounded. "
                     
                     caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
                     caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
@@ -2856,7 +2860,7 @@ class MonopolyCog(commands.Cog):
                     non_active_caster_cards = [card for card in all_caster_cards if "(ACTIVE)" not in card['text']]
                     
                     if not non_active_caster_cards:
-                        embed_description += f"But **{team_name}** had no cards to lose!"
+                        embed_description += f"**{team_name}** had no cards to lose."
                     else:
                         card_to_remove = random.choice(non_active_caster_cards)
                         remove_sheet = self.chest_sheet if card_to_remove in caster_chest_cards else self.chance_sheet
@@ -2876,7 +2880,7 @@ class MonopolyCog(commands.Cog):
                             teams.remove(team_name)
                         remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
                         
-                        embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card!"
+                        embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card."
                         
                         skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
@@ -2900,7 +2904,7 @@ class MonopolyCog(commands.Cog):
                         teams.remove(victim_team)
                     remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
 
-                    embed_description += f"<:smite:1437979867084881950> **{victim_team}** was smote and lost their **{card_to_remove['name']}** card!"
+                    embed_description += f"<:smite:1437979867084881950> **{victim_team}** lost their **{card_to_remove['name']}** card."
                     
                     if victim_channel:
                         victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
@@ -3025,19 +3029,19 @@ class MonopolyCog(commands.Cog):
                 target_team = target["team"]
                 target_pos = target["pos"]
                 victim_channel = self.get_team_channel(target_team)
-                embed_description = f""
+                embed_description = f"<:teleother:1437980130407350375> **{team_name}** used **Tele Other** on **{target_team}**!\n\n"
                 
                 if self.check_and_consume_vengeance(target_team):
-                    embed_description += f"<:venge:1438084953559797884> But **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed!"
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed."
                 
                 elif self.check_and_consume_redemption(target_team):
-                    embed_description += f"<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated! The teleport was cancelled!"
+                    embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The teleport was cancelled."
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
 
                 else:
-                    embed_description += f"**{team_name}** (from tile {caster_pos}) has swapped places with **{target_team}** (from tile {target_pos})!"
+                    embed_description += f"**{team_name}** (tile {caster_pos}) swapped places with **{target_team}** (tile {target_pos})."
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": target_pos})
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": caster_pos})
@@ -3074,19 +3078,19 @@ class MonopolyCog(commands.Cog):
                 victim_channel = self.get_team_channel(target_team)
 
                 if self.check_and_consume_redemption(target_team):
-                    embed_description += f"<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated! The effect fizzled!"
+                    embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The effect fizzled."
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
 
                 elif self.check_and_consume_vengeance(target_team):
-                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** is now Teleblocked!"
+                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect rebounded, and **{team_name}** is now **Teleblocked**."
                     self.set_teleblock_status(team_name, "yes") 
                     skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed) 
 
                 else:
-                    embed_description += f"<:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked**! They cannot use teleport cards until after their next roll."
+                    embed_description += f"<:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked** until after their next roll."
                     self.set_teleblock_status(target_team, "yes") 
 
                     if victim_channel:
