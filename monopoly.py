@@ -936,8 +936,9 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"Error setting teleblock status for {team_name}: {e}")
 
-    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
-    async def roll(self, interaction: discord.Interaction):
+    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY (optional forced value for testing)")
+    @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
+    async def roll(self, interaction: discord.Interaction, value: int | None = None):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -1012,7 +1013,13 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error resetting 'Bought House This Turn' flag for {team_name}: {e}")
 
-        result = random.randint(1, 6)
+        if value is not None:
+            if value < 1 or value > 6:
+                await interaction.followup.send("❌ Roll value must be between 1 and 6.", ephemeral=True)
+                return
+            result = value
+        else:
+            result = random.randint(1, 6)
         
         try:
             self.decrement_rolls_available(team_name)
@@ -1056,41 +1063,41 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error updating Position in sheet: {e}")
 
         tile_name = "Unknown Tile"
-    tile_boss_map = {
-        1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-        4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-        8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-        13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-        18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-        21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-        25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-        31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-        35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-    }
-    
-    if new_pos in CHEST_TILES:
-        tile_name = "Chest"
-    elif new_pos in CHANCE_TILES:
-        tile_name = "Chance"
-    elif new_pos == GO_TILE:
-        tile_name = "GO"
-    elif new_pos == JAIL_TILE:
-        tile_name = "Jail"
-    elif new_pos == BANK_STANDING_TILE:
-        tile_name = "Bank Standing"
-    elif new_pos in GLIDER_TILES:
-        tile_name = "Glider"
-    elif new_pos in tile_boss_map:
-        tile_name = ", ".join(tile_boss_map[new_pos])
-    else:
-        try:
-            all_properties = self.house_data_sheet.get_all_records()
-            for prop in all_properties:
-                if int(prop.get("Tile", -1)) == new_pos:
-                    tile_name = prop.get("Name", "Unknown Tile")
-                    break
-        except Exception as e:
-            print(f"Error fetching tile name for embed: {e}")
+        tile_boss_map = {
+            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+        }
+        
+        if new_pos in CHEST_TILES:
+            tile_name = "Chest"
+        elif new_pos in CHANCE_TILES:
+            tile_name = "Chance"
+        elif new_pos == GO_TILE:
+            tile_name = "GO"
+        elif new_pos == JAIL_TILE:
+            tile_name = "Jail"
+        elif new_pos == BANK_STANDING_TILE:
+            tile_name = "Bank Standing"
+        elif new_pos in GLIDER_TILES:
+            tile_name = "Glider"
+        elif new_pos in tile_boss_map:
+            tile_name = ", ".join(tile_boss_map[new_pos])
+        else:
+            try:
+                all_properties = self.house_data_sheet.get_all_records()
+                for prop in all_properties:
+                    if int(prop.get("Tile", -1)) == new_pos:
+                        tile_name = prop.get("Name", "Unknown Tile")
+                        break
+            except Exception as e:
+                print(f"Error fetching tile name for embed: {e}")
 
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
