@@ -19,7 +19,7 @@ from discord import ui, Interaction, SelectOption, TextStyle, Attachment, Member
 
 # ========== CONFIG ==========
 SPREADSHEET_ID = "1OVC8HImUpoh2keU-h2v_b2gFDa4zyfWsaJxBWRoSJ08"
-TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"]
+TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5", "Team 6", "Team 7"]
 
 REVIEW_CHANNEL = "1436465463742824499"
 LOG_CHANNEL = "1436463720401211474"
@@ -29,7 +29,9 @@ TEAM_CHANNELS_MAP = {
     "Team 2": 1437851582183248113,
     "Team 3": 1437850674233872384,
     "Team 4": 1437851273113112707,
-    "Team 5": 1437851747035910295
+    "Team 5": 1437851747035910295,
+    "Team 6": 1476784856028414074,
+    "Team 7": 1476784946315002000
 }
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
