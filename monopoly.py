@@ -964,7 +964,7 @@ class MonopolyCog(commands.Cog):
         try:
             cleared_cards = self.clear_all_active_statuses(team_name)
             if cleared_cards:
-                expiry_message = f"⌛️ **{team_name}**'s active status effects for: `({', '.join(cleared_cards)})` have expired at the start of their turn."
+                expiry_message = f"⌛️ **{team_name}**'s active status effects for: `({', '.join(cleared_cards)})` expired at the start of their turn."
                 if team_chan:
                     await team_chan.send(expiry_message)
         except Exception as e:
@@ -1048,7 +1048,7 @@ class MonopolyCog(commands.Cog):
             new_pos = 12 if current_tile != 28 else 38
         elif new_pos == 30:
             new_pos = JAIL_TILE
-            go_message = "⛓️ **GO TO JAIL!** You land on tile 30 and are immediately sent to tile 10."
+            go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
 
         try:
             self.team_data_sheet.update_cell(team_row_index, pos_col_index, new_pos)
@@ -2447,6 +2447,7 @@ class MonopolyCog(commands.Cog):
                 if not stealable_cards:
                     await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
                     return 
+
                 stolen_card = random.choice(stealable_cards)
                 victim_team = stolen_card["victim_team"]
                 target_sheet = stolen_card["sheet"]
@@ -2463,6 +2464,106 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.blue()
                         )
                         await victim_channel.send(embed=fizzle_embed)
+
+                elif self.check_and_consume_vengeance(victim_team):
+                    embed_description = (
+                        f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
+                        f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
+                    )
+
+                    # Build caster's card list (with sheet refs) and exclude the Rogue's Gloves being used right now
+                    caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
+                    caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
+
+                    caster_cards_with_sheet = []
+                    for c in caster_chest_cards:
+                        caster_cards_with_sheet.append({
+                            "sheet": self.chest_sheet,
+                            "row_index": c["row_index"],
+                            "card_name": c["name"],
+                            "card_type": "Chest"
+                        })
+                    for c in caster_chance_cards:
+                        caster_cards_with_sheet.append({
+                            "sheet": self.chance_sheet,
+                            "row_index": c["row_index"],
+                            "card_name": c["name"],
+                            "card_type": "Chance"
+                        })
+
+                    # Exclude the exact Rogue's Gloves card currently being consumed
+                    other_caster_cards = [
+                        c for c in caster_cards_with_sheet
+                        if not (c["sheet"] == card_sheet and c["row_index"] == card_row)
+                    ]
+
+                    stolen_from_caster_name = None
+
+                    if other_caster_cards:
+                        # Victim steals a random card from caster instead
+                        rebounded_card = random.choice(other_caster_cards)
+                        rebound_sheet = rebounded_card["sheet"]
+                        rebound_row = rebounded_card["row_index"]
+                        stolen_from_caster_name = rebounded_card["card_name"]
+
+                        held_by_str_rebound = str(rebound_sheet.cell(rebound_row, 3).value or "")
+                        teams_rebound = [t.strip() for t in held_by_str_rebound.split(',') if t.strip()]
+                        if team_name in teams_rebound:
+                            teams_rebound.remove(team_name)
+                        if victim_team not in teams_rebound:
+                            teams_rebound.append(victim_team)
+                        rebound_sheet.update_cell(rebound_row, 3, ", ".join(teams_rebound))
+
+                        wildcard_str_rebound = str(rebound_sheet.cell(rebound_row, 4).value or "{}")
+                        try:
+                            wildcard_data_json_rebound = json.loads(wildcard_str_rebound)
+                            caster_wildcard = wildcard_data_json_rebound.pop(team_name, None)
+                            if caster_wildcard is not None:
+                                wildcard_data_json_rebound[victim_team] = caster_wildcard
+                            rebound_sheet.update_cell(rebound_row, 4, json.dumps(wildcard_data_json_rebound))
+                        except Exception as e:
+                            print(f"❌ Error transferring wildcard data on Rogue's Gloves Vengeance rebound: {e}")
+
+                        embed_description += f"🧤 The steal rebounded! **{victim_team}** stole **{stolen_from_caster_name}** from **{team_name}** instead."
+
+                    else:
+                        # Caster has no other cards -> victim steals the Rogue's Gloves itself
+                        stolen_from_caster_name = "Rogue's Gloves"
+
+                        held_by_str_rg = str(card_sheet.cell(card_row, 3).value or "")
+                        teams_rg = [t.strip() for t in held_by_str_rg.split(',') if t.strip()]
+                        if team_name in teams_rg:
+                            teams_rg.remove(team_name)
+                        if victim_team not in teams_rg:
+                            teams_rg.append(victim_team)
+                        card_sheet.update_cell(card_row, 3, ", ".join(teams_rg))
+
+                        wildcard_str_rg = str(card_sheet.cell(card_row, 4).value or "{}")
+                        try:
+                            wildcard_data_json_rg = json.loads(wildcard_str_rg)
+                            caster_wildcard = wildcard_data_json_rg.pop(team_name, None)
+                            if caster_wildcard is not None:
+                                wildcard_data_json_rg[victim_team] = caster_wildcard
+                            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data_json_rg))
+                        except Exception as e:
+                            print(f"❌ Error transferring wildcard data for Rogue's Gloves on Vengeance rebound: {e}")
+
+                        embed_description += f"🧤 The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
+
+                    skull_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!",
+                        description=f"You activated **{victim_team}**'s Vengeance!\nThey stole your **{stolen_from_caster_name}** card!",
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=skull_embed)
+
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:venge:1438084953559797884> Vengeance Activated!",
+                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.",
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
                 
                 else:
                     held_by_str = str(target_sheet.cell(target_row, 3).value or "")
@@ -2477,7 +2578,7 @@ class MonopolyCog(commands.Cog):
                     try:
                         wildcard_data_json = json.loads(wildcard_str)
                         victim_wildcard = wildcard_data_json.pop(victim_team, None)
-                        if victim_wildcard:
+                        if victim_wildcard is not None:
                             wildcard_data_json[team_name] = victim_wildcard
                             target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
                     except Exception as e:
@@ -2491,90 +2592,6 @@ class MonopolyCog(commands.Cog):
                             description=f"**{team_name}** used **Rogue's Gloves** and stole your **{stolen_card['card_name']}** card!",
                             color=discord.Color.dark_red()
                         )
-                        await victim_channel.send(embed=victim_embed)
-
-            elif card_name == "Pickpocket":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                opponents_gp = []
-                caster_row = -1
-                caster_gp = 0
-
-                for idx, record in enumerate(all_teams_data, start=2):
-                    gp = int(record.get("GP", 0) or 0)
-                    team = record.get("Team")
-                    if team == team_name:
-                        caster_row = idx
-                        caster_gp = gp
-                        continue
-                    if team:
-                        opponents_gp.append({"team": team, "gp": gp, "row": idx})
-                
-                if not opponents_gp:
-                    await interaction.followup.send("❌ Card effect failed: No other teams found.", ephemeral=True)
-                    return 
-                
-                target = max(opponents_gp, key=lambda x: x["gp"])
-                target_team = target["team"]
-                target_gp = target["gp"]
-                target_row = target["row"]
-                
-                steal_amount = 0
-                if target_gp >= 30_000_000: steal_amount = 30_000_000
-                elif target_gp >= 15_000_000: steal_amount = 15_000_000
-                elif target_gp >= 5_000_000: steal_amount = 5_000_000
-                
-                if steal_amount == 0:
-                    await interaction.followup.send("❌ Card effect failed: No teams have enough wealth to steal from (min 5M GP).", ephemeral=True)
-                    return 
-
-                embed_description = f"<:thieving:1273603030423568514> **{team_name}** used **Pickpocket** on **{target_team}**!\n\n"
-                victim_channel = self.get_team_channel(target_team)
-
-                if self.check_and_consume_redemption(target_team):
-                    embed_description += f"<:redemption:1437979567900987493> **{target_team}**'s Redemption activated!"
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
-                
-                elif self.check_and_consume_vengeance(target_team):
-                    elder_maul_active = self.check_and_consume_elder_maul(team_name)
-                    final_steal_amount = steal_amount
-                    if elder_maul_active:
-                        final_steal_amount = steal_amount // 2
-                        embed_description += f"<:maul:1437979898865258668> **{team_name}**'s Elder Maul activated! Rebounded loss halved.\n"
-                        maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"Your **Elder Maul** activated and halved the GP you lost from Vengeance!", color=discord.Color.light_grey())
-                        await interaction.channel.send(embed=maul_embed)
-                    
-                    new_caster_gp = max(0, caster_gp - final_steal_amount)
-                    new_target_gp = target_gp + final_steal_amount
-                    
-                    self.team_data_sheet.update_cell(caster_row, gp_col_index, new_caster_gp)
-                    self.team_data_sheet.update_cell(target_row, gp_col_index, new_target_gp)
-
-                    embed_description += f"<:venge:1438084953559797884> **{target_team}** had Vengeance! The effect was rebounded!\n**{team_name}** loses **{final_steal_amount:,} GP**!"
-                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYou lose **{final_steal_amount:,} GP**!", color=discord.Color.dark_red())
-                    await interaction.channel.send(embed=skull_embed)
-
-                else:
-                    elder_maul_active = self.check_and_consume_elder_maul(target_team)
-                    final_steal_amount = steal_amount
-                    if elder_maul_active:
-                        final_steal_amount = steal_amount // 2
-                        embed_description += f"<:maul:1437979898865258668> **{target_team}**'s Elder Maul activated! Steal amount halved.\n"
-                        if victim_channel:
-                            maul_embed = discord.Embed(title="<:maul:1437979898865258668> Elder Maul Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Elder Maul** reduced the amount stolen!", color=discord.Color.light_grey())
-                            await victim_channel.send(embed=maul_embed)
-                    
-                    new_caster_gp = caster_gp + final_steal_amount
-                    new_target_gp = max(0, target_gp - final_steal_amount)
-                    
-                    self.team_data_sheet.update_cell(caster_row, gp_col_index, new_caster_gp)
-                    self.team_data_sheet.update_cell(target_row, gp_col_index, new_target_gp)
-
-                    embed_description += f"💰 Stole **{final_steal_amount:,} GP** from **{target_team}**!"
-                    
-                    if victim_channel:
-                        victim_embed = discord.Embed(title="‼️ GP Stolen!", description=f"**{team_name}** used **Pickpocket** and stole **{final_steal_amount:,} GP** from your team!", color=discord.Color.dark_red())
                         await victim_channel.send(embed=victim_embed)
 
             elif card_name == "Lure":
