@@ -937,8 +937,7 @@ class MonopolyCog(commands.Cog):
             print(f"Error setting teleblock status for {team_name}: {e}")
 
     @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
-    @app_commands.describe(value="Optional forced roll (1-6) for testing")
-    async def roll(self, interaction: discord.Interaction, value: int | None = None):
+    async def roll(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -1013,13 +1012,7 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error resetting 'Bought House This Turn' flag for {team_name}: {e}")
 
-        if value is not None:
-            if value < 1 or value > 6:
-                await interaction.followup.send("❌ Roll value must be between 1 and 6.", ephemeral=True)
-                return
-            result = value
-        else:
-            result = random.randint(1, 6)
+        result = random.randint(1, 6)
         
         try:
             self.decrement_rolls_available(team_name)
