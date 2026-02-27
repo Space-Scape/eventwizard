@@ -1789,7 +1789,6 @@ class MonopolyCog(commands.Cog):
         return cards
 
     def check_and_consume_vengeance(self, target_team_name: str) -> bool:
-        """Checks BOTH ChestCards and ChanceCards for active Vengeance and consumes it."""
         try:
             for sheet_obj in (self.chest_sheet, self.chance_sheet):
                 data = sheet_obj.get_all_values()
