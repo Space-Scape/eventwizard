@@ -1113,6 +1113,15 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Log channel {LOG_CHANNEL} not found, can't send card embeds.")
             return
 
+        # Free roll for reaching tile 10 naturally from tiles < 10
+        if current_tile < 10 and new_pos == 10:
+            try:
+                self.increment_rolls_available(team_name)
+                if team_chan:
+                    await team_chan.send("🎲 **Free Roll Granted!** You reached tile **10** and gained a free roll.")
+            except Exception as e:
+                print(f"❌ Error granting free roll for tile 10: {e}")
+
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
 
     def _format_gp(self, gp_value_str: str) -> str:
