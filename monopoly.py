@@ -1134,11 +1134,10 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_message("You are not on a team.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer()
 
         records = self.team_data_sheet.get_all_records()
         headers = self.team_data_sheet.row_values(1)
-
         pos_col_index = headers.index("Position") + 1
 
         for idx, record in enumerate(records, start=2):
@@ -1789,12 +1788,8 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in get_held_cards: {e}")
         return cards
 
-    
     def check_and_consume_vengeance(self, target_team_name: str) -> bool:
-        """
-        Checks BOTH ChestCards and ChanceCards sheets for an active Vengeance
-        and consumes it if found.
-        """
+        """Checks BOTH ChestCards and ChanceCards for active Vengeance and consumes it."""
         try:
             for sheet_obj in (self.chest_sheet, self.chance_sheet):
                 data = sheet_obj.get_all_values()
@@ -1820,13 +1815,10 @@ class MonopolyCog(commands.Cog):
                     except Exception:
                         wildcard_data = {}
 
-                    team_status = wildcard_data.get(target_team_name)
-                    if team_status == "active":
-                        # Remove active flag
+                    if wildcard_data.get(target_team_name) == "active":
                         wildcard_data.pop(target_team_name, None)
                         sheet_obj.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data))
 
-                        # Remove ownership if present
                         held_by_str = str(sheet_obj.cell(i, held_by_col + 1).value or "")
                         teams = [t.strip() for t in held_by_str.split(",") if t.strip()]
                         if target_team_name in teams:
