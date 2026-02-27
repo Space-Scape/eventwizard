@@ -1116,7 +1116,7 @@ class MonopolyCog(commands.Cog):
         else:
             return f"{gp:,}"
 
-    
+
     @app_commands.command(name="test_roll", description="Force a dice roll result (Testing Only)")
     async def test_roll(self, interaction: discord.Interaction, value: int):
         if value < 1 or value > 6:
@@ -1156,7 +1156,7 @@ class MonopolyCog(commands.Cog):
 
         await interaction.followup.send("Could not find your team data.", ephemeral=True)
 
-@app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
+    @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
         team_name = None
@@ -1833,47 +1833,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"Error in check_and_consume_vengeance: {e}")
             return False
-                
-            headers = chance_cards_data[0]
-            name_col = headers.index("Name")
-            held_by_col = headers.index("Held By Team")
-            wildcard_col = headers.index("Wildcard")
-            
-            vengeance_row_index = -1
-            vengeance_wildcard_data = {}
-            
-            for i, row in enumerate(chance_cards_data[1:], start=2):
-                if len(row) > name_col and row[name_col] == "Vengeance":
-                    vengeance_row_index = i
-                    try:
-                        wildcard_str = row[wildcard_col] or "{}"
-                        vengeance_wildcard_data = json.loads(wildcard_str)
-                    except:
-                        vengeance_wildcard_data = {}
-                    break
-            
-            if vengeance_row_index == -1:
-                print("❗ Vengeance card not found on sheet.")
-                return False
-
-            team_status = vengeance_wildcard_data.get(target_team_name)
-            if team_status and isinstance(team_status, str) and team_status.strip() == "active":
-                del vengeance_wildcard_data[target_team_name]
-                self.chance_sheet.update_cell(vengeance_row_index, wildcard_col + 1, json.dumps(vengeance_wildcard_data))
-                
-                held_by_str = str(self.chance_sheet.cell(vengeance_row_index, held_by_col + 1).value or "")
-                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                if target_team_name in teams:
-                    teams.remove(target_team_name)
-                self.chance_sheet.update_cell(vengeance_row_index, held_by_col + 1, ", ".join(teams))
-                
-                print(f"✅ Consumed Vengeance for {target_team_name}")
-                return True
-                
-        except Exception as e:
-            print(f"❌ Error in check_and_consume_vengeance: {e}")
-            
-        return False
         
     def check_and_consume_redemption(self, target_team_name: str) -> bool:
         """
