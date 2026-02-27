@@ -1557,7 +1557,7 @@ class MonopolyCog(commands.Cog):
         screenshot="Attach a screenshot of the drop",
         submitted_for="User you are submitting the drop for (optional)",
     )
-    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
+    async def submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
         try:
             await interaction.response.defer(ephemeral=True)
         except discord.NotFound:
