@@ -1552,29 +1552,29 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
-#    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
-#    @app_commands.describe(
-#        screenshot="Attach a screenshot of the drop",
-#        submitted_for="User you are submitting the drop for (optional)",
-#    )
-#    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
-#        try:
-#            await interaction.response.defer(ephemeral=True)
-#        except discord.NotFound:
-#            print("❌ Interaction not found. (Original timeout)")
-#            return
-#        except discord.errors.InteractionResponded:
-#            print("❌ Interaction already responded to. (Likely >3s lag before defer)")
-#            return
-#            
-#        if submitted_for is None:
-#            submitted_for = interaction.user
-#
-#        await interaction.followup.send(
-#            content=f"Submitting drop for {submitted_for.display_name}. Select the boss you received the drop from:",
-#            view=self.BossSelectView(cog=self, submitting_user=interaction.user, submitted_for=submitted_for, screenshot_url=screenshot.url),
-#            ephemeral=True
-#        )
+    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
+    @app_commands.describe(
+        screenshot="Attach a screenshot of the drop",
+        submitted_for="User you are submitting the drop for (optional)",
+    )
+    async def m_submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.NotFound:
+            print("❌ Interaction not found. (Original timeout)")
+            return
+        except discord.errors.InteractionResponded:
+            print("❌ Interaction already responded to. (Likely >3s lag before defer)")
+            return
+            
+        if submitted_for is None:
+            submitted_for = interaction.user
+
+        await interaction.followup.send(
+            content=f"Submitting drop for {submitted_for.display_name}. Select the boss you received the drop from:",
+            view=self.BossSelectView(cog=self, submitting_user=interaction.user, submitted_for=submitted_for, screenshot_url=screenshot.url),
+            ephemeral=True
+        )
 
     async def team_receives_card(self, team_name: str, card_type: str, team_channel: discord.TextChannel):
         card_sheet = self.chance_sheet if card_type == "Chance" else self.chest_sheet
