@@ -2615,6 +2615,33 @@ class MonopolyCog(commands.Cog):
                         )
                         await victim_channel.send(embed=victim_embed)
 
+            elif card_name == "Pickpocket":
+                records = self.team_data_sheet.get_all_records()
+            
+                caster = team_name
+                target = None
+                highest_gp = -1
+            
+                for record in records:
+                    other_team = record.get("Team")
+                    if not other_team or other_team == caster:
+                        continue
+            
+                    gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+            
+                    if gp > highest_gp:
+                        highest_gp = gp
+                        target = other_team
+            
+                if not target or highest_gp <= 0:
+                    embed.description = "❌ No team has GP to steal."
+                    await interaction.followup.send(embed=embed)
+                    return
+            
+                steal_amount = int(highest_gp * 0.20)
+            
+                embed.description = f"<:thieving:1437980167791448237> Stole **{steal_amount:,} GP** from **{target}**!"
+            
             elif card_name == "Lure":
                 all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
@@ -2899,7 +2926,7 @@ class MonopolyCog(commands.Cog):
 
                 new_pos = BANK_STANDING_TILE 
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                embed_description = f"<:varrocktele:1438084982491840583> **{team_name}** used **Varrock Tele** and teleported to **Bank Standing** (Tile 20)!"
+                embed_description = f"Teleported to **Bank Standing** (Tile 20)!"
 
                 if rolls_available == 0:
                     self.increment_rolls_available(team_name)
@@ -2967,8 +2994,7 @@ class MonopolyCog(commands.Cog):
                     return  
 
                 new_pos = closest_house_pos
-                embed_description = f"<:housetele:1437980013831131206> **{team_name}** used **Home Tele**!\n\n"
-                embed_description += f"<:houseicon:1438085020156821555> Teleported to the **nearest house tile ahead** (tile **{new_pos}**)."
+                embed_description = f"<:houseicon:1438085020156821555> Teleported to the **nearest house tile ahead** (tile **{new_pos}**)."
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
 
@@ -2999,7 +3025,7 @@ class MonopolyCog(commands.Cog):
                 target_team = target["team"]
                 target_pos = target["pos"]
                 victim_channel = self.get_team_channel(target_team)
-                embed_description = f"<:teleother:1437980130407350375> **{team_name}** used **Tele Other** on **{target_team}**!\n\n"
+                embed_description = f""
                 
                 if self.check_and_consume_vengeance(target_team):
                     embed_description += f"<:venge:1438084953559797884> But **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed!"
@@ -3011,7 +3037,7 @@ class MonopolyCog(commands.Cog):
                         await victim_channel.send(embed=fizzle_embed)
 
                 else:
-                    embed_description += f"<:teleother:1437980130407350375> **{team_name}** (from tile {caster_pos}) has swapped places with **{target_team}** (from tile {target_pos})!"
+                    embed_description += f"**{team_name}** (from tile {caster_pos}) has swapped places with **{target_team}** (from tile {target_pos})!"
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": target_pos})
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": caster_pos})
