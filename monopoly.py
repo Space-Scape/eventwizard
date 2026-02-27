@@ -1552,7 +1552,7 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
-    @app_commands.command(name="m_submitdrop", description="Submit a boss drop for review")
+    @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
     @app_commands.describe(
         screenshot="Attach a screenshot of the drop",
         submitted_for="User you are submitting the drop for (optional)",
