@@ -1116,7 +1116,48 @@ class MonopolyCog(commands.Cog):
         else:
             return f"{gp:,}"
 
-    @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
+    
+    @app_commands.command(name="test_roll", description="Force a dice roll result (Testing Only)")
+    async def test_roll(self, interaction: discord.Interaction, value: int):
+        if value < 1 or value > 6:
+            await interaction.response.send_message("Value must be between 1 and 6.", ephemeral=True)
+            return
+
+        if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
+            await interaction.response.send_message(
+                "You can only use this command in your team's channel.", ephemeral=True
+            )
+            return
+
+        team_name = self.get_team(interaction.user)
+        if not team_name:
+            await interaction.response.send_message("You are not on a team.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        records = self.team_data_sheet.get_all_records()
+        headers = self.team_data_sheet.row_values(1)
+
+        pos_col_index = headers.index("Position") + 1
+
+        for idx, record in enumerate(records, start=2):
+            if record.get("Team") == team_name:
+                current_tile = int(record.get("Position", 0) or 0)
+                new_pos = (current_tile + value) % BOARD_SIZE
+                self.team_data_sheet.update_cell(idx, pos_col_index, new_pos)
+
+                embed = discord.Embed(
+                    title=f"TEST ROLL: {team_name}",
+                    description=f"Forced roll of {value}. New position: {new_pos}",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+        await interaction.followup.send("Could not find your team data.", ephemeral=True)
+
+@app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
         team_name = None
@@ -1748,16 +1789,58 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in get_held_cards: {e}")
         return cards
 
+    
     def check_and_consume_vengeance(self, target_team_name: str) -> bool:
         """
-        Checks if a target team has Vengeance active.
-        If yes, consumes it (clears wildcard AND held by) and returns True.
-        If no, returns False.
+        Checks BOTH ChestCards and ChanceCards sheets for an active Vengeance
+        and consumes it if found.
         """
         try:
-            chance_cards_data = self.chance_sheet.get_all_values()
-            if not chance_cards_data:
-                return False
+            for sheet_obj in (self.chest_sheet, self.chance_sheet):
+                data = sheet_obj.get_all_values()
+                if not data:
+                    continue
+
+                headers = data[0]
+                if "Name" not in headers or "Held By Team" not in headers or "Wildcard" not in headers:
+                    continue
+
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+
+                for i, row in enumerate(data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col):
+                        continue
+                    if str(row[name_col]).strip() != "Vengeance":
+                        continue
+
+                    try:
+                        wildcard_data = json.loads(row[wildcard_col] or "{}")
+                    except Exception:
+                        wildcard_data = {}
+
+                    team_status = wildcard_data.get(target_team_name)
+                    if team_status == "active":
+                        # Remove active flag
+                        wildcard_data.pop(target_team_name, None)
+                        sheet_obj.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data))
+
+                        # Remove ownership if present
+                        held_by_str = str(sheet_obj.cell(i, held_by_col + 1).value or "")
+                        teams = [t.strip() for t in held_by_str.split(",") if t.strip()]
+                        if target_team_name in teams:
+                            teams.remove(target_team_name)
+                        sheet_obj.update_cell(i, held_by_col + 1, ", ".join(teams))
+
+                        print(f"Consumed Vengeance for {target_team_name} from {sheet_obj.title}")
+                        return True
+
+            return False
+
+        except Exception as e:
+            print(f"Error in check_and_consume_vengeance: {e}")
+            return False
                 
             headers = chance_cards_data[0]
             name_col = headers.index("Name")
