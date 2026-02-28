@@ -19,6 +19,7 @@ from discord import ui, Interaction, SelectOption, TextStyle, Attachment, Member
 
 # ========== CONFIG ==========
 SPREADSHEET_ID = "1OVC8HImUpoh2keU-h2v_b2gFDa4zyfWsaJxBWRoSJ08"
+SIGNUP_SPREADSHEET_ID = "1c7TzXlyn8KinCKNJadIBfY_6PcXF-9icbfC_E8NAGqI"
 TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5", "Team 6", "Team 7"]
 
 REVIEW_CHANNEL = "1436465463742824499"
@@ -126,6 +127,8 @@ boss_drops = {
 class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.signup_sheet = None
+        self.signup_sheet_book = None
         
         required_env_vars = [
             'EVENT_TYPE', 'EVENT_PROJECT_ID', 'EVENT_PRIVATE_KEY_ID', 
@@ -194,6 +197,22 @@ class MonopolyCog(commands.Cog):
             print("... loaded HouseData")
             
             print("✅ Monopoly Cog: Google Sheets initialized.")
+
+            # Signup spreadsheet is optional for Monopoly gameplay; load separately so failures here
+            # don't stop the event bot from running.
+            try:
+                self.signup_sheet_book = sheet_client.open_by_key(SIGNUP_SPREADSHEET_ID)
+                try:
+                    self.signup_sheet = self.signup_sheet_book.worksheet("Signups")
+                    print("... loaded Signups worksheet (signup sheet)")
+                except gspread.exceptions.WorksheetNotFound:
+                    self.signup_sheet = self.signup_sheet_book.sheet1
+                    print(f"... loaded signup sheet first worksheet: {self.signup_sheet.title}")
+                print("✅ Signup sheet initialized.")
+            except Exception as signup_err:
+                self.signup_sheet = None
+                self.signup_sheet_book = None
+                print(f"⚠️ Signup sheet not initialized yet: {signup_err}")
 
         except gspread.exceptions.SpreadsheetNotFound:
             print(f"❌ FATAL ERROR: Spreadsheet with ID '{SPREADSHEET_ID}' not found.")
@@ -1130,6 +1149,61 @@ class MonopolyCog(commands.Cog):
                 print(f"Set teleblock status for {team_name} to {status}")
         except Exception as e:
             print(f"Error setting teleblock status for {team_name}: {e}")
+
+    @app_commands.command(name="signup", description="Submit your signup with RSN and a screenshot")
+    @app_commands.describe(rsn="Your RSN (RuneScape name)", screenshot="Upload a screenshot for your signup")
+    async def signup(self, interaction: discord.Interaction, rsn: str, screenshot: discord.Attachment):
+        rsn_clean = (rsn or "").strip()
+        if not rsn_clean:
+            await interaction.response.send_message("❌ You must provide an RSN.", ephemeral=True)
+            return
+
+        # Slash param is required, but validate type to enforce screenshot/image uploads only.
+        content_type = (getattr(screenshot, "content_type", None) or "").lower()
+        filename = (getattr(screenshot, "filename", None) or "").lower()
+        looks_like_image = content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+        if not looks_like_image:
+            await interaction.response.send_message(
+                "❌ The uploaded file must be an image screenshot (PNG/JPG/WEBP/GIF).",
+                ephemeral=True
+            )
+            return
+
+        if not self.signup_sheet:
+            await interaction.response.send_message(
+                "❌ Signup sheet is not configured yet. Make sure the bot service account has access to the signup spreadsheet.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        try:
+            discord_username = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+            discord_id = str(interaction.user.id)
+            screenshot_url = screenshot.url
+
+            # Append to the next row. If the sheet has a decorative title row, append_row will still
+            # place the submission after the last non-empty row.
+            self.signup_sheet.append_row(
+                [discord_username, discord_id, rsn_clean, screenshot_url],
+                value_input_option="USER_ENTERED"
+            )
+
+            success_embed = discord.Embed(
+                title="✅ Signup Submitted!",
+                description=(
+                    f"Your signup has been recorded.\n\n"
+                    f"**RSN:** {rsn_clean}\n"
+                    f"**Screenshot:** [Open Image]({screenshot_url})"
+                ),
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=success_embed, ephemeral=True)
+        except Exception as e:
+            print(f"❌ Error in /signup: {e}")
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ Failed to submit signup: {e}", ephemeral=True)
 
     @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY (optional forced value for testing)")
     @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
