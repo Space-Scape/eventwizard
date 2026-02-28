@@ -1198,7 +1198,7 @@ class MonopolyCog(commands.Cog):
                 else:
                     bingo_player_role = discord.utils.get(guild.roles, name="Bingo Player")
                     if bingo_player_role is None:
-                        role_status_line = "\n**Role:** Not assigned (`Bingo Player` role not found)."
+                        role_status_line = "\n**Role:** Not assigned (`Bingo player` role not found)."
                     elif bingo_player_role in getattr(interaction.user, "roles", []):
                         role_status_line = "\n**Role:** `Bingo Player` already assigned."
                     else:
