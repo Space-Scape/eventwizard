@@ -1346,6 +1346,24 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error resolving tile name for {position}: {e}")
         return f"Tile {position}"
 
+    def resolve_nonroll_landing_tile(self, intended_pos: int) -> int:
+        """Resolve one-step board effects for card teleports/forced moves (gliders, go-to-jail)."""
+        try:
+            pos = int(intended_pos)
+        except Exception:
+            return intended_pos
+
+        # Card/teleport landings should trigger gliders if you land on them.
+        if pos == 12:
+            return 28
+        if pos == 28:
+            return 38
+        if pos == 38:
+            return 12
+        if pos == 30:
+            return JAIL_TILE
+        return pos
+
     async def auto_post_show_drops_if_boss_tile(self, team_name: str, position: int):
         """Auto-post the /show_drops embed in a team's channel if the tile has boss drops."""
         try:
@@ -2544,18 +2562,15 @@ class MonopolyCog(commands.Cog):
                 else:
                     embed_description = ""
 
-                new_pos = (caster_pos + stored_roll) % BOARD_SIZE
-                if new_pos == 12: new_pos = 28 if caster_pos != 38 else 12
-                elif new_pos == 28: new_pos = 38 if caster_pos != 12 else 28
-                elif new_pos == 38: new_pos = 12 if caster_pos != 28 else 38
-                elif new_pos == 30: new_pos = 10
-                
+                intended_pos = (caster_pos + stored_roll) % BOARD_SIZE
+                new_pos = self.resolve_nonroll_landing_tile(intended_pos)
+
                 await loop.run_in_executor(
                     None,
                     self.log_command,
-                    team_name,  
-                    "/card_effect_move",  
-                    {"team": team_name, "move": stored_roll}
+                    team_name,
+                    "/card_effect_set_tile",
+                    {"team": team_name, "tile": new_pos}
                 )
                 destination_tile_name = self.get_tile_name_for_display(new_pos)
                 embed_description += f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
@@ -2609,8 +2624,9 @@ class MonopolyCog(commands.Cog):
                             maul_suffix = " (Elder Maul reduced the rebound by 1)"
                         
                         new_pos = max(0, caster_pos + final_move_amount)
+                        new_pos = self.resolve_nonroll_landing_tile(new_pos)
                         destination_tile_name = self.get_tile_name_for_display(new_pos)
-                        await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": team_name, "move": final_move_amount})
+                        await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                         embed_description += (
                             f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
                             f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
@@ -2646,7 +2662,8 @@ class MonopolyCog(commands.Cog):
                         
                         target_pos = caster_pos 
                         new_pos = max(0, target_pos + final_move_amount)
-                        await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": target_team, "move": final_move_amount})
+                        new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                        await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
                         destination_tile_name = self.get_tile_name_for_display(new_pos)
                         embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
                         await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
@@ -2989,17 +3006,18 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
                 else:
+                    final_lure_pos = self.resolve_nonroll_landing_tile(caster_pos)
                     self.log_command(
                         team_name,
                         "/card_effect_set_tile",
-                        {"team": target_team, "tile": caster_pos}
+                        {"team": target_team, "tile": final_lure_pos}
                     )
                     source_tile_name = self.get_tile_name_for_display(target_pos)
-                    destination_tile_name = self.get_tile_name_for_display(caster_pos)
+                    destination_tile_name = self.get_tile_name_for_display(final_lure_pos)
                     embed_description = (
                         f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
                         f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
-                        f"**{destination_tile_name}** tile (Tile **{caster_pos}**)!"
+                        f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
                     )
                     
                     if victim_channel:
@@ -3008,7 +3026,7 @@ class MonopolyCog(commands.Cog):
                     
                             title="<:fishing:1437980297017688114> You Were Lured!",
                     
-                            description=f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(caster_pos)}** tile (Tile **{caster_pos}**).",
+                            description=f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**).",
                     
                             color=discord.Color.orange()
                     
@@ -3020,8 +3038,8 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=lure_embed)
 
                     
-                    await self.check_and_award_card_on_land(target_team, caster_pos, "being lured to")
-                    await self.auto_post_show_drops_if_boss_tile(target_team, caster_pos)
+                    await self.check_and_award_card_on_land(target_team, final_lure_pos, "being lured to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, final_lure_pos)
 
             elif card_name == "Escape Crystal":
                 if self.get_teleblock_status(team_name) == "yes":
@@ -3096,6 +3114,7 @@ class MonopolyCog(commands.Cog):
                         maul_suffix = " (Elder Maul reduced the rebound by 1)"
                     
                     new_pos = max(0, caster_pos - final_roll_val)
+                    new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     destination_tile_name = self.get_tile_name_for_display(new_pos)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
@@ -3128,6 +3147,7 @@ class MonopolyCog(commands.Cog):
                         final_roll_val = max(0, stored_roll - 1)
                         maul_suffix = " (Elder Maul reduced the effect by 1)"
                     new_pos = max(0, target_pos - final_roll_val) 
+                    new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     source_tile_name = self.get_tile_name_for_display(target_pos)
                     destination_tile_name = self.get_tile_name_for_display(new_pos)
                     
@@ -3317,7 +3337,7 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ You cannot use **Varrock Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
                     return 
 
-                new_pos = BANK_STANDING_TILE 
+                new_pos = self.resolve_nonroll_landing_tile(BANK_STANDING_TILE)
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 embed_description = "> Teleported to **Bank Standing** (Tile 20)."
 
@@ -3406,7 +3426,7 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Card effect failed: No house tiles are ahead of you on the board.", ephemeral=True)
                     return  
 
-                new_pos = closest_house_pos
+                new_pos = self.resolve_nonroll_landing_tile(closest_house_pos)
                 destination_tile_name = self.get_tile_name_for_display(new_pos)
                 embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**) — nearest house tile ahead."
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
@@ -3463,27 +3483,29 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
                 else:
-                    caster_dest_name = self.get_tile_name_for_display(target_pos)
-                    target_dest_name = self.get_tile_name_for_display(caster_pos)
+                    caster_final_pos = self.resolve_nonroll_landing_tile(target_pos)
+                    target_final_pos = self.resolve_nonroll_landing_tile(caster_pos)
+                    caster_dest_name = self.get_tile_name_for_display(caster_final_pos)
+                    target_dest_name = self.get_tile_name_for_display(target_final_pos)
                     embed_description += (
                         f"> Swapped places with **{target_team}**. "
-                        f"You moved to the **{caster_dest_name}** tile (Tile **{target_pos}**), "
-                        f"and they moved to the **{target_dest_name}** tile (Tile **{caster_pos}**)."
+                        f"You moved to the **{caster_dest_name}** tile (Tile **{caster_final_pos}**), "
+                        f"and they moved to the **{target_dest_name}** tile (Tile **{target_final_pos}**)."
                     )
                     
-                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": target_pos})
-                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": caster_pos})
+                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": caster_final_pos})
+                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": target_final_pos})
 
                     if victim_channel:
-                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{caster_pos}**).", color=discord.Color.orange())
+                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**).", color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
 
                         await self.mirror_to_game_log(victim_channel, embed=swap_embed)
 
-                    await self.check_and_award_card_on_land(team_name, target_pos, "being teleported to")
-                    await self.check_and_award_card_on_land(target_team, caster_pos, "being teleported to")
-                    await self.auto_post_show_drops_if_boss_tile(team_name, target_pos)
-                    await self.auto_post_show_drops_if_boss_tile(target_team, caster_pos)
+                    await self.check_and_award_card_on_land(team_name, caster_final_pos, "being teleported to")
+                    await self.check_and_award_card_on_land(target_team, target_final_pos, "being teleported to")
+                    await self.auto_post_show_drops_if_boss_tile(team_name, caster_final_pos)
+                    await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
 
             elif card_name == "Tele Block":
                 all_teams_data = self.team_data_sheet.get_all_records()
