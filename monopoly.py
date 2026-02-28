@@ -511,12 +511,23 @@ class MonopolyCog(commands.Cog):
     def get_team_rolls(self, team_name: str) -> int:
         """
         Retrieves the current 'Rolls Available' count for a team.
+
+        Uses a direct cell read (instead of get_all_records) to avoid stale reads
+        immediately after a roll is spent, which can suppress the "Free Roll Granted"
+        message on Chance/Chest/Glider/GO/Bank Standing landings.
         """
         try:
+            headers = self.team_data_sheet.row_values(1)
+            if "Rolls Available" not in headers:
+                return 0
+            rolls_col_index = headers.index("Rolls Available") + 1
+
             records = self.team_data_sheet.get_all_records()
-            for record in records:
+            for idx, record in enumerate(records, start=2):
                 if record.get("Team") == team_name:
-                    return int(record.get("Rolls Available", 0) or 0)
+                    raw_val = self.team_data_sheet.cell(idx, rolls_col_index).value
+                    raw_str = str(raw_val).replace(',', '').strip() if raw_val is not None else "0"
+                    return int(raw_str) if raw_str.lstrip('-').isdigit() else 0
             return 0
         except Exception as e:
             print(f"❌ Error getting team rolls for {team_name}: {e}")
@@ -1296,8 +1307,13 @@ class MonopolyCog(commands.Cog):
             try:
                 self.increment_rolls_available(team_name)
                 if team_chan:
-                    await team_chan.send("🎲 **Free Roll Granted!** You reached tile **10** and gained a free roll.")
-                    await self.mirror_to_game_log(team_chan, content="🎲 **Free Roll Granted!** You reached tile **10** and gained a free roll.")
+                    roll_embed = discord.Embed(
+                        title="🎲 Free Roll Granted!",
+                        description=f"**{team_name}** reached tile **10** from below and gained a free roll.",
+                        color=discord.Color.yellow()
+                    )
+                    await team_chan.send(embed=roll_embed)
+                    await self.mirror_to_game_log(team_chan, embed=roll_embed)
             except Exception as e:
                 print(f"❌ Error granting free roll for tile 10: {e}")
 
@@ -1363,6 +1379,31 @@ class MonopolyCog(commands.Cog):
         if pos == 30:
             return JAIL_TILE
         return pos
+
+    def get_glider_redirect_note(self, intended_pos: int, final_pos: int, *, second_person: bool = False, quoted: bool = True) -> str:
+        """Return feedback text when a non-roll move lands on a glider and is redirected."""
+        try:
+            intended = int(intended_pos)
+            final = int(final_pos)
+        except Exception:
+            return ""
+
+        if intended == final or intended not in GLIDER_TILES:
+            return ""
+
+        final_tile_name = self.get_tile_name_for_display(final)
+        if second_person:
+            msg = (
+                f"You landed on a **Glider** tile and were launched to the **{final_tile_name}** tile "
+                f"(Tile **{final}**)."
+            )
+        else:
+            msg = (
+                f"Landed on a **Glider** tile and was launched to the **{final_tile_name}** tile "
+                f"(Tile **{final}**)."
+            )
+
+        return f"\n> {msg}" if quoted else f"\n{msg}"
 
     async def auto_post_show_drops_if_boss_tile(self, team_name: str, position: int):
         """Auto-post the /show_drops embed in a team's channel if the tile has boss drops."""
@@ -2574,6 +2615,7 @@ class MonopolyCog(commands.Cog):
                 )
                 destination_tile_name = self.get_tile_name_for_display(new_pos)
                 embed_description += f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+                embed_description += self.get_glider_redirect_note(intended_pos, new_pos)
 
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
@@ -2623,18 +2665,21 @@ class MonopolyCog(commands.Cog):
                             final_move_amount = -(max(0, stored_roll - 1))
                             maul_suffix = " (Elder Maul reduced the rebound by 1)"
                         
-                        new_pos = max(0, caster_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                        intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
+                        new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
                         destination_tile_name = self.get_tile_name_for_display(new_pos)
+                        glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
+                        glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                         embed_description += (
                             f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
                             f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
                             f"(stops at Go){maul_suffix}.\n"
                         )
+                        embed_description += glider_note
                         await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
                         await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!", color=discord.Color.dark_red())
+                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
 
                         await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
@@ -2644,6 +2689,7 @@ class MonopolyCog(commands.Cog):
                                 description=(
                                     f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
                                     f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
+                                    + glider_note_victim
                                 ),
                                 color=discord.Color.dark_red()
                             )
@@ -2661,11 +2707,14 @@ class MonopolyCog(commands.Cog):
                             maul_suffix = " (Elder Maul reduced the effect by 1)"
                         
                         target_pos = caster_pos 
-                        new_pos = max(0, target_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                        intended_target_pos = max(0, target_pos + final_move_amount)
+                        new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
+                        glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
+                        glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
                         destination_tile_name = self.get_tile_name_for_display(new_pos)
                         embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
+                        embed_description += glider_note
                         await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
                         await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
                         if victim_channel:
@@ -2674,6 +2723,7 @@ class MonopolyCog(commands.Cog):
                                 description=(
                                     f"**{team_name}** used **Dragon Spear** on your team.\n"
                                     f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
+                                    + glider_note_victim
                                 ),
                                 color=discord.Color.dark_red()
                             )
@@ -3006,7 +3056,10 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
                 else:
-                    final_lure_pos = self.resolve_nonroll_landing_tile(caster_pos)
+                    intended_lure_pos = caster_pos
+                    final_lure_pos = self.resolve_nonroll_landing_tile(intended_lure_pos)
+                    glider_note = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos, second_person=True, quoted=False)
                     self.log_command(
                         team_name,
                         "/card_effect_set_tile",
@@ -3019,6 +3072,7 @@ class MonopolyCog(commands.Cog):
                         f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
                         f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
                     )
+                    embed_description += glider_note
                     
                     if victim_channel:
                     
@@ -3026,7 +3080,7 @@ class MonopolyCog(commands.Cog):
                     
                             title="<:fishing:1437980297017688114> You Were Lured!",
                     
-                            description=f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**).",
+                            description=(f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**)." + glider_note_victim),
                     
                             color=discord.Color.orange()
                     
@@ -3113,16 +3167,19 @@ class MonopolyCog(commands.Cog):
                         final_roll_val = max(0, stored_roll - 1)
                         maul_suffix = " (Elder Maul reduced the rebound by 1)"
                     
-                    new_pos = max(0, caster_pos - final_roll_val)
-                    new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    intended_rebound_pos = max(0, caster_pos - final_roll_val)
+                    new_pos = self.resolve_nonroll_landing_tile(intended_rebound_pos)
                     destination_tile_name = self.get_tile_name_for_display(new_pos)
+                    glider_note = self.get_glider_redirect_note(intended_rebound_pos, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_rebound_pos, new_pos, second_person=True, quoted=False)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                     embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                    embed_description += glider_note
                     
                     await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
                     await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!", color=discord.Color.dark_red())
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=(f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed)
 
                     await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
@@ -3132,6 +3189,7 @@ class MonopolyCog(commands.Cog):
                             description=(
                                 f"**{team_name}** tried to use **Backstab** on your team, but your **Vengeance** rebounded the effect!\n"
                                 f"They were moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+                                + glider_note_victim
                             ),
                             color=discord.Color.dark_red()
                         )
@@ -3146,8 +3204,10 @@ class MonopolyCog(commands.Cog):
                     if elder_maul_active:
                         final_roll_val = max(0, stored_roll - 1)
                         maul_suffix = " (Elder Maul reduced the effect by 1)"
-                    new_pos = max(0, target_pos - final_roll_val) 
-                    new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    intended_backstab_pos = max(0, target_pos - final_roll_val) 
+                    new_pos = self.resolve_nonroll_landing_tile(intended_backstab_pos)
+                    glider_note = self.get_glider_redirect_note(intended_backstab_pos, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_backstab_pos, new_pos, second_person=True, quoted=False)
                     source_tile_name = self.get_tile_name_for_display(target_pos)
                     destination_tile_name = self.get_tile_name_for_display(new_pos)
                     
@@ -3156,6 +3216,7 @@ class MonopolyCog(commands.Cog):
                         f"> **{target_team}** was moved back **{final_roll_val}** tiles from the **{source_tile_name}** tile "
                         f"(Tile **{target_pos}**) to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                     )
+                    embed_description += glider_note
 
                     await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
                     await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
@@ -3165,6 +3226,7 @@ class MonopolyCog(commands.Cog):
                             description=(
                                 f"**{team_name}** used **Backstab** on your team.\n"
                                 f"You were moved back **{final_roll_val}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                                + glider_note_victim
                             ),
                             color=discord.Color.dark_red()
                         )
@@ -3483,8 +3545,13 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
                 else:
-                    caster_final_pos = self.resolve_nonroll_landing_tile(target_pos)
-                    target_final_pos = self.resolve_nonroll_landing_tile(caster_pos)
+                    caster_intended_pos = target_pos
+                    target_intended_pos = caster_pos
+                    caster_final_pos = self.resolve_nonroll_landing_tile(caster_intended_pos)
+                    target_final_pos = self.resolve_nonroll_landing_tile(target_intended_pos)
+                    caster_glider_note = self.get_glider_redirect_note(caster_intended_pos, caster_final_pos)
+                    target_glider_note = self.get_glider_redirect_note(target_intended_pos, target_final_pos)
+                    target_glider_note_victim = self.get_glider_redirect_note(target_intended_pos, target_final_pos, second_person=True, quoted=False)
                     caster_dest_name = self.get_tile_name_for_display(caster_final_pos)
                     target_dest_name = self.get_tile_name_for_display(target_final_pos)
                     embed_description += (
@@ -3492,12 +3559,15 @@ class MonopolyCog(commands.Cog):
                         f"You moved to the **{caster_dest_name}** tile (Tile **{caster_final_pos}**), "
                         f"and they moved to the **{target_dest_name}** tile (Tile **{target_final_pos}**)."
                     )
+                    embed_description += caster_glider_note
+                    if target_glider_note:
+                        embed_description += target_glider_note.replace(" was launched", f" {target_team} was launched")
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": caster_final_pos})
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": target_final_pos})
 
                     if victim_channel:
-                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**).", color=discord.Color.orange())
+                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=(f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**)." + target_glider_note_victim), color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
 
                         await self.mirror_to_game_log(victim_channel, embed=swap_embed)
