@@ -1173,7 +1173,8 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error decrementing rolls from /roll command: {e}")
 
         raw_pos = current_tile + result
-        new_pos = raw_pos % BOARD_SIZE
+        rolled_landing_tile = raw_pos % BOARD_SIZE
+        new_pos = rolled_landing_tile
         go_message = ""
         
         if raw_pos >= BOARD_SIZE and new_pos != 30: 
@@ -1209,17 +1210,7 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error updating Position in sheet: {e}")
 
         tile_name = "Unknown Tile"
-        tile_boss_map = {
-            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-        }
+        tile_boss_map = self._get_tile_boss_map()
         
         if new_pos in CHEST_TILES:
             tile_name = "Chest"
@@ -1253,6 +1244,12 @@ class MonopolyCog(commands.Cog):
         await interaction.followup.send(embed=roll_embed)
         await self.mirror_to_game_log(interaction.channel, embed=roll_embed)
 
+        # Auto-show boss drops after a roll when you land on a boss tile.
+        # Show when you end up on tile 10 via jail (tile 30), but NOT when you naturally land on 10 from a tile < 10.
+        landed_naturally_on_tile_10_from_lt10 = (current_tile < 10 and rolled_landing_tile == 10)
+        if (new_pos in tile_boss_map) and (not landed_naturally_on_tile_10_from_lt10):
+            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+
         if go_message:
             await interaction.channel.send(go_message)
 
@@ -1273,6 +1270,107 @@ class MonopolyCog(commands.Cog):
                 print(f"❌ Error granting free roll for tile 10: {e}")
 
         await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
+
+    def _get_tile_boss_map(self) -> dict[int, list[str]]:
+        return {
+            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+        }
+
+
+    def get_tile_name_for_display(self, position: int) -> str:
+        """Returns a human-readable tile name (boss/property/special) for a board tile."""
+        try:
+            tile_boss_map = self._get_tile_boss_map()
+            if position in CHEST_TILES:
+                return "Chest"
+            if position in CHANCE_TILES:
+                return "Chance"
+            if position == GO_TILE:
+                return "GO"
+            if position == JAIL_TILE:
+                return "Jail"
+            if position == BANK_STANDING_TILE:
+                return "Bank Standing"
+            if position in GLIDER_TILES:
+                return "Glider"
+            if position in tile_boss_map:
+                return ", ".join(tile_boss_map[position])
+
+            for prop in self.house_data_sheet.get_all_records():
+                try:
+                    if int(prop.get("Tile", -1)) == position:
+                        return prop.get("Name", f"Tile {position}")
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"❌ Error resolving tile name for {position}: {e}")
+        return f"Tile {position}"
+
+    async def auto_post_show_drops_if_boss_tile(self, team_name: str, position: int):
+        """Auto-post the /show_drops embed in a team's channel if the tile has boss drops."""
+        try:
+            team_chan = self.get_team_channel(team_name)
+            if not team_chan:
+                return
+            drops_embed = self.build_show_drops_embed_for_tile(position)
+            if drops_embed is not None:
+                await team_chan.send(embed=drops_embed)
+        except Exception as e:
+            print(f"❌ Error auto-posting /show_drops for {team_name} on tile {position}: {e}")
+
+
+    def build_show_drops_embed_for_tile(self, position: int) -> discord.Embed | None:
+        """Build the same embed used by /show_drops for a board tile. Returns None if tile has no boss drops."""
+        tile_boss_map = self._get_tile_boss_map()
+        boss_list = tile_boss_map.get(position)
+        if not boss_list:
+            return None
+
+        boss_name_str = ", ".join(boss_list)
+        embed = discord.Embed(
+            title=f"Available Drops for {boss_name_str} (Tile {position})",
+            description="This list shows potential drops and their GP values.",
+            color=discord.Color.gold()
+        )
+
+        all_items = self.item_values_sheet.get_all_records()
+
+        drop_list_text = ""
+        found_any_drops = False
+
+        for boss in boss_list:
+            boss_drops_text = ""
+            for item in all_items:
+                item_boss = item.get("Boss Name")
+                if item_boss == boss:
+                    item_name = item.get("Item", "Unknown Item")
+                    item_gp = item.get("GP", "0")
+                    formatted_gp = self._format_gp(item_gp)
+                    boss_drops_text += f"• **{item_name}**: {formatted_gp} GP\n"
+                    found_any_drops = True
+
+            drop_list_text += f"\n**--- {boss} ---**\n"
+            if not boss_drops_text:
+                drop_list_text += "No drops found for this boss.\n"
+            else:
+                drop_list_text += boss_drops_text
+
+        if not found_any_drops:
+            drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
+
+        if len(drop_list_text) > 4096:
+            drop_list_text = drop_list_text[:4090] + "...\n(List too long to display)"
+
+        embed.description = drop_list_text
+        return embed
 
     def _format_gp(self, gp_value_str: str) -> str:
         """Formats a GP string into M (Million) or K (Thousand)."""
@@ -1317,64 +1415,17 @@ class MonopolyCog(commands.Cog):
 
             position = int(team_data.get("Position", 0))
 
-            tile_boss_map = {
-                1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-                13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-            }
-            boss_list = tile_boss_map.get(position)
-            
-            if not boss_list:
-                await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=False)
-                return
-            
-            boss_name_str = ", ".join(boss_list)
-            embed = discord.Embed(
-                title=f"Available Drops for {boss_name_str} (Tile {position})",
-                description="This list shows potential drops and their GP values.",
-                color=discord.Color.gold()
-            )
-
             try:
-                all_items = self.item_values_sheet.get_all_records()
+                embed = self.build_show_drops_embed_for_tile(position)
             except Exception as e:
                 print(f"Error fetching ItemValues: {e}")
                 await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
                 return
-                
-            drop_list_text = ""
-            found_any_drops = False
-            
-            for boss in boss_list:
-                boss_drops_text = ""
-                for item in all_items:
-                    item_boss = item.get("Boss Name")
-                    if item_boss == boss:
-                        item_name = item.get("Item", "Unknown Item")
-                        item_gp = item.get("GP", "0")
-                        formatted_gp = self._format_gp(item_gp)
-                        boss_drops_text += f"• **{item_name}**: {formatted_gp} GP\n"
-                        found_any_drops = True
-                
-                drop_list_text += f"\n**--- {boss} ---**\n"
-                if not boss_drops_text:
-                    drop_list_text += "No drops found for this boss.\n"
-                else:
-                    drop_list_text += boss_drops_text
 
-            if not found_any_drops:
-                drop_list_text = "No drops found for this boss in the `ItemValues` sheet. (Sheet must have 'Boss Name', 'Item', and 'GP' columns)."
+            if not embed:
+                await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=False)
+                return
 
-            if len(drop_list_text) > 4096:
-                drop_list_text = drop_list_text[:4090] + "...\n(List too long to display)"
-
-            embed.description = drop_list_text
             await interaction.followup.send(embed=embed, ephemeral=False)
 
         except Exception as e:
@@ -2474,9 +2525,11 @@ class MonopolyCog(commands.Cog):
                     "/card_effect_move",  
                     {"team": team_name, "move": stored_roll}
                 )
-                embed_description += f"> Moved **{stored_roll}** spaces forward."
+                destination_tile_name = self.get_tile_name_for_display(new_pos)
+                embed_description += f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
 
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
+                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
                 stored_roll = team_wildcard_value
@@ -2524,10 +2577,16 @@ class MonopolyCog(commands.Cog):
                             maul_suffix = " (Elder Maul reduced the rebound by 1)"
                         
                         new_pos = max(0, caster_pos + final_move_amount)
+                        destination_tile_name = self.get_tile_name_for_display(new_pos)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": team_name, "move": final_move_amount})
-                        embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back **{abs(final_move_amount)}** tiles (stops at Go){maul_suffix}.\n"
+                        embed_description += (
+                            f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
+                            f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
+                            f"(stops at Go){maul_suffix}.\n"
+                        )
                         await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
-                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces!", color=discord.Color.dark_red())
+                        await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
 
                         await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
@@ -2536,7 +2595,7 @@ class MonopolyCog(commands.Cog):
                                 title="<:venge:1438084953559797884> Vengeance Activated!",
                                 description=(
                                     f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
-                                    f"They were moved back **{abs(final_move_amount)}** tiles (stops at Go)."
+                                    f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
                                 ),
                                 color=discord.Color.dark_red()
                             )
@@ -2556,14 +2615,16 @@ class MonopolyCog(commands.Cog):
                         target_pos = caster_pos 
                         new_pos = max(0, target_pos + final_move_amount)
                         await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_move", {"team": target_team, "move": final_move_amount})
-                        embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles (stops at Go){maul_suffix}.\n"
+                        destination_tile_name = self.get_tile_name_for_display(new_pos)
+                        embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
                         await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
+                        await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
                         if victim_channel:
                             victim_embed = discord.Embed(
                                 title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
                                 description=(
                                     f"**{team_name}** used **Dragon Spear** on your team.\n"
-                                    f"You were moved back **{abs(final_move_amount)}** tiles to **Tile {new_pos}** (stops at Go){maul_suffix}."
+                                    f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
                                 ),
                                 color=discord.Color.dark_red()
                             )
@@ -2901,7 +2962,13 @@ class MonopolyCog(commands.Cog):
                         "/card_effect_set_tile",
                         {"team": target_team, "tile": caster_pos}
                     )
-                    embed_description = f"<:fishing:1437980297017688114> **{target_team}** (on tile {target_pos}) was lured to your tile (tile {caster_pos})!"
+                    source_tile_name = self.get_tile_name_for_display(target_pos)
+                    destination_tile_name = self.get_tile_name_for_display(caster_pos)
+                    embed_description = (
+                        f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
+                        f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
+                        f"**{destination_tile_name}** tile (Tile **{caster_pos}**)!"
+                    )
                     
                     if victim_channel:
                     
@@ -2909,7 +2976,7 @@ class MonopolyCog(commands.Cog):
                     
                             title="<:fishing:1437980297017688114> You Were Lured!",
                     
-                            description=f"**{team_name}** used **Lure** and pulled your team to **Tile {caster_pos}**.",
+                            description=f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(caster_pos)}** tile (Tile **{caster_pos}**).",
                     
                             color=discord.Color.orange()
                     
@@ -2922,6 +2989,7 @@ class MonopolyCog(commands.Cog):
 
                     
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being lured to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, caster_pos)
 
             elif card_name == "Escape Crystal":
                 if self.get_teleblock_status(team_name) == "yes":
@@ -2996,13 +3064,14 @@ class MonopolyCog(commands.Cog):
                         maul_suffix = " (Elder Maul reduced the rebound by 1)"
                     
                     new_pos = max(0, caster_pos - final_roll_val)
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                    embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to tile **{new_pos}**{maul_suffix}."
+                    embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                     
                     await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
-
-                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to tile **{new_pos}**!", color=discord.Color.dark_red())
+                    await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed)
 
                     await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
@@ -3011,7 +3080,7 @@ class MonopolyCog(commands.Cog):
                             title="<:venge:1438084953559797884> Vengeance Activated!",
                             description=(
                                 f"**{team_name}** tried to use **Backstab** on your team, but your **Vengeance** rebounded the effect!\n"
-                                f"They were moved to **Tile {new_pos}**."
+                                f"They were moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
                             ),
                             color=discord.Color.dark_red()
                         )
@@ -3027,17 +3096,23 @@ class MonopolyCog(commands.Cog):
                         final_roll_val = max(0, stored_roll - 1)
                         maul_suffix = " (Elder Maul reduced the effect by 1)"
                     new_pos = max(0, target_pos - final_roll_val) 
+                    source_tile_name = self.get_tile_name_for_display(target_pos)
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                    embed_description += f"> **{target_team}** (tile {target_pos}) was moved back **{final_roll_val}** tiles to tile **{new_pos}**{maul_suffix}."
+                    embed_description += (
+                        f"> **{target_team}** was moved back **{final_roll_val}** tiles from the **{source_tile_name}** tile "
+                        f"(Tile **{target_pos}**) to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                    )
 
                     await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:boner:1438085053102948383> You Were Backstabbed!",
                             description=(
                                 f"**{team_name}** used **Backstab** on your team.\n"
-                                f"You were moved back **{final_roll_val}** tiles to **Tile {new_pos}**{maul_suffix}."
+                                f"You were moved back **{final_roll_val}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                             ),
                             color=discord.Color.dark_red()
                         )
@@ -3219,6 +3294,7 @@ class MonopolyCog(commands.Cog):
                     embed_description += "\n\n> 🎲 You had no rolls, so you gained one!"
 
                 await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to via Varrock Tele")
+                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             elif card_name == "POH Voucher":
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -3299,9 +3375,11 @@ class MonopolyCog(commands.Cog):
                     return  
 
                 new_pos = closest_house_pos
-                embed_description = f"<:houseicon:1438085020156821555> Teleported to the **nearest house tile ahead** (tile **{new_pos}**)."
+                destination_tile_name = self.get_tile_name_for_display(new_pos)
+                embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**) — nearest house tile ahead."
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
+                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             elif card_name == "Tele Other":
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -3353,19 +3431,27 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
                 else:
-                    embed_description += f"> Swapped places with **{target_team}** (you: tile {caster_pos} → {target_pos}, them: tile {target_pos} → {caster_pos})."
+                    caster_dest_name = self.get_tile_name_for_display(target_pos)
+                    target_dest_name = self.get_tile_name_for_display(caster_pos)
+                    embed_description += (
+                        f"> Swapped places with **{target_team}**. "
+                        f"You moved to the **{caster_dest_name}** tile (Tile **{target_pos}**), "
+                        f"and they moved to the **{target_dest_name}** tile (Tile **{caster_pos}**)."
+                    )
                     
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": target_pos})
                     await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": caster_pos})
 
                     if victim_channel:
-                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on **Tile {caster_pos}**.", color=discord.Color.orange())
+                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{caster_pos}**).", color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
 
                         await self.mirror_to_game_log(victim_channel, embed=swap_embed)
 
                     await self.check_and_award_card_on_land(team_name, target_pos, "being teleported to")
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being teleported to")
+                    await self.auto_post_show_drops_if_boss_tile(team_name, target_pos)
+                    await self.auto_post_show_drops_if_boss_tile(target_team, caster_pos)
 
             elif card_name == "Tele Block":
                 all_teams_data = self.team_data_sheet.get_all_records()
