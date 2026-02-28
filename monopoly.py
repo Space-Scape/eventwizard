@@ -274,7 +274,38 @@ class MonopolyCog(commands.Cog):
             return discord.Color.blurple()
 
     def _format_game_log_title(self, team_name: Optional[str]) -> str:
-        return f"📜 Game Log • {team_name or 'Unknown Team'}"
+        return f"🕹️ Game Log • {team_name or 'Unknown Team'}"
+
+    def _normalize_game_log_victim_description(self, description: Optional[str], team_name: Optional[str]) -> Optional[str]:
+        """Convert victim-facing phrasing (you/your team) into neutral game-log phrasing."""
+        try:
+            if not description:
+                return description
+            team_name = team_name or "Unknown Team"
+            desc = str(description).strip()
+            # Prefer the first sentence/line for the public log to avoid duplicating victim-only detail.
+            first_line = desc.split('\n', 1)[0].strip()
+            first_sentence = first_line.split('. ', 1)[0].strip()
+            candidate = (first_sentence + ('.' if first_sentence and not first_sentence.endswith('.') else '')) if first_sentence else first_line
+
+            replacements = [
+                (" on your team", f" on {team_name}"),
+                (" on you", f" on {team_name}"),
+                (" your team", f" {team_name}"),
+                ("Your team", f"{team_name}"),
+                ("You are ", f"{team_name} is "),
+                ("You've been ", f"{team_name} was "),
+                ("You were ", f"{team_name} was "),
+            ]
+            for old, new in replacements:
+                candidate = candidate.replace(old, new)
+
+            # Light cleanup if the source used markdown around team names.
+            candidate = candidate.replace('**', '')
+            return candidate or desc
+        except Exception as e:
+            print(f"❌ Error normalizing game log victim description: {e}")
+            return description
 
     def _is_secret_game_log_message(self, content: Optional[str] = None, embed: Optional[discord.Embed] = None) -> bool:
         """Messages that should stay private to team channels (activation/status/card-receive secrets)."""
@@ -347,33 +378,35 @@ class MonopolyCog(commands.Cog):
             if embed is not None:
                 log_embed = embed.copy()
                 original_title = str(log_embed.title).strip() if log_embed.title else ""
+                original_description = str(log_embed.description).strip() if log_embed.description else ""
 
                 # Team-specific styling for easy scanning in the shared log.
                 log_embed.color = team_color
                 log_embed.title = log_title
 
-                # Preserve original embed title as the action label when present.
-                if original_title and original_title != log_title:
-                    try:
-                        field_names = [str(f.name).strip().lower() for f in log_embed.fields]
-                        if 'action' not in field_names:
-                            log_embed.insert_field_at(0, name='Action', value=original_title[:1024], inline=False)
-                    except Exception:
-                        pass
-
-                # Always include which team's channel it came from.
-                try:
-                    field_names = [str(f.name).strip().lower() for f in log_embed.fields]
-                    if 'team' not in field_names:
-                        insert_index = 1 if original_title else 0
-                        log_embed.insert_field_at(insert_index, name='Team', value=f'**{team_name}**', inline=False)
-                except Exception:
-                    pass
+                # Victim-facing embeds read awkwardly in a shared log ("you/your team").
+                # Convert to a neutral summary and avoid extra fields/noise.
+                lower_title = original_title.lower()
+                lower_desc = original_description.lower()
+                looks_victim_facing = (
+                    lower_title.startswith('you ')
+                    or "you were" in lower_title
+                    or "you've" in lower_title
+                    or " your team" in lower_desc
+                    or " on your team" in lower_desc
+                    or lower_desc.startswith('you ')
+                )
+                if looks_victim_facing and original_description:
+                    log_embed.description = self._normalize_game_log_victim_description(original_description, team_name)
 
                 if content:
                     extra = str(content).strip()
                     if extra:
-                        log_embed.add_field(name='Message', value=extra[:1024], inline=False)
+                        # Append plain message text to the description instead of extra fields for cleaner logs.
+                        if log_embed.description:
+                            log_embed.description = f"{log_embed.description}\n{extra}"[:4096]
+                        else:
+                            log_embed.description = extra[:4096]
                 await game_log_channel.send(embed=log_embed)
                 return
 
@@ -383,7 +416,6 @@ class MonopolyCog(commands.Cog):
                     description=str(content),
                     color=team_color
                 )
-                log_embed.add_field(name='Team', value=f'**{team_name}**', inline=False)
                 await game_log_channel.send(embed=log_embed)
         except Exception as e:
             print(f"❌ Error mirroring to game log: {e}")
