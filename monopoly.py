@@ -945,12 +945,6 @@ class MonopolyCog(commands.Cog):
                 "❌ You can only use this command in your team's channel.", ephemeral=True
             )
             return
-            
-        if not self.has_event_captain_role(interaction.user):
-            await interaction.response.send_message(
-                "❌ Only the Event Captain can use this command.", ephemeral=True
-            )
-            return
 
         await interaction.response.defer(ephemeral=False)  
         team_name = self.get_team(interaction.user) or "*No team*"
