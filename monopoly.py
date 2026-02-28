@@ -1190,12 +1190,35 @@ class MonopolyCog(commands.Cog):
                 value_input_option="USER_ENTERED"
             )
 
+            role_status_line = ""
+            try:
+                guild = interaction.guild
+                if guild is None:
+                    role_status_line = "\n**Role:** Not assigned (command was not used in a server)."
+                else:
+                    bingo_player_role = discord.utils.get(guild.roles, name="Bingo Player")
+                    if bingo_player_role is None:
+                        role_status_line = "\n**Role:** Not assigned (`Bingo Player` role not found)."
+                    elif bingo_player_role in getattr(interaction.user, "roles", []):
+                        role_status_line = "\n**Role:** `Bingo Player` already assigned."
+                    else:
+                        await interaction.user.add_roles(bingo_player_role, reason="User completed /signup")
+                        role_status_line = "\n**Role:** `Bingo Player` assigned."
+            except discord.Forbidden:
+                role_status_line = "\n**Role:** Could not assign `Bingo Player` (missing Manage Roles permission / role hierarchy issue)."
+            except discord.HTTPException as role_err:
+                role_status_line = f"\n**Role:** Could not assign `Bingo Player` ({role_err})."
+            except Exception as role_err:
+                print(f"❌ Error assigning Bingo Player role in /signup: {role_err}")
+                traceback.print_exc()
+                role_status_line = "\n**Role:** Signup saved, but role assignment failed."
+
             success_embed = discord.Embed(
                 title="✅ Signup Submitted!",
                 description=(
-                    f"Your signup has been recorded.\n\n"
                     f"**RSN:** {rsn_clean}\n"
                     f"**Screenshot:** [Open Image]({screenshot_url})"
+                    f"{role_status_line}"
                 ),
                 color=discord.Color.green()
             )
