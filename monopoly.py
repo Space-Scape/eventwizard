@@ -647,7 +647,7 @@ class MonopolyCog(commands.Cog):
                                     break
 
                             if owner_team and owner_team != team_name and house_count > 0:
-                                tax_map = {1: 0.05, 2: 0.10, 3: 0.20, 4: 0.40}
+                                tax_map = {1: 0.20, 2: 0.40, 3: 0.60, 4: 0.80}
                                 tax_percent = tax_map.get(house_count, 0)
                                 tax_amount = int(final_gp_value * tax_percent)
                                 final_gp_value -= tax_amount
@@ -1418,10 +1418,10 @@ class MonopolyCog(commands.Cog):
             return
         try:
             COST_MAP = {
-                0: 15_000_000,
-                1: 30_000_000,
-                2: 60_000_000,
-                3: 120_000_000
+                0: 25_000_000,
+                1: 50_000_000,
+                2: 100_000_000,
+                3: 200_000_000
             }
             
             bought_flag = self.get_bought_house_flag(team_name)
@@ -3055,7 +3055,7 @@ class MonopolyCog(commands.Cog):
 
                 if caster_pos not in allowed_house_tiles:
                     await interaction.followup.send(
-                        "❌ You can only use **POH Voucher** on a tile listed in **HouseData**.",
+                        "❌ This is not a valid tile for housing.",
                         ephemeral=True,
                     )
                     return
