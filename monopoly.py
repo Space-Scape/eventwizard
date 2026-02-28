@@ -36,7 +36,8 @@ TEAM_CHANNELS_MAP = {
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 EVENT_STAFF_ROLE_ID = 1286238788716199952
-EVENT_CAPTAIN_ROLE_ID = 1464304452059267208
+EVENT_CAPTAIN_ROLE_ID = 1286238713210474559
+BINGO_PLAYER_ROLE_ID = 1464304452059267208
 
 BOARD_SIZE = 40
 
@@ -1259,7 +1260,6 @@ class MonopolyCog(commands.Cog):
             embed2.add_field(
                 name="For Team Captains Only!",
                 value=(
-                    "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
                     "**/use-card:** Lets you see and use the cards your team is holding.\n"
                     "**/buy-house:** Landed on a tile? Use this to buy a house for it (up to 4).\n"
                     "**/customize:** Change your character's icon and color!"
@@ -1269,6 +1269,7 @@ class MonopolyCog(commands.Cog):
             embed2.add_field(
                 name="For Everyone on the Team!",
                 value=(
+                    "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
                     "**/stats:** View your team's status, GP, and position.\n"
                     "**/gp:** Curious about your GP? Use this to check the team's total.\n"
                     "**/show_cards:** See all the cool cards your team is currently holding.\n"
