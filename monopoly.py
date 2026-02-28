@@ -1196,9 +1196,12 @@ class MonopolyCog(commands.Cog):
                 if guild is None:
                     role_status_line = "\n**Role:** Not assigned (command was not used in a server)."
                 else:
-                    bingo_player_role = discord.utils.get(guild.roles, name="Bingo Player")
+                    bingo_player_role = guild.get_role(BINGO_PLAYER_ROLE_ID)
                     if bingo_player_role is None:
-                        role_status_line = "\n**Role:** Not assigned (`Bingo player` role not found)."
+                        # Fallback by name in case the configured ID is stale.
+                        bingo_player_role = discord.utils.get(guild.roles, name="Bingo Player")
+                    if bingo_player_role is None:
+                        role_status_line = f"\n**Role:** Not assigned (`Bingo Player` role not found by ID `{BINGO_PLAYER_ROLE_ID}`)."
                     elif bingo_player_role in getattr(interaction.user, "roles", []):
                         role_status_line = "\n**Role:** `Bingo Player` already assigned."
                     else:
@@ -1216,6 +1219,7 @@ class MonopolyCog(commands.Cog):
             success_embed = discord.Embed(
                 title="✅ Signup Submitted!",
                 description=(
+                    f"Your signup has been recorded.\n\n"
                     f"**RSN:** {rsn_clean}\n"
                     f"**Screenshot:** [Open Image]({screenshot_url})"
                     f"{role_status_line}"
