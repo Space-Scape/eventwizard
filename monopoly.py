@@ -23,6 +23,17 @@ TEAM_ROLES = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5", "Team 6", "Team 
 
 REVIEW_CHANNEL = "1436465463742824499"
 LOG_CHANNEL = "1436463720401211474"
+GAME_LOG_CHANNEL_ID = 1477197002499690516
+GAME_LOG_TEAM_COLOR_MAP = {
+    "Team 1": 0xE74C3C,  # Red
+    "Team 2": 0x9B59B6,  # Purple
+    "Team 3": 0xF1C40F,  # Yellow
+    "Team 4": 0x2ECC71,  # Green
+    "Team 5": 0x00BCD4,  # Cyan
+    "Team 6": 0xC4A484,  # Light Brown
+    "Team 7": 0x3498DB,  # Blue
+}
+
 
 TEAM_CHANNELS_MAP = {
     "Team 1": 1436460767145754845,
@@ -240,6 +251,142 @@ class MonopolyCog(commands.Cog):
         print(f"❌ Could not find channel for team: {team_name}")
         return None
 
+
+    def get_team_name_from_channel(self, channel: Optional[discord.abc.GuildChannel]) -> Optional[str]:
+        """Best-effort reverse lookup from a team channel object to its team name."""
+        try:
+            if not channel:
+                return None
+            channel_id = getattr(channel, "id", None)
+            if channel_id is None:
+                return None
+            for team_name, team_channel_id in TEAM_CHANNELS_MAP.items():
+                if int(team_channel_id) == int(channel_id):
+                    return team_name
+        except Exception as e:
+            print(f"❌ Error resolving team from channel: {e}")
+        return None
+
+    def _get_game_log_team_color(self, team_name: Optional[str]) -> discord.Color:
+        try:
+            return discord.Color(GAME_LOG_TEAM_COLOR_MAP.get(str(team_name), 0x5865F2))
+        except Exception:
+            return discord.Color.blurple()
+
+    def _format_game_log_title(self, team_name: Optional[str]) -> str:
+        return f"📜 Game Log • {team_name or 'Unknown Team'}"
+
+    def _is_secret_game_log_message(self, content: Optional[str] = None, embed: Optional[discord.Embed] = None) -> bool:
+        """Messages that should stay private to team channels (activation/status/card-receive secrets)."""
+        try:
+            parts = []
+            if content:
+                parts.append(str(content))
+            if embed:
+                if embed.title:
+                    parts.append(str(embed.title))
+                if embed.description:
+                    parts.append(str(embed.description))
+                for field in getattr(embed, 'fields', []):
+                    parts.append(str(getattr(field, 'name', '')))
+                    parts.append(str(getattr(field, 'value', '')))
+            text_blob = ' '.join(parts).lower()
+
+            # Keep hidden: drawing/receiving cards
+            secret_card_phrases = [
+                'drew a chance card', 'drew a chest card',
+                'received a chance card', 'received a chest card',
+                'tried to draw a chance card', 'tried to draw a chest card'
+            ]
+            if any(phrase in text_blob for phrase in secret_card_phrases):
+                return True
+
+            # Keep hidden: activation card usage / activation trigger messages
+            secret_activation_phrases = [
+                'vengeance activated',
+                'redemption activated',
+                'elder maul activated'
+            ]
+            if any(phrase in text_blob for phrase in secret_activation_phrases):
+                return True
+
+            return False
+        except Exception as e:
+            print(f"❌ Error checking game log secrecy filter: {e}")
+            return False
+
+    async def mirror_to_game_log(
+        self,
+        channel: Optional[discord.TextChannel],
+        *,
+        content: Optional[str] = None,
+        embed: Optional[discord.Embed] = None,
+        team_name: Optional[str] = None
+    ):
+        """Mirror public game action messages to the shared game log channel as embeds."""
+        try:
+            if self._is_secret_game_log_message(content=content, embed=embed):
+                return
+
+            if channel is None:
+                return
+
+            game_log_channel = self.bot.get_channel(int(GAME_LOG_CHANNEL_ID))
+            if not isinstance(game_log_channel, discord.TextChannel):
+                print(f"❌ Game log channel {GAME_LOG_CHANNEL_ID} not found")
+                return
+
+            if getattr(channel, 'id', None) == getattr(game_log_channel, 'id', None):
+                return
+
+            team_name = team_name or self.get_team_name_from_channel(channel) or 'Unknown Team'
+
+            team_color = self._get_game_log_team_color(team_name)
+            log_title = self._format_game_log_title(team_name)
+
+            if embed is not None:
+                log_embed = embed.copy()
+                original_title = str(log_embed.title).strip() if log_embed.title else ""
+
+                # Team-specific styling for easy scanning in the shared log.
+                log_embed.color = team_color
+                log_embed.title = log_title
+
+                # Preserve original embed title as the action label when present.
+                if original_title and original_title != log_title:
+                    try:
+                        field_names = [str(f.name).strip().lower() for f in log_embed.fields]
+                        if 'action' not in field_names:
+                            log_embed.insert_field_at(0, name='Action', value=original_title[:1024], inline=False)
+                    except Exception:
+                        pass
+
+                # Always include which team's channel it came from.
+                try:
+                    field_names = [str(f.name).strip().lower() for f in log_embed.fields]
+                    if 'team' not in field_names:
+                        insert_index = 1 if original_title else 0
+                        log_embed.insert_field_at(insert_index, name='Team', value=f'**{team_name}**', inline=False)
+                except Exception:
+                    pass
+
+                if content:
+                    extra = str(content).strip()
+                    if extra:
+                        log_embed.add_field(name='Message', value=extra[:1024], inline=False)
+                await game_log_channel.send(embed=log_embed)
+                return
+
+            if content:
+                log_embed = discord.Embed(
+                    title=log_title,
+                    description=str(content),
+                    color=team_color
+                )
+                log_embed.add_field(name='Team', value=f'**{team_name}**', inline=False)
+                await game_log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"❌ Error mirroring to game log: {e}")
     def has_event_captain_role(self, member: discord.Member) -> bool:
         return any(role.id == EVENT_CAPTAIN_ROLE_ID for role in member.roles)
 
@@ -673,6 +820,7 @@ class MonopolyCog(commands.Cog):
                                 )
                                 if team_chan:
                                     await team_chan.send(gp_message)
+                                    await self.cog.mirror_to_game_log(team_chan, content=gp_message, team_name=team_name)
                                 break
 
                         if tax_amount > 0 and owner_team:
@@ -692,8 +840,10 @@ class MonopolyCog(commands.Cog):
                             )
                             if team_chan:
                                 await team_chan.send(tax_message)
+                                await self.cog.mirror_to_game_log(team_chan, content=tax_message, team_name=team_name)
                             if owner_team_chan:
                                 await owner_team_chan.send(tax_message)
+                                await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
 
                 except Exception as e:
                     print(f"❌ Error in GP/tax logic: {e}")
@@ -734,6 +884,7 @@ class MonopolyCog(commands.Cog):
                                     color=discord.Color.green()
                                 )
                                 await team_chan.send(embed=roll_grant_embed)
+                                await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
                         else:
                             print(f"❗ No roll granted: Team {team_name} on tile {current_tile}, drop boss {self.boss} not valid here.")
                     except Exception as e:
@@ -1100,9 +1251,12 @@ class MonopolyCog(commands.Cog):
             color=discord.Color.blue()
         )
         await interaction.followup.send(embed=roll_embed)
+        await self.mirror_to_game_log(interaction.channel, embed=roll_embed)
 
         if go_message:
             await interaction.channel.send(go_message)
+
+            await self.mirror_to_game_log(interaction.channel, content=go_message)
             
         if not team_chan:
             print(f"❌ Log channel {LOG_CHANNEL} not found, can't send card embeds.")
@@ -1114,6 +1268,7 @@ class MonopolyCog(commands.Cog):
                 self.increment_rolls_available(team_name)
                 if team_chan:
                     await team_chan.send("🎲 **Free Roll Granted!** You reached tile **10** and gained a free roll.")
+                    await self.mirror_to_game_log(team_chan, content="🎲 **Free Roll Granted!** You reached tile **10** and gained a free roll.")
             except Exception as e:
                 print(f"❌ Error granting free roll for tile 10: {e}")
 
@@ -1568,6 +1723,7 @@ class MonopolyCog(commands.Cog):
                 f"Your team's new balance is **{new_gp:,.0f}** GP."
             )
             await interaction.followup.send(buy_message, ephemeral=False)
+            await self.mirror_to_game_log(interaction.channel, content=buy_message)
             
         except gspread.exceptions.APIError as e:
             print(f"❌ Google Sheets API error in /buy_house: {e}")
@@ -2355,6 +2511,8 @@ class MonopolyCog(commands.Cog):
                         if victim_channel:
                             fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", color=discord.Color.blue())
                             await victim_channel.send(embed=fizzle_embed)
+
+                            await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                         continue  
                             
                     if self.check_and_consume_vengeance(target_team):
@@ -2371,6 +2529,8 @@ class MonopolyCog(commands.Cog):
                         await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
                         skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
+
+                        await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
                         if victim_channel:
                             victim_embed = discord.Embed(
                                 title="<:venge:1438084953559797884> Vengeance Activated!",
@@ -2381,6 +2541,8 @@ class MonopolyCog(commands.Cog):
                                 color=discord.Color.dark_red()
                             )
                             await victim_channel.send(embed=victim_embed)
+
+                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                         continue  
                     
                     else:
@@ -2406,6 +2568,8 @@ class MonopolyCog(commands.Cog):
                                 color=discord.Color.dark_red()
                             )
                             await victim_channel.send(embed=victim_embed)
+
+                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
@@ -2502,6 +2666,8 @@ class MonopolyCog(commands.Cog):
                         )
                         await victim_channel.send(embed=fizzle_embed)
 
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+
                 elif self.check_and_consume_vengeance(victim_team):
                     embed_description = (
                         f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
@@ -2594,6 +2760,8 @@ class MonopolyCog(commands.Cog):
                     )
                     await interaction.channel.send(embed=skull_embed)
 
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:venge:1438084953559797884> Vengeance Activated!",
@@ -2601,6 +2769,8 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                 
                 else:
                     held_by_str = str(target_sheet.cell(target_row, 3).value or "")
@@ -2630,6 +2800,8 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             elif card_name == "Pickpocket":
                 records = self.team_data_sheet.get_all_records()
@@ -2680,6 +2852,8 @@ class MonopolyCog(commands.Cog):
                     )
                     await victim_channel.send(embed=victim_embed)
 
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
             elif card_name == "Lure":
                 all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
@@ -2718,6 +2892,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
                 else:
                     self.log_command(
@@ -2740,6 +2916,9 @@ class MonopolyCog(commands.Cog):
                         )
                     
                         await victim_channel.send(embed=lure_embed)
+
+                    
+                        await self.mirror_to_game_log(victim_channel, embed=lure_embed)
 
                     
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being lured to")
@@ -2804,6 +2983,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Backstab** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(target_team):
                     
@@ -2823,6 +3004,8 @@ class MonopolyCog(commands.Cog):
 
                     skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team was moved to tile **{new_pos}**!", color=discord.Color.dark_red())
                     await interaction.channel.send(embed=skull_embed)
+
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:venge:1438084953559797884> Vengeance Activated!",
@@ -2833,6 +3016,8 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                 
                 else:
                     elder_maul_active = self.check_and_consume_elder_maul(target_team)
@@ -2857,6 +3042,8 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             elif card_name == "Smite":
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -2915,6 +3102,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
                 elif self.check_and_consume_vengeance(victim_team):
                     embed_description += f"> <:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect rebounded.\n> "
@@ -2936,6 +3125,8 @@ class MonopolyCog(commands.Cog):
                                 color=discord.Color.dark_red()
                             )
                             await victim_channel.send(embed=victim_embed)
+
+                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                     else:
                         card_to_remove = random.choice(non_active_caster_cards)
                         remove_sheet = self.chest_sheet if card_to_remove in caster_chest_cards else self.chance_sheet
@@ -2959,6 +3150,8 @@ class MonopolyCog(commands.Cog):
                         
                         skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await interaction.channel.send(embed=skull_embed)
+
+                        await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
                         if victim_channel:
                             victim_embed = discord.Embed(
                                 title="<:venge:1438084953559797884> Vengeance Activated!",
@@ -2969,6 +3162,8 @@ class MonopolyCog(commands.Cog):
                                 color=discord.Color.dark_red()
                             )
                             await victim_channel.send(embed=victim_embed)
+
+                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
                 else:
                     card_to_remove = random.choice(non_active_cards)
@@ -2994,6 +3189,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             elif card_name == "Varrock Tele":
                 if self.get_teleblock_status(team_name) == "yes":
@@ -3144,12 +3341,16 @@ class MonopolyCog(commands.Cog):
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                 
                 elif self.check_and_consume_redemption(target_team):
                     embed_description += f"> <:redemption:1437979567900987493> **{target_team}**\'s Redemption activated! The teleport was cancelled."
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
                 else:
                     embed_description += f"> Swapped places with **{target_team}** (you: tile {caster_pos} → {target_pos}, them: tile {target_pos} → {caster_pos})."
@@ -3160,6 +3361,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on **Tile {caster_pos}**.", color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=swap_embed)
 
                     await self.check_and_award_card_on_land(team_name, target_pos, "being teleported to")
                     await self.check_and_award_card_on_land(target_team, caster_pos, "being teleported to")
@@ -3194,11 +3397,15 @@ class MonopolyCog(commands.Cog):
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
 
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+
                 elif self.check_and_consume_vengeance(target_team):
                     embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! The effect rebounded, and your team is now **Teleblocked**."
                     self.set_teleblock_status(team_name, "yes") 
                     skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
-                    await interaction.channel.send(embed=skull_embed) 
+                    await interaction.channel.send(embed=skull_embed)
+
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed) 
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:venge:1438084953559797884> Vengeance Activated!",
@@ -3207,6 +3414,8 @@ class MonopolyCog(commands.Cog):
                         )
                         await victim_channel.send(embed=victim_embed)
 
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
                 else:
                     embed_description += f"> <:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked** until after their next roll."
                     self.set_teleblock_status(target_team, "yes") 
@@ -3214,6 +3423,8 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         tb_embed = discord.Embed(title="<:teleblock:1438088930816819271> You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
                         await victim_channel.send(embed=tb_embed)
+
+                        await self.mirror_to_game_log(victim_channel, embed=tb_embed)
 
             else:
                 embed_description = f"> {final_card_text}"
@@ -3236,6 +3447,7 @@ class MonopolyCog(commands.Cog):
                     color=discord.Color.blue()
                 )
                 await interaction.followup.send(embed=embed, ephemeral=False)
+                await self.mirror_to_game_log(interaction.channel, embed=embed)
 
             if is_status_activation:
                 embed = discord.Embed(
