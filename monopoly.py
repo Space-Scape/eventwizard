@@ -3041,10 +3041,24 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
                     return 
 
-                boss_tiles = {1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 29, 31, 32, 34, 35, 37, 39}
-                if caster_pos not in boss_tiles:
-                    await interaction.followup.send("❌ You can only use **POH Voucher** on a boss tile.", ephemeral=True)
-                    return 
+                try:
+                    house_rows = self.house_data_sheet.get_all_records()
+                    allowed_house_tiles = {
+                        int(str(row.get("Tile", "")).strip())
+                        for row in house_rows
+                        if str(row.get("Tile", "")).strip().isdigit()
+                    }
+                except Exception as e:
+                    print(f"❌ Error reading HouseData for POH Voucher: {e}")
+                    await interaction.followup.send("❌ An internal error occurred while checking valid house tiles.", ephemeral=True)
+                    return
+
+                if caster_pos not in allowed_house_tiles:
+                    await interaction.followup.send(
+                        "❌ You can only use **POH Voucher** on a tile listed in **HouseData**.",
+                        ephemeral=True,
+                    )
+                    return
 
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_place_house_free", {"team": team_name, "tile": caster_pos})
 
