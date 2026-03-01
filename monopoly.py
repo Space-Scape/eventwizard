@@ -3520,7 +3520,6 @@ class MonopolyCog(commands.Cog):
                 caster_pos = int(team_info.get("Position", -1))
 
                 # 3. Check Tile Ownership
-                # Find the specific house record for the tile the team is standing on
                 target_tile_data = next((h for h in house_data if int(h.get("Tile", -1)) == caster_pos), None)
 
                 if not target_tile_data:
@@ -3536,18 +3535,19 @@ class MonopolyCog(commands.Cog):
                         "You cannot use a POH Voucher on another team's property!",
                         ephemeral=True
                     )
-                    return # Exit here so the card is NOT consumed and the flag is NOT set to 'yes'
+                    return
 
-                # 5. Success: Place the house
-                await loop.run_in_executor(
-                    None, 
-                    self.log_command, 
-                    team_name, 
-                    "/card_effect_place_house_free", 
-                    {"team": team_name, "tile": caster_pos}
-                )
-
-                embed_description = f"> <:houseicon:1438085020156821555> Placed a **free house** on tile **{caster_pos}**!"
+                # 5. Success: ACTUALLY PLACE THE HOUSE! (This was missing)
+                # We call your place_house function in a thread so it runs fast
+                house_placed_successfully = await asyncio.to_thread(self.place_house, team_name, caster_pos, True)
+                
+                if house_placed_successfully:
+                    # Still log it for your records
+                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_place_house_free", {"team": team_name, "tile": caster_pos})
+                    embed_description = f"> <:houseicon:1438085020156821555> Placed a **free house** on tile **{caster_pos}**!"
+                else:
+                    await interaction.followup.send("❌ A database error occurred while trying to place the house. Your card was not consumed.", ephemeral=True)
+                    return # Exit so the card isn't lost
 
             elif card_name == "Home Tele":
                 if self.get_teleblock_status(team_name) == "yes":
