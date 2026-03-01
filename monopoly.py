@@ -253,7 +253,35 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"Error in get_team_data: {e}")
             return None
+    
+    def get_jail_status(self, team_name: str) -> str:
+        """Checks if a team is actually in jail or just visiting."""
+        try:
+            records = self.team_data_sheet.get_all_records()
+            team_info = next((r for r in records if r.get("Team") == team_name), None)
+            return str(team_info.get("In Jail", "no")).strip().lower() if team_info else "no"
+        except Exception as e:
+            print(f"❌ Error getting jail status: {e}")
+            return "no"
 
+    def set_jail_status(self, team_name: str, status: str):
+        """Updates the team's jail status ('yes' or 'no')."""
+        try:
+            records = self.team_data_sheet.get_all_records()
+            headers = list(records[0].keys())
+            
+            if "In Jail" not in headers:
+                print("❌ 'In Jail' column not found in TeamData sheet.")
+                return
+                
+            col_index = headers.index("In Jail") + 1
+            team_row = next((i for i, r in enumerate(records, start=2) if r.get("Team") == team_name), None)
+            
+            if team_row:
+                self.team_data_sheet.update_cell(team_row, col_index, status)
+        except Exception as e:
+            print(f"❌ Error setting jail status: {e}")
+    
     def get_team(self, member: discord.Member) -> Optional[str]:
         for role in member.roles:
             if role.name in TEAM_ROLES:
