@@ -1232,13 +1232,11 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send(f"❌ Failed to submit signup: {e}", ephemeral=True)
 
-    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY (optional forced value for testing)")
+    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
     @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
     async def roll(self, interaction: discord.Interaction, value: int | None = None):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
-            await interaction.response.send_message(
-                "❌ You can only use this command in your team's channel.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ You can only use this command in your team's channel.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=False)  
@@ -1248,34 +1246,25 @@ class MonopolyCog(commands.Cog):
             return
             
         self.set_teleblock_status(team_name, "no")
-        
         team_chan = self.get_team_channel(team_name)
-        log_chan = self.bot.get_channel(int(LOG_CHANNEL))
 
+        # 1. Turn Reset Logic
         try:
             cleared_cards = self.clear_all_active_statuses(team_name)
-            if cleared_cards:
-                expiry_message = f"⌛️ **{team_name}**'s active status effects for: `({', '.join(cleared_cards)})` expired at the start of their turn."
-                if team_chan:
-                    await team_chan.send(expiry_message)
+            if cleared_cards and team_chan:
+                await team_chan.send(f"⌛️ **{team_name}**'s active status effects for: `({', '.join(cleared_cards)})` expired.")
+            self.set_used_card_flag(team_name, "no")
+            self.set_bought_house_flag(team_name, "no")
         except Exception as e:
-            print(f"❌ Error clearing active statuses: {e}")
+            print(f"❌ Error during turn reset: {e}")
 
+        # 2. Fetch Team Data
         records = self.team_data_sheet.get_all_records()
-        team_data_values = self.team_data_sheet.get_all_values()
-        headers = team_data_values[0]
+        headers = self.team_data_sheet.row_values(1)
         
-        rolls_available = 0
-        current_tile = 0
         team_row_index = -1
-
-        try:
-            pos_col_index = headers.index("Position") + 1
-            gp_col_index = headers.index("GP") + 1
-            pass_go_col_index = headers.index("Go Passes") + 1
-        except ValueError as e:
-            await interaction.followup.send(f"❌ TeamData sheet is missing a crucial column: {e}.", ephemeral=True)
-            return
+        current_tile = 0
+        rolls_available = 0
 
         for idx, record in enumerate(records, start=2):
             if record.get("Team") == team_name:
@@ -1289,97 +1278,44 @@ class MonopolyCog(commands.Cog):
             return
 
         if rolls_available <= 0:
-            await interaction.followup.send(
-                "❌ Your team has no rolls available right now.",
-                ephemeral=True
-            )
+            await interaction.followup.send("❌ Your team has no rolls available.", ephemeral=True)
             return
-        try:
-            self.set_used_card_flag(team_name, "no")
-        except Exception as e:
-            print(f"❌ Error resetting 'Used Card This Turn' flag for {team_name}: {e}")
-        try:
-            self.set_bought_house_flag(team_name, "no")
-        except Exception as e:
-            print(f"❌ Error resetting 'Bought House This Turn' flag for {team_name}: {e}")
 
-        if value is not None:
-            if value < 1 or value > 6:
-                await interaction.followup.send("❌ Roll value must be between 1 and 6.", ephemeral=True)
-                return
-            result = value
-        else:
-            result = random.randint(1, 6)
-        
-        try:
-            self.decrement_rolls_available(team_name)
-        except Exception as e:
-            print(f"❌ Error decrementing rolls from /roll command: {e}")
+        # 3. Execution of Roll
+        result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
+        self.decrement_rolls_available(team_name)
 
         raw_pos = current_tile + result
-        rolled_landing_tile = raw_pos % BOARD_SIZE
-        new_pos = rolled_landing_tile
+        new_pos = raw_pos % BOARD_SIZE
         go_message = ""
         
+        # Pass Go logic
         if raw_pos >= BOARD_SIZE and new_pos != 30: 
             try:
-                current_pass_count_str = self.team_data_sheet.cell(team_row_index, pass_go_col_index).value
-                current_pass_count = int(current_pass_count_str) if current_pass_count_str and str(current_pass_count_str).replace(',', '').isdigit() else 0
-                new_pass_count = current_pass_count + 1
-                self.team_data_sheet.update_cell(team_row_index, pass_go_col_index, new_pass_count)
+                pass_go_col = headers.index("Go Passes") + 1
+                gp_col = headers.index("GP") + 1
                 
-                pass_go_bonus = 20_000_000
-                current_gp_str = self.team_data_sheet.cell(team_row_index, gp_col_index).value
-                current_gp = int(current_gp_str) if current_gp_str and str(current_gp_str).replace(',', '').isdigit() else 0
-                new_gp = max(0, current_gp + pass_go_bonus)
-                self.team_data_sheet.update_cell(team_row_index, gp_col_index, new_gp)
+                cur_passes = int(str(self.team_data_sheet.cell(team_row_index, pass_go_col).value or "0").replace(',',''))
+                cur_gp = int(str(self.team_data_sheet.cell(team_row_index, gp_col).value or "0").replace(',',''))
                 
-                go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **{pass_go_bonus:,} GP**! (Total Passes: {new_pass_count})"
+                self.team_data_sheet.update_cell(team_row_index, pass_go_col, cur_passes + 1)
+                self.team_data_sheet.update_cell(team_row_index, gp_col, cur_gp + 20_000_000)
+                go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
             except Exception as e:
-                print(f"❌ Error updating sheet for Pass Go: {e}")
+                print(f"❌ Error updating Pass Go: {e}")
 
-        if new_pos == 12:
-            new_pos = 28 if current_tile != 38 else 12
-        elif new_pos == 28:
-            new_pos = 38 if current_tile != 12 else 28
-        elif new_pos == 38:
-            new_pos = 12 if current_tile != 28 else 38
+        # Special Tile Handling (Gliders / Jail)
+        if new_pos == 12: new_pos = 28 if current_tile != 38 else 12
+        elif new_pos == 28: new_pos = 38 if current_tile != 12 else 28
+        elif new_pos == 38: new_pos = 12 if current_tile != 28 else 38
         elif new_pos == 30:
             new_pos = JAIL_TILE
             go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
 
-        try:
-            self.team_data_sheet.update_cell(team_row_index, pos_col_index, new_pos)
-        except Exception as e:
-            print(f"❌ Error updating Position in sheet: {e}")
-
-        tile_name = "Unknown Tile"
-        tile_boss_map = self._get_tile_boss_map()
+        # 4. Update Position & Send Feedback
+        self.team_data_sheet.update_cell(team_row_index, headers.index("Position") + 1, new_pos)
         
-        if new_pos in CHEST_TILES:
-            tile_name = "Chest"
-        elif new_pos in CHANCE_TILES:
-            tile_name = "Chance"
-        elif new_pos == GO_TILE:
-            tile_name = "GO"
-        elif new_pos == JAIL_TILE:
-            tile_name = "Jail"
-        elif new_pos == BANK_STANDING_TILE:
-            tile_name = "Bank Standing"
-        elif new_pos in GLIDER_TILES:
-            tile_name = "Glider"
-        elif new_pos in tile_boss_map:
-            tile_name = ", ".join(tile_boss_map[new_pos])
-        else:
-            try:
-                all_properties = self.house_data_sheet.get_all_records()
-                for prop in all_properties:
-                    if int(prop.get("Tile", -1)) == new_pos:
-                        tile_name = prop.get("Name", "Unknown Tile")
-                        break
-            except Exception as e:
-                print(f"Error fetching tile name for embed: {e}")
-
+        tile_name = self.get_tile_name_for_display(new_pos)
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
@@ -1388,41 +1324,20 @@ class MonopolyCog(commands.Cog):
         await interaction.followup.send(embed=roll_embed)
         await self.mirror_to_game_log(interaction.channel, embed=roll_embed)
 
-        # Auto-show boss drops after a roll when you land on a boss tile.
-        # Show when you end up on tile 10 via jail (tile 30), but NOT when you naturally land on 10 from a tile < 10.
-        landed_naturally_on_tile_10_from_lt10 = (current_tile < 10 and rolled_landing_tile == 10)
-        if (new_pos in tile_boss_map) and (not landed_naturally_on_tile_10_from_lt10):
-            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
         if go_message:
             await interaction.channel.send(go_message)
 
-            await self.mirror_to_game_log(interaction.channel, content=go_message)
-            
-        if not team_chan:
-            print(f"❌ Log channel {LOG_CHANNEL} not found, can't send card embeds.")
-            return
-
-        # Free roll for reaching tile 10 naturally from tiles < 10
-        if current_tile < 10 and new_pos == 10:
-            try:
-                self.increment_rolls_available(team_name)
-                if team_chan:
-                    roll_embed = discord.Embed(
-                        title="🎲 Free Roll Granted!",
-                        description=f"**{team_name}** reached tile **10** from below and gained a free roll.",
-                        color=discord.Color.yellow()
-                    )
-                    await team_chan.send(embed=roll_embed)
-                    await self.mirror_to_game_log(team_chan, embed=roll_embed)
-            except Exception as e:
-                print(f"❌ Error granting free roll for tile 10: {e}")
-
-        await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
-        
+        # 5. POST-MOVE TRIGGERS (Reliability Section)
+        # Check for boss drops first
         tile_boss_map = self._get_tile_boss_map()
         if new_pos in tile_boss_map:
-             await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+            # We don't show drops if they landed on jail naturally from below
+            if not (current_tile < 10 and raw_pos % BOARD_SIZE == 10):
+                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+
+        # Check for free rolls / cards / chest items
+        await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
+
 
     def _get_tile_boss_map(self) -> dict[int, list[str]]:
         return {
