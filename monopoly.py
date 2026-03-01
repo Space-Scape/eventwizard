@@ -2295,7 +2295,7 @@ class MonopolyCog(commands.Cog):
                 
         return cards_cleared
 
-def sync_houses_owned(self, team_name: str):
+    def sync_houses_owned(self, team_name: str):
         """
         Calculates the total number of houses a team owns across all properties 
         in HouseData and updates the 'Houses Owned' column in TeamData.
