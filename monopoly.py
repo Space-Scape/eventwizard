@@ -1636,7 +1636,7 @@ class MonopolyCog(commands.Cog):
                     "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
                     "**/stats:** View your team's status, GP, and position.\n"
                     "**/gp:** Curious about your GP? Use this to check the team's total.\n"
-                    "**/show_cards:** See all the cool cards your team is currently holding.\n"
+                    "**/cards:** See all the cool cards your team is currently holding.\n"
                     "**/show_drops:** Shows every drop available for the tile you're on.\n"
                     "**/submit_drop:** Use this in your team channel to submit a drop."
                 ),
@@ -2405,8 +2405,8 @@ class MonopolyCog(commands.Cog):
 
         pass
 
-    @app_commands.command(name="show_cards", description="Show all cards currently held by your team.")
-    async def show_cards(self, interaction: discord.Interaction):
+    @app_commands.command(name="cards", description="Show all cards currently held by your team.")
+    async def cards(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message(
                 "❌ You can only use this command in your team's channel.", ephemeral=True
@@ -2454,7 +2454,7 @@ class MonopolyCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @app_commands.command(name="use_card", description="Use a held card by its index from /show_cards")
+    @app_commands.command(name="use_card", description="Use a held card by its index from /cards")
     @app_commands.describe(index="The index of the card you want to use (starts at 1)")
     async def use_card(self, interaction: discord.Interaction, index: int):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
@@ -2501,7 +2501,7 @@ class MonopolyCog(commands.Cog):
         all_cards = chest_cards + chance_cards
 
         if index < 1 or index > len(all_cards):
-            await interaction.followup.send(f"❌ Invalid card index. Use `/show_cards` and pick a number between 1 and {len(all_cards)}.", ephemeral=True)
+            await interaction.followup.send(f"❌ Invalid card index. Use `/cards` and pick a number between 1 and {len(all_cards)}.", ephemeral=True)
             return
         
         selected_card = all_cards[index - 1]
