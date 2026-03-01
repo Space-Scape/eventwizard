@@ -1234,7 +1234,7 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send(f"❌ Failed to submit signup: {e}", ephemeral=True)
 
-@app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
+    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
     @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
     async def roll(self, interaction: discord.Interaction, value: int | None = None):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
