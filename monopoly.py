@@ -2330,7 +2330,7 @@ def sync_houses_owned(self, team_name: str):
         except Exception as e:
             print(f"❌ Error syncing houses owned for {team_name}: {e}")
 
-async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
+    async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
         """
         Handles post-move checks:
         1. Grants a free roll if landing on a special tile with 0 rolls left.
