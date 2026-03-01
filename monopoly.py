@@ -512,6 +512,9 @@ class MonopolyCog(commands.Cog):
                     self.house_data_sheet.append_row([tile_number, "", team_name, 1])
                     print(f"<:housetele:1437980013831131206> Added new free house for {team_name} on tile {tile_number}.")
 
+                # ---> NEW: Sync the Houses Owned column <---
+                self.sync_houses_owned(team_name)
+
                 return True
 
             else:
@@ -525,7 +528,6 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error placing house for {team_name} on tile {tile_number}: {e}")
             return False
-
 
     def get_team_rolls(self, team_name: str) -> int:
         """
@@ -1815,6 +1817,10 @@ class MonopolyCog(commands.Cog):
             await asyncio.to_thread(self.house_data_sheet.update_cell, prop_index, 4, house_count + 1) 
             await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_in_sheet, gp_col, current_gp - cost)
 
+            # --> NEW: Sync the Houses Owned column (Column M) <--
+            await asyncio.to_thread(self.sync_houses_owned, team_name)
+
+            # Output message with your custom emoji
             buy_msg = f"<:houseicon:1438085020156821555> **{team_name}** bought a house on tile **{current_pos}** for **{cost:,} GP**!"
             await interaction.followup.send(buy_msg)
             await self.mirror_to_game_log(interaction.channel, content=buy_msg)
@@ -2263,6 +2269,41 @@ class MonopolyCog(commands.Cog):
                 print(f"❌ Error in clear_all_active_statuses for sheet {sheet_obj.title}: {e}")
                 
         return cards_cleared
+
+def sync_houses_owned(self, team_name: str):
+        """
+        Calculates the total number of houses a team owns across all properties 
+        in HouseData and updates the 'Houses Owned' column in TeamData.
+        """
+        try:
+            # 1. Tally up houses from HouseData
+            house_records = self.house_data_sheet.get_all_records()
+            total_houses = 0
+            
+            for row in house_records:
+                if str(row.get("OwnerTeam", "")).strip() == team_name:
+                    count_str = str(row.get("HouseCount", "0")).strip()
+                    if count_str.isdigit():
+                        total_houses += int(count_str)
+            
+            # 2. Update the TeamData sheet
+            team_records = self.team_data_sheet.get_all_records()
+            headers = self.team_data_sheet.row_values(1)
+            
+            if "Houses Owned" not in headers:
+                print("❌ 'Houses Owned' column not found in TeamData. Please check the header name.")
+                return
+                
+            houses_col_idx = headers.index("Houses Owned") + 1
+            
+            for idx, record in enumerate(team_records, start=2):
+                if record.get("Team") == team_name:
+                    self.team_data_sheet.update_cell(idx, houses_col_idx, total_houses)
+                    print(f"✅ Synced {total_houses} total houses for {team_name} in TeamData.")
+                    return
+                    
+        except Exception as e:
+            print(f"❌ Error syncing houses owned for {team_name}: {e}")
 
 async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
         """
