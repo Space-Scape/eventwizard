@@ -1418,7 +1418,11 @@ class MonopolyCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Error granting free roll for tile 10: {e}")
 
-        await self.check_and_award_card_on_land(team_name, new_pos, "landing on")
+        await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
+        
+        tile_boss_map = self._get_tile_boss_map()
+        if new_pos in tile_boss_map:
+             await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
     def _get_tile_boss_map(self) -> dict[int, list[str]]:
         return {
@@ -2446,51 +2450,43 @@ class MonopolyCog(commands.Cog):
                 
         return cards_cleared
 
-    async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
+async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reason: str = "landing on"):
         """
-        Handles post-move checks, including granting a free roll if landing on a
-        'no-drop' tile (Chance, Chest, Glider, etc) while having zero rolls available,
-        and awards cards if applicable.
-        
-        :param team_name: The team that landed on the tile.
-        :param new_pos: The tile number landed on.
-        :param reason: Contextual string describing how the team moved.
+        Handles post-move checks:
+        1. Grants a free roll if landing on a special tile with 0 rolls left.
+        2. Awards Chest/Chance cards with correct team emojis.
         """
-        
         team_channel = self.get_team_channel(team_name)
         if not team_channel:
-            print(f"❌ Cannot award card on land: Team channel for {team_name} not found.")
             return
 
+        # 1. Roll Protection Logic (Preventing teams from being stuck)
         if new_pos in ROLL_GRANTING_TILES:
             try:
                 rolls_available = self.get_team_rolls(team_name)
                 
-                if rolls_available == 0:
+                if rolls_available <= 0:
                     self.increment_rolls_available(team_name)
-                    tile_name = ""
-                    if new_pos == GO_TILE: tile_name = "GO"
-                    elif new_pos == JAIL_TILE: tile_name = "Jail (Just Visiting)"
-                    elif new_pos == BANK_STANDING_TILE: tile_name = "Bank Standing"
-                    elif new_pos in GLIDER_TILES: tile_name = "Glider"
-                    elif new_pos in CHEST_TILES: tile_name = "Chest"
-                    elif new_pos in CHANCE_TILES: tile_name = "Chance"
+                    tile_name = self.get_tile_name_for_display(new_pos)
                     
                     roll_embed = discord.Embed(
                         title="🎲 Free Roll Granted!",
-                        description=f"**{team_name}** landed on a **{tile_name}** tile (via {reason}) with no rolls remaining. A free roll has been granted.",
+                        description=f"**{team_name}** reached **{tile_name}** with no rolls remaining. A free roll has been granted!",
                         color=discord.Color.yellow()
                     )
                     await team_channel.send(embed=roll_embed)
-                    print(f"🎲 Granted free roll to {team_name} upon landing on {tile_name} (pos {new_pos})")
+                    await self.mirror_to_game_log(team_channel, embed=roll_embed)
             except Exception as e:
                 print(f"❌ Error during roll protection check for {team_name}: {e}")
 
         if new_pos in CHEST_TILES:
-            print(f"❗ {team_name} is {reason} CHEST tile {new_pos}")
+            # Chest Emoji: <:purp:1406234308749824051>
+            print(f"📦 {team_name} triggered CHEST on tile {new_pos}")
             await self.team_receives_card(team_name, "Chest", team_channel)
+            
         elif new_pos in CHANCE_TILES:
-            print(f"❗ {team_name} is {reason} CHANCE tile {new_pos}")
+            # Chance Emoji: <:questioning:1287623035381350441>
+            print(f"❓ {team_name} triggered CHANCE on tile {new_pos}")
             await self.team_receives_card(team_name, "Chance", team_channel)
 
         pass
