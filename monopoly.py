@@ -3519,7 +3519,7 @@ class MonopolyCog(commands.Cog):
 
                 caster_pos = int(team_info.get("Position", -1))
 
-                # 3. Check Tile Ownership
+                # 3. Check Tile Data
                 target_tile_data = next((h for h in house_data if int(h.get("Tile", -1)) == caster_pos), None)
 
                 if not target_tile_data:
@@ -3527,8 +3527,12 @@ class MonopolyCog(commands.Cog):
                     return
 
                 current_owner = str(target_tile_data.get("OwnerTeam", "")).strip()
+                try:
+                    current_house_count = int(target_tile_data.get("HouseCount", 0) or 0)
+                except ValueError:
+                    current_house_count = 0
 
-                # 4. VALIDATION: Check if someone else owns it
+                # 4a. VALIDATION: Check if someone else owns it
                 if current_owner and current_owner != team_name:
                     await interaction.followup.send(
                         f"❌ **Action Denied:** Tile {caster_pos} is already owned by **{current_owner}**. "
@@ -3537,7 +3541,16 @@ class MonopolyCog(commands.Cog):
                     )
                     return
 
-                # 5. Success: ACTUALLY PLACE THE HOUSE! (This was missing)
+                # 4b. VALIDATION: Check if max houses (4) is reached
+                if current_owner == team_name and current_house_count >= 4:
+                    await interaction.followup.send(
+                        f"❌ **Action Denied:** Tile {caster_pos} already has the maximum of 4 houses! "
+                        "Save your POH Voucher for another property.",
+                        ephemeral=True
+                    )
+                    return
+
+                # 5. Success: ACTUALLY PLACE THE HOUSE!
                 # We call your place_house function in a thread so it runs fast
                 house_placed_successfully = await asyncio.to_thread(self.place_house, team_name, caster_pos, True)
                 
