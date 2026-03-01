@@ -1683,50 +1683,75 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in /gp command: {e}")
             await interaction.followup.send("❌ An error occurred while fetching GP balance.", ephemeral=True)
 
-    @app_commands.command(name="stats", description="Show GP and Go Passes for all teams.")
+    @app_commands.command(name="stats", description="Show GP, Go Passes, and Houses Owned for all teams.")
     async def stats(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         try:
-            records = self.team_data_sheet.get_all_records()
+            # 1. Fetch data snapshot concurrently (Prevents bot from hanging)
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             if not records:
                 await interaction.followup.send("❌ Team data is unavailable.", ephemeral=True)
                 return
+            
             gp_list = []
             go_passes_list = []
+            houses_list = [] # Tracker for the new Houses column
+
             for record in records:
-                team_name = record.get("Team", "Unknown Team")
+                team_name = record.get("Team", "")
+                if not team_name: 
+                    continue # Skip empty rows
                 
+                # Format GP
                 team_gp_str = str(record.get("GP", 0)).replace(',', '').strip()
-                team_gp = int(team_gp_str) if team_gp_str and team_gp_str.isdigit() else 0
+                team_gp = int(team_gp_str) if team_gp_str and team_gp_str.lstrip('-').isdigit() else 0
                 
+                # Format Go Passes
                 team_passes_str = str(record.get("Go Passes", 0)).replace(',', '').strip()
-                team_passes = int(team_passes_str) if team_passes_str and team_passes_str.isdigit() else 0
+                team_passes = int(team_passes_str) if team_passes_str and team_passes_str.lstrip('-').isdigit() else 0
+                
+                # Format Houses Owned (New Column M)
+                team_houses_str = str(record.get("Houses Owned", 0)).replace(',', '').strip()
+                team_houses = int(team_houses_str) if team_houses_str and team_houses_str.lstrip('-').isdigit() else 0
                 
                 gp_list.append({"team": team_name, "value": team_gp})
                 go_passes_list.append({"team": team_name, "value": team_passes})
+                houses_list.append({"team": team_name, "value": team_houses})
                 
+            # 2. Sort all lists descending
             gp_list.sort(key=lambda x: x["value"], reverse=True)
             go_passes_list.sort(key=lambda x: x["value"], reverse=True)
+            houses_list.sort(key=lambda x: x["value"], reverse=True)
 
+            # 3. Build outputs
             gp_output = ""
             for i, entry in enumerate(gp_list, 1):
-                gp_output += f"**{i}. {entry['team']}**: {entry['value']:,} GP\n"
+                gp_output += f"**{i}. {entry['team']}**: {entry['value']:,}\n"
 
             passes_output = ""
             for i, entry in enumerate(go_passes_list, 1):
-                passes_output += f"**{i}. {entry['team']}**: {entry['value']} passes\n"
+                passes_output += f"**{i}. {entry['team']}**: {entry['value']}\n"
 
+            houses_output = ""
+            for i, entry in enumerate(houses_list, 1):
+                houses_output += f"**{i}. {entry['team']}**: {entry['value']}\n"
+
+            # 4. Construct Embed
             embed = discord.Embed(
                 title="🌐 Monopoly Board Leaderboard",
                 description="Current progress stats for all teams.",
                 color=discord.Color.blue()
             )
             
+            # Using inline=True makes the 3 leaderboards sit side-by-side nicely
             if gp_output:
-                embed.add_field(name="<:MaxCash:1347684049040183427> GP Holdings", value=gp_output, inline=False)
+                embed.add_field(name="<:MaxCash:1347684049040183427> GP Holdings", value=gp_output, inline=True)
                 
             if passes_output:
-                embed.add_field(name="🚶 Go Passes", value=passes_output, inline=False)
+                embed.add_field(name="🚶 Go Passes", value=passes_output, inline=True)
+
+            if houses_output:
+                embed.add_field(name="<:houseicon:1438085020156821555> Houses Owned", value=houses_output, inline=True)
                 
             await interaction.followup.send(embed=embed)
 
