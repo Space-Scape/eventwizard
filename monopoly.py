@@ -1245,27 +1245,32 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ You are not on a team.", ephemeral=True)
             return
             
-        self.set_teleblock_status(team_name, "no")
+        # Move teleblock update to background
+        await asyncio.to_thread(self.set_teleblock_status, team_name, "no")
         team_chan = self.get_team_channel(team_name)
 
-        # 1. Turn Reset Logic
+        # 1. Turn Reset Logic (Threaded)
         try:
-            cleared_cards = self.clear_all_active_statuses(team_name)
+            cleared_cards = await asyncio.to_thread(self.clear_all_active_statuses, team_name)
             if cleared_cards and team_chan:
                 await team_chan.send(f"⌛️ **{team_name}**'s active status effects for: `({', '.join(cleared_cards)})` expired.")
-            self.set_used_card_flag(team_name, "no")
-            self.set_bought_house_flag(team_name, "no")
+            
+            # Combine these two flags into one threaded call if possible, or run them back-to-back
+            await asyncio.to_thread(self.set_used_card_flag, team_name, "no")
+            await asyncio.to_thread(self.set_bought_house_flag, team_name, "no")
         except Exception as e:
             print(f"❌ Error during turn reset: {e}")
 
-        # 2. Fetch Team Data
-        records = self.team_data_sheet.get_all_records()
-        headers = self.team_data_sheet.row_values(1)
+        # 2. Fetch Team Data (ONE call, consolidated)
+        # We fetch all records once and find our team locally to save API hits
+        all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        headers = list(all_records[0].keys()) if all_records else []
+        
         team_row_index = -1
         current_tile = 0
         rolls_available = 0
 
-        for idx, record in enumerate(records, start=2):
+        for idx, record in enumerate(all_records, start=2):
             if record.get("Team") == team_name:
                 rolls_available = int(record.get("Rolls Available", 0) or 0)
                 current_tile = int(record.get("Position", 0) or 0)
@@ -1282,43 +1287,45 @@ class MonopolyCog(commands.Cog):
 
         # 3. Dice Roll Execution
         result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
-        self.decrement_rolls_available(team_name)
+        await asyncio.to_thread(self.decrement_rolls_available, team_name)
 
         raw_pos = current_tile + result
         new_pos = raw_pos % BOARD_SIZE
         go_message = ""
         
-        # Standard Pass Go logic (Natural rolls)
+        # 4. Standard Pass Go logic
         if raw_pos >= BOARD_SIZE and new_pos != 30: 
             try:
                 pass_go_col = headers.index("Go Passes") + 1
                 gp_col = headers.index("GP") + 1
-                cur_passes = int(str(self.team_data_sheet.cell(team_row_index, pass_go_col).value or "0").replace(',',''))
-                cur_gp = int(str(self.team_data_sheet.cell(team_row_index, gp_col).value or "0").replace(',',''))
                 
-                self.team_data_sheet.update_cell(team_row_index, pass_go_col, cur_passes + 1)
-                self.team_data_sheet.update_cell(team_row_index, gp_col, cur_gp + 20_000_000)
+                # Use current record data instead of a new cell fetch
+                cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
+                cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
+                
+                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
+                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + 20_000_000)
                 go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
 
-        # 4. Special Tile Handling (Gliders / Jail)
+        # 5. Special Tile Handling (Gliders / Jail)
         if new_pos == 12: 
             new_pos = 28 if current_tile != 38 else 12
         elif new_pos == 28: 
             new_pos = 38 if current_tile != 12 else 28
         elif new_pos == 38: 
-            # If they land on 38 and aren't coming from 12, they fly forward across GO to 12
             if current_tile != 12:
                 new_pos = 12
+                # Manual Glider 38 Go Bonus
                 try:
                     pass_go_col = headers.index("Go Passes") + 1
                     gp_col = headers.index("GP") + 1
-                    cur_passes = int(str(self.team_data_sheet.cell(team_row_index, pass_go_col).value or "0").replace(',',''))
-                    cur_gp = int(str(self.team_data_sheet.cell(team_row_index, gp_col).value or "0").replace(',',''))
+                    cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
+                    cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
                     
-                    self.team_data_sheet.update_cell(team_row_index, pass_go_col, cur_passes + 1)
-                    self.team_data_sheet.update_cell(team_row_index, gp_col, cur_gp + 20_000_000)
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + 20_000_000)
                     go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
                 except Exception as e:
                     print(f"❌ Error updating Glider Go Bonus: {e}")
@@ -1326,12 +1333,13 @@ class MonopolyCog(commands.Cog):
                 new_pos = 38
         elif new_pos == 30:
             new_pos = JAIL_TILE
-            go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
+            go_message = "⛓️ **GO TO JAIL!** You are sent to prison."
 
-        # 5. Update Position & Display Results
-        self.team_data_sheet.update_cell(team_row_index, headers.index("Position") + 1, new_pos)
-        tile_name = self.get_tile_name_for_display(new_pos)
+        # 6. Update Position & Display Results
+        pos_idx = headers.index("Position") + 1
+        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pos_idx, new_pos)
         
+        tile_name = self.get_tile_name_for_display(new_pos)
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
@@ -1343,14 +1351,13 @@ class MonopolyCog(commands.Cog):
         if go_message:
             await interaction.channel.send(go_message)
 
-        # 6. POST-MOVE TRIGGERS (Boss Drops & Card Awards)
+        # 7. POST-MOVE TRIGGERS
         tile_boss_map = self._get_tile_boss_map()
         if new_pos in tile_boss_map:
-            # Avoid posting boss drops if they are 'Just Visiting' jail naturally
             if not (current_tile < 10 and raw_pos % BOARD_SIZE == 10):
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
-        # Triggers Chests/Chance with correct emojis and handles Free Rolls
+        # Final checks (Cards & Free Rolls)
         await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
 
 
@@ -2384,38 +2391,44 @@ async def check_and_award_card_on_land(self, team_name: str, new_pos: int, reaso
         """
         Handles post-move checks:
         1. Grants a free roll if landing on a special tile with 0 rolls left.
-        2. Awards Chest/Chance cards with correct team emojis.
+        2. Awards Chest/Chance cards with correct emojis.
         """
         team_channel = self.get_team_channel(team_name)
         if not team_channel:
             return
 
-        # 1. Roll Protection Logic (Preventing teams from being stuck)
+        # 1. Roll Protection Logic
         if new_pos in ROLL_GRANTING_TILES:
             try:
                 rolls_available = self.get_team_rolls(team_name)
                 
                 if rolls_available <= 0:
+                    # We update the sheet first
                     self.increment_rolls_available(team_name)
-                    tile_name = self.get_tile_name_for_display(new_pos)
                     
-                    roll_embed = discord.Embed(
-                        title="🎲 Free Roll Granted!",
-                        description=f"**{team_name}** reached **{tile_name}** with no rolls remaining. A free roll has been granted!",
-                        color=discord.Color.yellow()
-                    )
-                    await team_channel.send(embed=roll_embed)
-                    await self.mirror_to_game_log(team_channel, embed=roll_embed)
-            except Exception as e:
-                print(f"❌ Error during roll protection check for {team_name}: {e}")
+                    try:
+                        tile_name = self.get_tile_name_for_display(new_pos)
+                        roll_embed = discord.Embed(
+                            title="🎲 Free Roll Granted!",
+                            description=f"**{team_name}** reached **{tile_name}** with no rolls remaining. A free roll has been granted!",
+                            color=discord.Color.yellow()
+                        )
+                        await team_channel.send(embed=roll_embed)
+                        await self.mirror_to_game_log(team_channel, embed=roll_embed)
+                        print(f"✅ Roll message sent for {team_name}")
+                    except Exception as msg_err:
+                        print(f"⚠️ Sheet updated, but Discord message failed: {msg_err}")
 
+            except Exception as e:
+                print(f"❌ Error during roll protection check: {e}")
+
+        # Chest Emoji: <:purp:1406234308749824051>
         if new_pos in CHEST_TILES:
-            # Chest Emoji: <:purp:1406234308749824051>
             print(f"📦 {team_name} triggered CHEST on tile {new_pos}")
             await self.team_receives_card(team_name, "Chest", team_channel)
             
+        # Chance Emoji: <:questioning:1287623035381350441>
         elif new_pos in CHANCE_TILES:
-            # Chance Emoji: <:questioning:1287623035381350441>
             print(f"❓ {team_name} triggered CHANCE on tile {new_pos}")
             await self.team_receives_card(team_name, "Chance", team_channel)
 
