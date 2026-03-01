@@ -1232,7 +1232,7 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send(f"❌ Failed to submit signup: {e}", ephemeral=True)
 
-    @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
+@app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
     @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
     async def roll(self, interaction: discord.Interaction, value: int | None = None):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
@@ -1261,7 +1261,6 @@ class MonopolyCog(commands.Cog):
         # 2. Fetch Team Data
         records = self.team_data_sheet.get_all_records()
         headers = self.team_data_sheet.row_values(1)
-        
         team_row_index = -1
         current_tile = 0
         rolls_available = 0
@@ -1281,7 +1280,7 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ Your team has no rolls available.", ephemeral=True)
             return
 
-        # 3. Execution of Roll
+        # 3. Dice Roll Execution
         result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
         self.decrement_rolls_available(team_name)
 
@@ -1289,12 +1288,11 @@ class MonopolyCog(commands.Cog):
         new_pos = raw_pos % BOARD_SIZE
         go_message = ""
         
-        # Pass Go logic
+        # Standard Pass Go logic (Natural rolls)
         if raw_pos >= BOARD_SIZE and new_pos != 30: 
             try:
                 pass_go_col = headers.index("Go Passes") + 1
                 gp_col = headers.index("GP") + 1
-                
                 cur_passes = int(str(self.team_data_sheet.cell(team_row_index, pass_go_col).value or "0").replace(',',''))
                 cur_gp = int(str(self.team_data_sheet.cell(team_row_index, gp_col).value or "0").replace(',',''))
                 
@@ -1304,18 +1302,36 @@ class MonopolyCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
 
-        # Special Tile Handling (Gliders / Jail)
-        if new_pos == 12: new_pos = 28 if current_tile != 38 else 12
-        elif new_pos == 28: new_pos = 38 if current_tile != 12 else 28
-        elif new_pos == 38: new_pos = 12 if current_tile != 28 else 38
+        # 4. Special Tile Handling (Gliders / Jail)
+        if new_pos == 12: 
+            new_pos = 28 if current_tile != 38 else 12
+        elif new_pos == 28: 
+            new_pos = 38 if current_tile != 12 else 28
+        elif new_pos == 38: 
+            # If they land on 38 and aren't coming from 12, they fly forward across GO to 12
+            if current_tile != 12:
+                new_pos = 12
+                try:
+                    pass_go_col = headers.index("Go Passes") + 1
+                    gp_col = headers.index("GP") + 1
+                    cur_passes = int(str(self.team_data_sheet.cell(team_row_index, pass_go_col).value or "0").replace(',',''))
+                    cur_gp = int(str(self.team_data_sheet.cell(team_row_index, gp_col).value or "0").replace(',',''))
+                    
+                    self.team_data_sheet.update_cell(team_row_index, pass_go_col, cur_passes + 1)
+                    self.team_data_sheet.update_cell(team_row_index, gp_col, cur_gp + 20_000_000)
+                    go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
+                except Exception as e:
+                    print(f"❌ Error updating Glider Go Bonus: {e}")
+            else:
+                new_pos = 38
         elif new_pos == 30:
             new_pos = JAIL_TILE
             go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
 
-        # 4. Update Position & Send Feedback
+        # 5. Update Position & Display Results
         self.team_data_sheet.update_cell(team_row_index, headers.index("Position") + 1, new_pos)
-        
         tile_name = self.get_tile_name_for_display(new_pos)
+        
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
@@ -1327,15 +1343,14 @@ class MonopolyCog(commands.Cog):
         if go_message:
             await interaction.channel.send(go_message)
 
-        # 5. POST-MOVE TRIGGERS (Reliability Section)
-        # Check for boss drops first
+        # 6. POST-MOVE TRIGGERS (Boss Drops & Card Awards)
         tile_boss_map = self._get_tile_boss_map()
         if new_pos in tile_boss_map:
-            # We don't show drops if they landed on jail naturally from below
+            # Avoid posting boss drops if they are 'Just Visiting' jail naturally
             if not (current_tile < 10 and raw_pos % BOARD_SIZE == 10):
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
-        # Check for free rolls / cards / chest items
+        # Triggers Chests/Chance with correct emojis and handles Free Rolls
         await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
 
 
