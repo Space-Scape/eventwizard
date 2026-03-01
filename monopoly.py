@@ -1735,187 +1735,93 @@ class MonopolyCog(commands.Cog):
     @app_commands.command(name="buy_house", description="Attempt to buy a house on your current tile.")
     async def buy_house(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
-            await interaction.response.send_message(
-                "❌ You can only use this command in your team's channel.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ You can only use this command in your team's channel.", ephemeral=True)
             return
         if not self.has_event_captain_role(interaction.user):
-            await interaction.response.send_message(
-                "❌ Only the Event Captain can use this command.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Only the Event Captain can use this command.", ephemeral=True)
             return
+
         await interaction.response.defer(ephemeral=False)
-        
         team_name = self.get_team(interaction.user)
         if not team_name:
             await interaction.followup.send("❌ You must be on a team to buy a house.", ephemeral=True)
             return
+
         try:
-            COST_MAP = {
-                0: 25_000_000,
-                1: 50_000_000,
-                2: 100_000_000,
-                3: 200_000_000
-            }
-            
-            bought_flag = self.get_bought_house_flag(team_name)
+            # 1. IMMEDIATE CHECK & LOCK
+            bought_flag = await asyncio.to_thread(self.get_bought_house_flag, team_name)
             if bought_flag.lower() == "yes":
-                await interaction.followup.send(
-                    "❌ You have already purchased a house this turn. You must roll again to buy another.", 
-                    ephemeral=True
-                )
-                return
-
-            team_data_values = self.team_data_sheet.get_all_values()
-            if not team_data_values or len(team_data_values) < 2:
-                await interaction.followup.send("❌ TeamData sheet is empty.", ephemeral=True)
-                return
-                
-            team_headers = team_data_values[0]
-            try:
-                team_team_col_idx = team_headers.index("Team")
-                team_pos_col_idx = team_headers.index("Position")
-                team_gp_col_idx = team_headers.index("GP")
-                
-                team_gp_col_gspread = team_gp_col_idx + 1
-            except ValueError as e:
-                print(f"❌ Missing column in TeamData: {e}")
-                await interaction.followup.send("❌ TeamData sheet is misconfigured. (Missing Team, Position, or GP)", ephemeral=True)
-                return
-
-            current_pos = -1
-            current_gp = 0
-            team_row_index = -1
-
-            for i, row in enumerate(team_data_values[1:]):  
-                try:
-                    if len(row) > team_team_col_idx and row[team_team_col_idx] == team_name:
-                        current_pos = int(row[team_pos_col_idx])
-                        current_gp_str = row[team_gp_col_idx].replace(",", "")
-                        current_gp = int(current_gp_str or 0)
-                        team_row_index = i + 2
-                        break
-                except (ValueError, IndexError):
-                    continue 
-            
-            if current_pos == -1 or team_row_index == -1:
-                await interaction.followup.send("❌ Could not find your team's data.", ephemeral=True)
-                return
-                
-            house_data_values = self.house_data_sheet.get_all_values()
-            property_row_data = None
-            property_row_index = -1
-
-            if not house_data_values or len(house_data_values) < 2:
-                print("❌ HouseData sheet is empty or has no headers.")
-                await interaction.followup.send("❌ HouseData sheet is empty.", ephemeral=True)
-                return
-                
-            headers = house_data_values[0]
-            try:
-                tile_col_idx = headers.index("Tile")
-                owner_col_idx = headers.index("OwnerTeam")
-                count_col_idx = headers.index("HouseCount")
-                owner_col_gspread = owner_col_idx + 1
-                count_col_gspread = count_col_idx + 1
-                
-            except ValueError as e:
-                print(f"❌<:houseicon:1438085020156821555> Missing column in HouseData: {e}")
-                await interaction.followup.send("❌ HouseData sheet is misconfigured.", ephemeral=True)
-                return
-
-            for i, row in enumerate(house_data_values[1:]):  
-                try:
-                    if len(row) > tile_col_idx and int(row[tile_col_idx]) == current_pos:
-                        property_row_data = row
-                        property_row_index = i + 2
-                        break
-                except (ValueError, IndexError):
-                    continue
-            
-            if not property_row_data:
-                await interaction.followup.send(
-                    "❌ You cannot buy a house on this tile. (It may not be a buyable property)", 
-                    ephemeral=True
-                )
+                await interaction.followup.send("❌ You have already purchased a house this turn. Roll again to buy another.", ephemeral=True)
                 return
             
-            owner_team = ""
-            try:
-                owner_team = property_row_data[owner_col_idx].strip()
-                
-                if owner_team and owner_team != team_name:
-                    await interaction.followup.send(
-                        f"❌ You cannot buy here. This property is owned by **{owner_team}**.", 
-                        ephemeral=True
-                    )
-                    return
-                
-            except IndexError:
-                await interaction.followup.send("❌ This property does not have an owner column.", ephemeral=True)
+            # Set flag to 'yes' immediately to block concurrent/spam clicks
+            await asyncio.to_thread(self.set_bought_house_flag, team_name, "yes")
+
+            COST_MAP = {0: 25_000_000, 1: 50_000_000, 2: 100_000_000, 3: 200_000_000}
+            
+            # 2. DATA FETCHING
+            team_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            house_data = await asyncio.to_thread(self.house_data_sheet.get_all_records)
+            
+            team_info = next((r for r in team_data if r.get("Team") == team_name), None)
+            if not team_info:
+                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
+                await interaction.followup.send("❌ Could not find team data.", ephemeral=True)
                 return
 
-            house_count = 0
-            try:
-                house_count = int(property_row_data[count_col_idx] or 0)
-                if house_count >= 4:
-                    await interaction.followup.send(
-                        "❌ This property already has the maximum of 4 houses.", 
-                        ephemeral=True
-                    )
-                    return
-            except (IndexError, ValueError):
-                house_count = 0
+            current_pos = int(team_info.get("Position", -1))
+            current_gp = int(str(team_info.get("GP", 0)).replace(",", ""))
+            
+            # 3. HOUSE VALIDATION
+            prop_index = -1
+            prop_data = None
+            for idx, row in enumerate(house_data, start=2):
+                if int(row.get("Tile", -1)) == current_pos:
+                    prop_data = row
+                    prop_index = idx
+                    break
 
-            house_cost = COST_MAP.get(house_count)
-            if house_cost is None:  
-                print(f"❌ Error: Could not determine house cost for count {house_count}")
-                await interaction.followup.send("❌ Cannot determine house cost. Max houses may be reached.", ephemeral=True)
+            if not prop_data:
+                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
+                await interaction.followup.send("❌ This tile is not a buyable property.", ephemeral=True)
                 return
 
-            if current_gp < house_cost:
-                await interaction.followup.send(
-                    f"❌ You do not have enough GP to buy this house. You need **{house_cost:,.0f}** GP, but you only have **{current_gp:,.0f}** GP.",
-                    ephemeral=True
-                )
+            owner = prop_data.get("OwnerTeam", "").strip()
+            if owner and owner != team_name:
+                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
+                await interaction.followup.send(f"❌ This property is owned by **{owner}**.", ephemeral=True)
                 return
-            
-            updates_to_make = []
-            
-            if not owner_team:
-                updates_to_make.append({
-                    'range': gspread.utils.rowcol_to_a1(property_row_index, owner_col_gspread),
-                    'values': [[team_name]]
-                })
-                
-            new_house_count = house_count + 1
-            updates_to_make.append({
-                'range': gspread.utils.rowcol_to_a1(property_row_index, count_col_gspread),
-                'values': [[new_house_count]]
-            })
 
-            if updates_to_make:
-                self.house_data_sheet.batch_update(updates_to_make)
-                
-            new_gp = max(0, current_gp - house_cost)
-            self.team_data_sheet.update_cell(team_row_index, team_gp_col_gspread, new_gp)
-            
-            self.set_bought_house_flag(team_name, "yes")
-            
-            buy_message = (
-                f"<:houseicon:1438085020156821555> **{team_name}** purchased a house for **{house_cost:,.0f}** GP on tile {current_pos}!\n"
-                f"Your team's new balance is **{new_gp:,.0f}** GP."
-            )
-            await interaction.followup.send(buy_message, ephemeral=False)
-            await self.mirror_to_game_log(interaction.channel, content=buy_message)
-            
-        except gspread.exceptions.APIError as e:
-            print(f"❌ Google Sheets API error in /buy_house: {e}")
-            await interaction.followup.send("❌ A database error occurred. Please try again.", ephemeral=True)
+            house_count = int(prop_data.get("HouseCount", 0) or 0)
+            if house_count >= 4:
+                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
+                await interaction.followup.send("❌ Max houses (4) reached on this tile.", ephemeral=True)
+                return
+
+            cost = COST_MAP.get(house_count, 999_999_999)
+            if current_gp < cost:
+                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
+                await interaction.followup.send(f"❌ Not enough GP. Need **{cost:,}**, but you have **{current_gp:,}**.", ephemeral=True)
+                return
+
+            # 4. EXECUTE PURCHASE
+            headers = list(team_data[0].keys())
+            gp_col = headers.index("GP") + 1
+            team_row_in_sheet = team_data.index(team_info) + 2
+
+            # Perform the updates (background threads)
+            await asyncio.to_thread(self.house_data_sheet.update_cell, prop_index, 3, team_name) 
+            await asyncio.to_thread(self.house_data_sheet.update_cell, prop_index, 4, house_count + 1) 
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_in_sheet, gp_col, current_gp - cost)
+
+            buy_msg = f"<:houseicon:1438085020156821555> **{team_name}** bought a house on tile **{current_pos}** for **{cost:,} GP**!"
+            await interaction.followup.send(buy_msg)
+            await self.mirror_to_game_log(interaction.channel, content=buy_msg)
+
         except Exception as e:
-            print(f"❌ General error in /buy_house: {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
+            print(f"❌ Error in /buy_house: {e}")
+            await asyncio.to_thread(self.set_bought_house_flag, team_name, "no")
+            await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
     @app_commands.describe(
