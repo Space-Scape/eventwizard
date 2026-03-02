@@ -3072,10 +3072,21 @@ class MonopolyCog(commands.Cog):
                 "rg_row": card_row
             }
             
-            # --- CARD REMOVAL AND TURN FLAG HAPPEN HERE ---
-            await self.remove_card(team_name, "Rogue's Gloves")
+            try:
+                import json
+                if team_wildcard_value is not None:
+                    wildcard_data.pop(team_name, None) 
+                    await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
+                    
+                cell_val = str(await asyncio.to_thread(lambda: card_sheet.cell(card_row, 3).value) or "")
+                teams = [t.strip() for t in cell_val.split(',') if t.strip()]
+                if team_name in teams:
+                    teams.remove(team_name)
+                await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
+            except Exception as e:
+                print(f"❌ Error updating inventory for Rogue's Gloves: {e}")
+
             await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
-            # ----------------------------------------------
             
             view = self.CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
             await interaction.followup.send(embed=embed, view=view, ephemeral=False)
