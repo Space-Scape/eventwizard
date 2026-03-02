@@ -2828,261 +2828,265 @@ class MonopolyCog(commands.Cog):
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
-                stored_roll = team_wildcard_value
-                move_amount = -stored_roll
-                
-                # Fetch a fast snapshot of the data
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                caster_pos = -1
-                targets = []
-                actual_target_pos = -1
+            stored_roll = team_wildcard_value
+            move_amount = -stored_roll
+            
+            # Fetch a fast snapshot of the data
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            caster_pos = -1
+            targets = []
+            actual_target_pos = -1
+            
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
+            
+            if caster_pos != -1:
+                import random
+                valid_targets_data = []
                 
                 for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos != -1:
-                    import random
-                    valid_targets_data = []
+                    opponent_team_name = record.get("Team")
+                    if opponent_team_name == team_name:
+                        continue
                     
-                    for record in all_teams_data:
-                        opponent_team_name = record.get("Team")
-                        if opponent_team_name == team_name:
-                            continue
+                    opp_pos = int(record.get("Position", -1))
+                    
+                    # Target teams within 1 tile (ahead, behind, or same tile)
+                    if abs(opp_pos - caster_pos) <= 1:
+                        valid_targets_data.append((opponent_team_name, opp_pos))
                         
-                        opp_pos = int(record.get("Position", -1))
-                        
-                        # CHANGE: Target teams within 1 tile (ahead, behind, or same tile)
-                        if abs(opp_pos - caster_pos) <= 1:
-                            valid_targets_data.append((opponent_team_name, opp_pos))
-                            
-                    if valid_targets_data:
-                        # CHANGE: Randomly pick exactly ONE valid target
-                        chosen = random.choice(valid_targets_data)
-                        targets.append(chosen[0])
-                        actual_target_pos = chosen[1]
-                
-                if not targets:
-                    await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
-                    return 
+                if valid_targets_data:
+                    # Randomly pick exactly ONE valid target
+                    chosen = random.choice(valid_targets_data)
+                    targets.append(chosen[0])
+                    actual_target_pos = chosen[1]
+            
+            if not targets:
+                await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
+                return 
 
-                # CHANGE: Updated message to show the auto-selected target
-                embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
+            # Updated message to show the auto-selected target
+            embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
+            
+            for target_team in targets:
+                victim_channel = self.get_team_channel(target_team)
                 
-                # Kept your exact loop structure so the indentation remains flawless
-                for target_team in targets:
-                    victim_channel = self.get_team_channel(target_team)
-                    
-                    # 1. Check Redemption (Total Immunity)
-                    if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
-                        embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
-                        if victim_channel:
-                            fizzle_embed = discord.Embed(
-                                title="<:redemption:1437979567900987493> Redemption Activated!", 
-                                description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
-                                color=discord.Color.blue()
-                            )
-                            await victim_channel.send(embed=fizzle_embed)
-                            await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                        continue  
-                            
-                    # 2. Check Vengeance (Rebound)
-                    if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                        # Caster gets hit. Does the CASTER have an Elder Maul?
-                        elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                        
-                        # Halve the effect if Maul is active
-                        final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                        maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                        
-                        intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
-                        destination_tile_name = self.get_tile_name_for_display(new_pos)
-                        glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
-                        glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
-                        
-                        await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                        
-                        embed_description += (
-                            f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
-                            f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
-                            f"(stops at Go){maul_suffix}.\n"
+                # 1. Check Redemption (Total Immunity)
+                if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
+                    if victim_channel:
+                        fizzle_embed = discord.Embed(
+                            title="<:redemption:1437979567900987493> Redemption Activated!", 
+                            description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
+                            color=discord.Color.blue()
                         )
-                        embed_description += glider_note
+                        await victim_channel.send(embed=fizzle_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+                    continue  
                         
-                        await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
-                        await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                        
-                        skull_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!", 
-                            description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
+                # 2. Check Vengeance (Rebound)
+                if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                    # Caster gets hit. Does the CASTER have an Elder Maul?
+                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
+                    
+                    # Halve the effect if Maul is active
+                    final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                    
+                    intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
+                    new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
+                    glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
+                    
+                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+                    
+                    embed_description += (
+                        f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
+                        f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
+                        f"(stops at Go){maul_suffix}.\n"
+                    )
+                    embed_description += glider_note
+                    
+                    await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
+                    await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+                    
+                    skull_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!", 
+                        description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=skull_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:venge:1438084953559797884> Vengeance Activated!",
+                            description=(
+                                f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
+                                f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
+                                + glider_note_victim
+                            ),
                             color=discord.Color.dark_red()
                         )
-                        await interaction.channel.send(embed=skull_embed)
-                        await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-                        
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:venge:1438084953559797884> Vengeance Activated!",
-                                description=(
-                                    f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
-                                    f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
-                                    + glider_note_victim
-                                ),
-                                color=discord.Color.dark_red()
-                            )
-                            await victim_channel.send(embed=victim_embed)
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                        continue  
-                    
-                    # 3. Normal Hit
-                    else:
-                        # Target gets hit. Does the TARGET have an Elder Maul?
-                        elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                        
-                        # Halve the effect if Maul is active
-                        final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                        maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                        
-                        # CHANGE: Base the pushback off the target's actual position
-                        target_pos = actual_target_pos 
-                        intended_target_pos = max(0, target_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
-                        glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
-                        glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
-                        
-                        await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                        
-                        destination_tile_name = self.get_tile_name_for_display(new_pos)
-                        embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
-                        embed_description += glider_note
-                        
-                        await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
-                        await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
-                        
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
-                                description=(
-                                    f"**{team_name}** used **Dragon Spear** on your team.\n"
-                                    f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
-                                    + glider_note_victim
-                                ),
-                                color=discord.Color.dark_red()
-                            )
-                            await victim_channel.send(embed=victim_embed)
-                            # ... end of vengeance/maul checks ...
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-                        final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
-                        await interaction.followup.send(embed=final_embed)
-
-                        await self.remove_card(team_name, card_name)
-                        return
-
-             elif card_name == "Rogue's Gloves":
-                stealable_cards = []
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                    continue  
                 
-                chance_data = self.chance_sheet.get_all_values()
-                if chance_data:
-                    headers = chance_data[0]
-                    name_col = headers.index("Name")
-                    held_by_col = headers.index("Held By Team")
-                    wildcard_col = headers.index("Wildcard")
+                # 3. Normal Hit
+                else:
+                    # Target gets hit. Does the TARGET have an Elder Maul?
+                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
                     
-                    for i, row in enumerate(chance_data[1:], start=2):
-                        if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                        held_by_str = str(row[held_by_col] or "")
-                        
-                        if held_by_str and team_name not in held_by_str:
-                            is_active = False
-                            wildcard_str = str(row[wildcard_col] or "{}")
-                            if wildcard_str != "{}" and wildcard_str:
-                                try:
-                                    wildcard_data_json = json.loads(wildcard_str)
-                                    victim_team = held_by_str.strip() 
-                                    victim_status = wildcard_data_json.get(victim_team)
-                                    if victim_status and isinstance(victim_status, str) and victim_status.strip() == "active":
-                                        is_active = True
-                                except:
-                                    pass 
-                            
-                            if not is_active:
-                                stealable_cards.append({
-                                    "sheet": self.chance_sheet,
-                                    "row_index": i,
-                                    "card_name": str(row[name_col]),
-                                    "card_type": "Chance",
-                                    "victim_team": held_by_str.strip() 
-                                })
-    
-                chest_data = self.chest_sheet.get_all_values()
-                if chest_data:
-                    headers = chest_data[0]
-                    name_col = headers.index("Name")
-                    held_by_col = headers.index("Held By Team")
-                    wildcard_col = headers.index("Wildcard")
-    
-                    for i, row in enumerate(chest_data[1:], start=2):
-                        if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                        held_by_str = str(row[held_by_col] or "")
-                        
-                        if held_by_str and team_name not in held_by_str:
-                            all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                            
-                            wildcard_str = str(row[wildcard_col] or "{}")
-                            wildcard_data_json = {}
+                    # Halve the effect if Maul is active
+                    final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                    
+                    # Base the pushback off the target's actual position
+                    target_pos = actual_target_pos 
+                    intended_target_pos = max(0, target_pos + final_move_amount)
+                    new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
+                    glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
+                    
+                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
+                    
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
+                    embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
+                    embed_description += glider_note
+                    
+                    await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
+                            description=(
+                                f"**{team_name}** used **Dragon Spear** on your team.\n"
+                                f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
+                                + glider_note_victim
+                            ),
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            # This is perfectly aligned so it runs AFTER the loop finishes!
+            final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
+            await interaction.followup.send(embed=final_embed)
+
+            await self.remove_card(team_name, card_name)
+            return
+
+        elif card_name == "Rogue's Gloves":
+            stealable_cards = []
+            
+            # --- YOUR EXACT CHANCE PARSING LOGIC ---
+            chance_data = self.chance_sheet.get_all_values()
+            if chance_data:
+                headers = chance_data[0]
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+                
+                for i, row in enumerate(chance_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
+                    held_by_str = str(row[held_by_col] or "")
+                    
+                    if held_by_str and team_name not in held_by_str:
+                        is_active = False
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        if wildcard_str != "{}" and wildcard_str:
                             try:
+                                import json
                                 wildcard_data_json = json.loads(wildcard_str)
+                                victim_team = held_by_str.strip() 
+                                victim_status = wildcard_data_json.get(victim_team)
+                                if victim_status and isinstance(victim_status, str) and victim_status.strip() == "active":
+                                    is_active = True
                             except:
-                                pass
-    
-                            valid_victims = []
-                            for holder in all_holders:
-                                if holder == team_name: continue
-                                holder_status = wildcard_data_json.get(holder)
-                                if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
-                                    valid_victims.append(holder)
-    
-                            if valid_victims:
-                                import random
-                                victim_team = random.choice(valid_victims) 
-                                stealable_cards.append({
-                                    "sheet": self.chest_sheet,
-                                    "row_index": i,
-                                    "card_name": str(row[name_col]),
-                                    "card_type": "Chest",
-                                    "victim_team": victim_team
-                                })
-                
-                if not stealable_cards:
-                    await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
-                    return 
-    
-                team_card_counts = {}
-                for c in stealable_cards:
-                    t = c["victim_team"]
-                    team_card_counts[t] = team_card_counts.get(t, 0) + 1
-    
-                valid_targets = list(team_card_counts.keys())
-    
-                embed = discord.Embed(
-                    title="🎯 Target Selection: Rogue's Gloves",
-                    description="Select a team to steal from! Here is what everyone is holding:\n",
-                    color=discord.Color.dark_gray()
-                )
-                for t, count in team_card_counts.items():
-                    embed.description += f"\n• **{t}**: {count} cards"
-    
-                extra_memory = {
-                    "stealable_cards": stealable_cards,
-                    "rg_sheet": card_sheet,
-                    "rg_row": card_row
-                }
-                view = CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-                return
+                                pass 
+                        
+                        if not is_active:
+                            stealable_cards.append({
+                                "sheet": self.chance_sheet,
+                                "row_index": i,
+                                "card_name": str(row[name_col]),
+                                "card_type": "Chance",
+                                "victim_team": held_by_str.strip() 
+                            })
+
+            # --- YOUR EXACT CHEST PARSING LOGIC ---
+            chest_data = self.chest_sheet.get_all_values()
+            if chest_data:
+                headers = chest_data[0]
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+
+                for i, row in enumerate(chest_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
+                    held_by_str = str(row[held_by_col] or "")
+                    
+                    if held_by_str and team_name not in held_by_str:
+                        all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        wildcard_data_json = {}
+                        try:
+                            import json
+                            wildcard_data_json = json.loads(wildcard_str)
+                        except:
+                            pass
+
+                        valid_victims = []
+                        for holder in all_holders:
+                            if holder == team_name: continue
+                            holder_status = wildcard_data_json.get(holder)
+                            if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
+                                valid_victims.append(holder)
+
+                        if valid_victims:
+                            import random
+                            victim_team = random.choice(valid_victims) 
+                            stealable_cards.append({
+                                "sheet": self.chest_sheet,
+                                "row_index": i,
+                                "card_name": str(row[name_col]),
+                                "card_type": "Chest",
+                                "victim_team": victim_team
+                            })
+            
+            if not stealable_cards:
+                await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
+                return 
+
+            # --- COUNT CARDS AND SUMMON DROPDOWN ---
+            team_card_counts = {}
+            for c in stealable_cards:
+                t = c["victim_team"]
+                team_card_counts[t] = team_card_counts.get(t, 0) + 1
+
+            valid_targets = list(team_card_counts.keys())
+
+            embed = discord.Embed(
+                title="🎯 Target Selection: Rogue's Gloves",
+                description="Select a team to steal from! Here is what everyone is holding:\n",
+                color=discord.Color.dark_gray()
+            )
+            for t, count in team_card_counts.items():
+                embed.description += f"\n• **{t}**: {count} cards"
+
+            extra_memory = {
+                "stealable_cards": stealable_cards,
+                "rg_sheet": card_sheet,
+                "rg_row": card_row
+            }
+            view = CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
 
             elif card_name == "Pickpocket":
             all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
