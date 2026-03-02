@@ -2597,10 +2597,8 @@ class MonopolyCog(commands.Cog):
             for target in valid_targets:
                 desc = None
                 
-                # If Rogue's Gloves, show the eligible card count directly in the dropdown menu
                 if card_action == "rogues_gloves":
                     try:
-                        # We can pull the exact count directly from the memory we passed in!
                         stealable = self.extra_data.get("stealable_cards", [])
                         target_count = len([c for c in stealable if c["victim_team"] == target])
                         desc = f"Holding {target_count} eligible card(s)"
@@ -2612,7 +2610,6 @@ class MonopolyCog(commands.Cog):
             select = discord.ui.Select(
                 placeholder=f"Select target for {card_name}...", 
                 options=options
-                # Removed custom_id to prevent conflicts if multiple cards are used at once
             )
             select.callback = self.select_callback
             self.add_item(select)
@@ -2970,176 +2967,134 @@ class MonopolyCog(commands.Cog):
             await self.remove_card(team_name, card_name)
             return
 
-        elif card_name == "Rogue's Gloves":
-            import json
-            import random
+        elif action == "rogues_gloves":
             
-            stealable_cards = []
-            chance_data = self.chance_sheet.get_all_values()
-            if chance_data:
-                headers = chance_data[0]
-                name_col = headers.index("Name")
-                held_by_col = headers.index("Held By Team")
-                wildcard_col = headers.index("Wildcard")
-                
-                for i, row in enumerate(chance_data[1:], start=2):
-                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                    held_by_str = str(row[held_by_col] or "")
-                    
-                    if held_by_str and team_name not in held_by_str:
-                        is_active = False
-                        wildcard_str = str(row[wildcard_col] or "{}")
-                        if wildcard_str != "{}" and wildcard_str:
-                            try:
-                                wildcard_data_json = json.loads(wildcard_str)
-                                victim_team = held_by_str.strip() 
-                                victim_status = wildcard_data_json.get(victim_team)
-                                if victim_status and isinstance(victim_status, str) and victim_status.strip() == "active":
-                                    is_active = True
-                            except:
-                                pass 
-                        
-                        if not is_active:
-                            stealable_cards.append({
-                                "sheet": self.chance_sheet,
-                                "row_index": i,
-                                "card_name": str(row[name_col]),
-                                "card_type": "Chance",
-                                "victim_team": held_by_str.strip() 
-                            })
-
-            chest_data = self.chest_sheet.get_all_values()
-            if chest_data:
-                headers = chest_data[0]
-                name_col = headers.index("Name")
-                held_by_col = headers.index("Held By Team")
-                wildcard_col = headers.index("Wildcard")
-
-                for i, row in enumerate(chest_data[1:], start=2):
-                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                    held_by_str = str(row[held_by_col] or "")
-                    
-                    if held_by_str and team_name not in held_by_str:
-                        all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                        
-                        wildcard_str = str(row[wildcard_col] or "{}")
-                        wildcard_data_json = {}
-                        try:
-                            wildcard_data_json = json.loads(wildcard_str)
-                        except:
-                            pass
-
-                        valid_victims = []
-                        for holder in all_holders:
-                            if holder == team_name: continue
-                            holder_status = wildcard_data_json.get(holder)
-                            if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
-                                valid_victims.append(holder)
-
-                        if valid_victims:
-                            
-                            victim_team = random.choice(valid_victims) 
-                            stealable_cards.append({
-                                "sheet": self.chest_sheet,
-                                "row_index": i,
-                                "card_name": str(row[name_col]),
-                                "card_type": "Chest",
-                                "victim_team": victim_team
-                            })
+            stealable_cards = extra_data.get("stealable_cards", [])
+            target_cards = [c for c in stealable_cards if c["victim_team"] == target_team]
+            if not target_cards:
+                await interaction.channel.send("❌ Error: No cards found for that target.")
+                return
             
-            if not stealable_cards:
-                await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
-                return 
+            stolen_card = random.choice(target_cards)
+            victim_team = target_team
+            target_sheet = stolen_card["sheet"]
+            target_row = stolen_card["row_index"]
+            victim_channel = self.get_team_channel(victim_team)
 
-            team_card_counts = {}
-            for c in stealable_cards:
-                t = c["victim_team"]
-                team_card_counts[t] = team_card_counts.get(t, 0) + 1
+            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            valid_targets = list(team_card_counts.keys())
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
+                embed_description = f"🧤 Rebounded! **{victim_team}**'s Vengeance caused the steal to fail."
+                if victim_channel:
+                    v_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated", description=f"You rebounded **{team_name}**'s Rogue's Gloves!", color=discord.Color.dark_red())
+                    await victim_channel.send(embed=v_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=v_embed)
 
-            embed = discord.Embed(
-                title="🎯 Target Selection: Rogue's Gloves",
-                description="Select a team to steal from! Here is what everyone is holding:\n",
-                color=discord.Color.dark_gray()
-            )
-            for t, count in team_card_counts.items():
-                embed.description += f"\n• **{t}**: {count} cards"
+            else:
+                # Target Sheet updates now use asyncio.to_thread so they don't block the bot!
+                held_by_str = str(await asyncio.to_thread(lambda: target_sheet.cell(target_row, 3).value) or "")
+                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                if victim_team in teams: teams.remove(victim_team)
+                if team_name not in teams: teams.append(team_name)
+                await asyncio.to_thread(target_sheet.update_cell, target_row, 3, ", ".join(teams))
 
-            extra_memory = {
-                "stealable_cards": stealable_cards,
-                "rg_sheet": card_sheet,
-                "rg_row": card_row
-            }
-            
-            try:
-                import json
-                if team_wildcard_value is not None:
-                    wildcard_data.pop(team_name, None) 
-                    await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
-                    
-                cell_val = str(await asyncio.to_thread(lambda: card_sheet.cell(card_row, 3).value) or "")
-                teams = [t.strip() for t in cell_val.split(',') if t.strip()]
-                if team_name in teams:
-                    teams.remove(team_name)
-                await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
-            except Exception as e:
-                print(f"❌ Error updating inventory for Rogue's Gloves: {e}")
-
-            await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
-            
-            view = self.CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-            return
-            
-        elif card_name == "Pickpocket":
-            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            
-            valid_targets = []
-            target_gp_data = {}
-            caster_record = None
-
-            for record in all_teams_data:
-                current_team = record.get("Team")
-                if not current_team: continue
-                
+                wildcard_str = str(await asyncio.to_thread(lambda: target_sheet.cell(target_row, 4).value) or "{}")
                 try:
-                    current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
-                except ValueError:
-                    current_gp = 0
+                    wildcard_data_json = json.loads(wildcard_str)
+                    val = wildcard_data_json.pop(victim_team, None)
+                    if val is not None:
+                        wildcard_data_json[team_name] = val
+                    await asyncio.to_thread(target_sheet.update_cell, target_row, 4, json.dumps(wildcard_data_json))
+                except:
+                    pass
 
-                if current_team == team_name:
-                    caster_record = record
-                    continue
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
+                
+                if victim_channel:
+                    v_emb = discord.Embed(title="‼️ Card Stolen!", description=f"**{team_name}** stole your **{stolen_card['card_name']}** card!", color=discord.Color.dark_red())
+                    await victim_channel.send(embed=v_emb)
+                    await self.mirror_to_game_log(victim_channel, embed=v_emb)
 
-                if current_gp > 0:
-                    valid_targets.append(current_team)
-                    target_gp_data[current_team] = current_gp
-
-            if not caster_record:
-                await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
+            # Message is sent without crashing! Card removal already happened earlier.
+            final_embed = discord.Embed(title="🃏 Rogue's Gloves Used!", description=embed_description, color=discord.Color.dark_gray())
+            await interaction.channel.send(embed=final_embed)
+            
+        if action == "pickpocket":
+            all_teams_data = extra_data.get("all_teams_data")
+            caster_record = extra_data.get("caster_record")
+            
+            target_record = None
+            highest_gp = 0 
+            for record in all_teams_data:
+                if record.get("Team") == target_team:
+                    target_record = record
+                    try:
+                        highest_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+                    except ValueError:
+                        highest_gp = 0
+                    break
+                    
+            if not target_record:
+                await interaction.channel.send("❌ Error: Target data could not be located.")
                 return
 
-            if not valid_targets:
-                await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
-                return
+            victim_channel = self.get_team_channel(target_team)
+            caster_gp = int(str(caster_record.get("GP", 0)).replace(",", ""))
+            
+            embed_description = f"**{team_name}** targeted **{target_team}** with **Pickpocket**!\n"
+            headers = list(all_teams_data[0].keys())
+            gp_col_idx = headers.index("GP") + 1
+            target_row_idx = all_teams_data.index(target_record) + 2
+            caster_row_idx = all_teams_data.index(caster_record) + 2
 
-            embed = discord.Embed(
-                title="🎯 Target Selection: Pickpocket",
-                description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
-                color=discord.Color.dark_gold()
-            )
-            for t in valid_targets:
-                embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            # Pass the parsed team data so we don't have to read the sheet twice!
-            extra_memory = {
-                "all_teams_data": all_teams_data,
-                "caster_record": caster_record
-            }
-            view = self.CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-            return
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                base_percent = 0.20
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
+                maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if maul_active else ""
+                steal_amount = max(1, int(caster_gp * (0.10 if maul_active else base_percent)))
+                
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, max(0, caster_gp - steal_amount))
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, highest_gp + steal_amount)
+
+                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! They stole **{steal_amount:,} GP** from **{team_name}** instead!{maul_note}"
+
+                if victim_channel:
+                    victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Vengeance** rebounded it! You stole **{steal_amount:,} GP** from them!{maul_note}", color=discord.Color.green())
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            else:
+                base_percent = 0.20
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if maul_active else ""
+                steal_amount = max(1, int(highest_gp * (0.10 if maul_active else base_percent)))
+
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, max(0, highest_gp - steal_amount))
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, caster_gp + steal_amount)
+
+                embed_description += f"> Stole **{steal_amount:,} GP** from **{target_team}**!{maul_note}"
+
+                if victim_channel:
+                    maul_msg = "\n\n🛡️ Your **Elder Maul** activated and halved the losses!" if maul_active else ""
+                    victim_embed = discord.Embed(title="💸 Pickpocketed!", description=f"**{team_name}** used **Pickpocket** and stole **{steal_amount:,} GP** from your team.{maul_msg}", color=discord.Color.dark_red() if not maul_active else discord.Color.blue())
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+            
+            # Message is sent without crashing! Card removal already happened earlier.
+            final_embed = discord.Embed(title="🃏 Pickpocket Used!", description=embed_description, color=discord.Color.dark_gold())
+            await interaction.channel.send(embed=final_embed)
 
         elif card_name == "Lure":
             all_teams_data = self.team_data_sheet.get_all_records()
