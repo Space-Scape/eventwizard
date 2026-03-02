@@ -2826,10 +2826,6 @@ class MonopolyCog(commands.Cog):
                 # Route through normal board triggers (Only grants rolls on Special tiles)
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
-            except Exception as e:
-                print(f"❌ Error during card effect execution: {e}")
-                await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
             
         elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
             try:
