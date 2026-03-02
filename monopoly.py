@@ -3379,64 +3379,64 @@ class MonopolyCog(commands.Cog):
                     
         elif card_name == "Smite":
         # 1. Fetch data snapshot to get all teams
-        all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        
-        valid_targets = []
-        for record in all_teams_data:
-            current_team_name = record.get("Team")
-            # Add all teams except the caster to the target list
-            if current_team_name and current_team_name != team_name:
-                valid_targets.append(current_team_name)
-
-        if not valid_targets:
-            await interaction.followup.send("❌ Card effect failed: There are no other teams to Smite.", ephemeral=True)
-            return 
-
-        # Prepare the Dropdown
-        embed = discord.Embed(
-            title="🎯 Target Selection: Smite",
-            description="Select a team to Smite! You can choose ANY team on the board.",
-            color=discord.Color.red()
-        )
-
-        # Pass the card's sheet/row data so we can delete it from their inventory later!
-        extra_memory = {
-            "card_sheet": card_sheet,
-            "card_row": card_row,
-            "wildcard_data": wildcard_data,
-            "team_wildcard_value": team_wildcard_value
-        }
-        
-        view = CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-        return
-
-        elif card_name == "Varrock Tele":
-            # Check Teleblock
-            if await asyncio.to_thread(self.get_teleblock_status, team_name) == "yes":
-                await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
-                return 
-
-            # Fetch snapshot
             all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            caster_pos = -1
+            
+            valid_targets = []
             for record in all_teams_data:
-                if record.get("Team") == team_name:
-                    caster_pos = int(record.get("Position", -1))
-                    break
-            
-            if caster_pos == 10:
-                await interaction.followup.send("❌ You cannot use **Varrock Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
+                current_team_name = record.get("Team")
+                # Add all teams except the caster to the target list
+                if current_team_name and current_team_name != team_name:
+                    valid_targets.append(current_team_name)
+    
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: There are no other teams to Smite.", ephemeral=True)
                 return 
-
-            new_pos = self.resolve_nonroll_landing_tile(BANK_STANDING_TILE)
-            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+    
+            # Prepare the Dropdown
+            embed = discord.Embed(
+                title="🎯 Target Selection: Smite",
+                description="Select a team to Smite! You can choose ANY team on the board.",
+                color=discord.Color.red()
+            )
+    
+            # Pass the card's sheet/row data so we can delete it from their inventory later!
+            extra_memory = {
+                "card_sheet": card_sheet,
+                "card_row": card_row,
+                "wildcard_data": wildcard_data,
+                "team_wildcard_value": team_wildcard_value
+            }
             
-            embed_description = "> Teleported to **Bank Standing** (Tile 20)."
-
-            # Route through normal board triggers (Tile 20 grants a free roll automatically here)
-            await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to via Varrock Tele")
-            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+            view = CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
+    
+            elif card_name == "Varrock Tele":
+                # Check Teleblock
+                if await asyncio.to_thread(self.get_teleblock_status, team_name) == "yes":
+                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
+                    return 
+    
+                # Fetch snapshot
+                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+                caster_pos = -1
+                for record in all_teams_data:
+                    if record.get("Team") == team_name:
+                        caster_pos = int(record.get("Position", -1))
+                        break
+                
+                if caster_pos == 10:
+                    await interaction.followup.send("❌ You cannot use **Varrock Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
+                    return 
+    
+                new_pos = self.resolve_nonroll_landing_tile(BANK_STANDING_TILE)
+                await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+                
+                embed_description = "> Teleported to **Bank Standing** (Tile 20)."
+    
+                # Route through normal board triggers (Tile 20 grants a free roll automatically here)
+                await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to via Varrock Tele")
+                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
         elif card_name == "POH Voucher":
             # 1. Fetch snapshot of data
@@ -3627,37 +3627,37 @@ class MonopolyCog(commands.Cog):
 
         elif card_name == "Tele Block":
         # 1. Fetch data snapshot to get all teams
-        all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        
-        valid_targets = []
-        for record in all_teams_data:
-            current_team_name = record.get("Team")
-            # Add all teams except the caster to the target list
-            if current_team_name and current_team_name != team_name:
-                valid_targets.append(current_team_name)
-
-        if not valid_targets:
-            await interaction.followup.send("❌ Card effect failed: There are no other teams to Teleblock.", ephemeral=True)
-            return 
-
-        # Prepare the Dropdown
-        embed = discord.Embed(
-            title="🎯 Target Selection: Tele Block",
-            description="Select a team to Teleblock! You can choose ANY team on the board.",
-            color=discord.Color.dark_purple()
-        )
-
-        # Pass the card's sheet/row data so we can delete it from their inventory later!
-        extra_memory = {
-            "card_sheet": card_sheet,
-            "card_row": card_row,
-            "wildcard_data": wildcard_data,
-            "team_wildcard_value": team_wildcard_value
-        }
-        
-        view = CardTargetView(self, team_name, valid_targets, "Tele Block", "teleblock", extra_data=extra_memory)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-        return
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            valid_targets = []
+            for record in all_teams_data:
+                current_team_name = record.get("Team")
+                # Add all teams except the caster to the target list
+                if current_team_name and current_team_name != team_name:
+                    valid_targets.append(current_team_name)
+    
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: There are no other teams to Teleblock.", ephemeral=True)
+                return 
+    
+            # Prepare the Dropdown
+            embed = discord.Embed(
+                title="🎯 Target Selection: Tele Block",
+                description="Select a team to Teleblock! You can choose ANY team on the board.",
+                color=discord.Color.dark_purple()
+            )
+    
+            # Pass the card's sheet/row data so we can delete it from their inventory later!
+            extra_memory = {
+                "card_sheet": card_sheet,
+                "card_row": card_row,
+                "wildcard_data": wildcard_data,
+                "team_wildcard_value": team_wildcard_value
+            }
+            
+            view = CardTargetView(self, team_name, valid_targets, "Tele Block", "teleblock", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
 
     async def execute_targeted_card_effect(self, interaction: discord.Interaction, team_name: str, target_team: str, card_name: str, action: str, extra_data: dict):
         """Catches the dropdown selection and applies the effects of the card."""
