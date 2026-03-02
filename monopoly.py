@@ -3080,134 +3080,134 @@ class MonopolyCog(commands.Cog):
                 return
 
             elif card_name == "Pickpocket":
-            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            
-            valid_targets = []
-            target_gp_data = {}
-            caster_record = None
-
-            for record in all_teams_data:
-                current_team = record.get("Team")
-                if not current_team: continue
+                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 
-                try:
-                    current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
-                except ValueError:
-                    current_gp = 0
-
-                if current_team == team_name:
-                    caster_record = record
-                    continue
-
-                if current_gp > 0:
-                    valid_targets.append(current_team)
-                    target_gp_data[current_team] = current_gp
-
-            if not caster_record:
-                await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
-                return
-
-            if not valid_targets:
-                await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title="🎯 Target Selection: Pickpocket",
-                description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
-                color=discord.Color.dark_gold()
-            )
-            for t in valid_targets:
-                embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
-
-            # Pass the parsed team data so we don't have to read the sheet twice!
-            extra_memory = {
-                "all_teams_data": all_teams_data,
-                "caster_record": caster_record
-            }
-            view = CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-            return
-
-            elif card_name == "Lure":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                opponents_ahead = []
-
+                valid_targets = []
+                target_gp_data = {}
+                caster_record = None
+    
                 for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return
-
-                for record in all_teams_data:
-                    opponent_team_name = record.get("Team")
-                    if opponent_team_name == team_name:
+                    current_team = record.get("Team")
+                     if not current_team: continue
+                    
+                    try:
+                        current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+                    except ValueError:
+                        current_gp = 0
+    
+                    if current_team == team_name:
+                        caster_record = record
                         continue
+    
+                    if current_gp > 0:
+                        valid_targets.append(current_team)
+                        target_gp_data[current_team] = current_gp
+    
+                if not caster_record:
+                    await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
+                    return
+    
+                if not valid_targets:
+                    await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
+                    return
+    
+                embed = discord.Embed(
+                    title="🎯 Target Selection: Pickpocket",
+                    description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
+                    color=discord.Color.dark_gold()
+                )
+                for t in valid_targets:
+                    embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
+    
+                # Pass the parsed team data so we don't have to read the sheet twice!
+                extra_memory = {
+                    "all_teams_data": all_teams_data,
+                    "caster_record": caster_record
+                }
+                view = CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+                return
+    
+                elif card_name == "Lure":
+                    all_teams_data = self.team_data_sheet.get_all_records()
+                    caster_pos = -1
+                    opponents_ahead = []
+    
+                    for record in all_teams_data:
+                        if record.get("Team") == team_name:
+                            caster_pos = int(record.get("Position", -1))
+                            break
                     
-                    opponent_pos = int(record.get("Position", -1))
-                    if opponent_pos > caster_pos:
-                        opponents_ahead.append((opponent_team_name, opponent_pos))
-                
-                if not opponents_ahead:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
-                    return 
-
-                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
-                target_team = sorted_opponents[0][0]
-                target_pos = sorted_opponents[0][1]
-                
-                victim_channel = self.get_team_channel(target_team)
-
-                if self.check_and_consume_redemption(target_team):
-                    embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                
-                else:
-                    intended_lure_pos = caster_pos
-                    final_lure_pos = self.resolve_nonroll_landing_tile(intended_lure_pos)
-                    glider_note = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos)
-                    glider_note_victim = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos, second_person=True, quoted=False)
-                    self.log_command(
-                        team_name,
-                        "/card_effect_set_tile",
-                        {"team": target_team, "tile": final_lure_pos}
-                    )
-                    source_tile_name = self.get_tile_name_for_display(target_pos)
-                    destination_tile_name = self.get_tile_name_for_display(final_lure_pos)
-                    embed_description = (
-                        f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
-                        f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
-                        f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
-                    )
-                    embed_description += glider_note
+                    if caster_pos == -1:
+                        await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                        return
+    
+                    for record in all_teams_data:
+                        opponent_team_name = record.get("Team")
+                        if opponent_team_name == team_name:
+                            continue
+                        
+                        opponent_pos = int(record.get("Position", -1))
+                        if opponent_pos > caster_pos:
+                            opponents_ahead.append((opponent_team_name, opponent_pos))
                     
-                    if victim_channel:
+                    if not opponents_ahead:
+                        await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
+                        return 
+    
+                    sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
+                    target_team = sorted_opponents[0][0]
+                    target_pos = sorted_opponents[0][1]
                     
-                        lure_embed = discord.Embed(
+                    victim_channel = self.get_team_channel(target_team)
+    
+                    if self.check_and_consume_redemption(target_team):
+                        embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
+                        if victim_channel:
+                            fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                            await victim_channel.send(embed=fizzle_embed)
+    
+                            await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                     
-                            title="<:fishing:1437980297017688114> You Were Lured!",
-                    
-                            description=(f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**)." + glider_note_victim),
-                    
-                            color=discord.Color.orange()
-                    
+                    else:
+                        intended_lure_pos = caster_pos
+                        final_lure_pos = self.resolve_nonroll_landing_tile(intended_lure_pos)
+                        glider_note = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos)
+                        glider_note_victim = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos, second_person=True, quoted=False)
+                        self.log_command(
+                            team_name,
+                            "/card_effect_set_tile",
+                            {"team": target_team, "tile": final_lure_pos}
                         )
-                    
-                        await victim_channel.send(embed=lure_embed)
-
-                    
-                        await self.mirror_to_game_log(victim_channel, embed=lure_embed)
-
-                    
-                    await self.check_and_award_card_on_land(target_team, final_lure_pos, "being lured to")
-                    await self.auto_post_show_drops_if_boss_tile(target_team, final_lure_pos)
+                        source_tile_name = self.get_tile_name_for_display(target_pos)
+                        destination_tile_name = self.get_tile_name_for_display(final_lure_pos)
+                        embed_description = (
+                            f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
+                            f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
+                            f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
+                        )
+                        embed_description += glider_note
+                        
+                        if victim_channel:
+                        
+                            lure_embed = discord.Embed(
+                        
+                                title="<:fishing:1437980297017688114> You Were Lured!",
+                        
+                                description=(f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**)." + glider_note_victim),
+                        
+                                color=discord.Color.orange()
+                        
+                            )
+                        
+                            await victim_channel.send(embed=lure_embed)
+    
+                        
+                            await self.mirror_to_game_log(victim_channel, embed=lure_embed)
+    
+                        
+                        await self.check_and_award_card_on_land(target_team, final_lure_pos, "being lured to")
+                        await self.auto_post_show_drops_if_boss_tile(target_team, final_lure_pos)
 
             elif card_name == "Escape Crystal":
                 # 1. Teleblock Check
