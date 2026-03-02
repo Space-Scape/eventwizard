@@ -49,6 +49,7 @@ TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
 ACTIVE_TEAMS = ["Dfn/Brutal", "Space", "Thrawn"]
+TEAM_LIST_CONFIG_FILE = "team_list_config.json"
 
 EVENT_STAFF_ROLE_ID = 1286238788716199952
 EVENT_CAPTAIN_ROLE_ID = 1286238713210474559
@@ -4562,6 +4563,9 @@ class MonopolyCog(commands.Cog):
             if role:
                 await self.target_member.add_roles(role, reason="Captain accepted team request")
                 
+                # ---> ADDED: Update the live roster message <---
+                await self.cog.update_live_team_list(interaction.guild)
+                
                 embed = interaction.message.embeds[0]
                 embed.color = discord.Color.green()
                 embed.title = "✅ Request Accepted"
@@ -4603,6 +4607,9 @@ class MonopolyCog(commands.Cog):
             role = discord.utils.get(interaction.guild.roles, name=self.team_name)
             if role:
                 await self.target_member.add_roles(role, reason="Player accepted captain's invite")
+                
+                # ---> ADDED: Update the live roster message <---
+                await self.cog.update_live_team_list(interaction.guild)
                 
                 embed = interaction.message.embeds[0]
                 embed.color = discord.Color.green()
@@ -4735,7 +4742,119 @@ class MonopolyCog(commands.Cog):
         
         await interaction.followup.send(f"✅ An invite has been sent to **{player.display_name}** in <#{TEAM_REQUEST_CHANNEL_ID}>.", ephemeral=True)
 
+    # ==========================================
+    # 📋 LIVE TEAM LIST LOGIC
+    # ==========================================
 
+    @app_commands.command(name="team_list", description="Post a live-updating roster of all teams.")
+    async def team_list(self, interaction: discord.Interaction):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+        embed = self.build_team_list_embed(interaction.guild)
+        
+        msg = await interaction.followup.send(embed=embed)
+        self.save_team_list_config(interaction.channel_id, msg.id)
+        
+        # Follow up privately so the channel stays clean
+        await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
+
+    @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
+    @app_commands.describe(message_id="The ID of the message to update")
+    async def team_list_set_id(self, interaction: discord.Interaction, message_id: str):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+            
+        try:
+            msg_id_int = int(message_id.strip())
+            msg = await interaction.channel.fetch_message(msg_id_int)
+            
+            # Save the new hook
+            self.save_team_list_config(interaction.channel_id, msg.id)
+            
+            # Immediately force an update to prove it works
+            embed = self.build_team_list_embed(interaction.guild)
+            await msg.edit(embed=embed)
+            
+            await interaction.followup.send("✅ Successfully linked and updated the team list message!", ephemeral=True)
+        except discord.NotFound:
+            await interaction.followup.send("❌ Message not found in this channel. You must run this command in the exact same channel as the target message.", ephemeral=True)
+        except ValueError:
+            await interaction.followup.send("❌ Invalid message ID format.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+    
+    def load_team_list_config(self):
+        """Loads the saved team list message ID from a local file."""
+        try:
+            if os.path.exists(TEAM_LIST_CONFIG_FILE):
+                with open(TEAM_LIST_CONFIG_FILE, "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"❌ Error loading team list config: {e}")
+        return {"channel_id": None, "message_id": None}
+
+    def save_team_list_config(self, channel_id: int, message_id: int):
+        """Saves the team list message ID so it survives bot resets."""
+        try:
+            with open(TEAM_LIST_CONFIG_FILE, "w") as f:
+                json.dump({"channel_id": channel_id, "message_id": message_id}, f)
+        except Exception as e:
+            print(f"❌ Error saving team list config: {e}")
+
+    def build_team_list_embed(self, guild: discord.Guild) -> discord.Embed:
+        """Constructs the roster embed showing all teams and their members."""
+        embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
+        
+        description = ""
+        for team_name in ACTIVE_TEAMS:
+            role = discord.utils.get(guild.roles, name=team_name)
+            if role:
+                members = role.members
+                description += f"**{team_name} (Size: {len(members)})**\n"
+                
+                if members:
+                    for member in members:
+                        # Emphasize Captains with an emoji to match your screenshot style
+                        if self.has_event_captain_role(member):
+                            description += f"👑 {member.mention} • **Captain**\n"
+                        else:
+                            description += f"👤 {member.mention}\n"
+                else:
+                    description += "*No members drafted yet.*\n"
+                
+                description += "\n" # Add a blank line between teams
+                
+        embed.description = description
+        embed.set_footer(text="Roster updates automatically as players are drafted!")
+        return embed
+
+    async def update_live_team_list(self, guild: discord.Guild):
+        """Fetches and edits the linked team list message with fresh data."""
+        config = self.load_team_list_config()
+        channel_id = config.get("channel_id")
+        message_id = config.get("message_id")
+        
+        if not channel_id or not message_id:
+            return
+            
+        channel = guild.get_channel(channel_id)
+        if not channel:
+            return
+            
+        try:
+            msg = await channel.fetch_message(message_id)
+            embed = self.build_team_list_embed(guild)
+            await msg.edit(embed=embed)
+        except discord.NotFound:
+            print("❌ Live team list message was deleted.")
+        except Exception as e:
+            print(f"❌ Failed to update live team list: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
