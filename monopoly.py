@@ -5016,6 +5016,46 @@ class MonopolyCog(commands.Cog):
         # We send a tiny private message so the channel doesn't get cluttered
         await interaction.followup.send("✅ Live signup list posted and linked.", ephemeral=True)
 
+    @app_commands.command(name="team_request_refresh", description="Refresh the team request buttons on an existing message.")
+    @app_commands.describe(message_id="The ID of the team request message to update")
+    async def team_request_refresh(self, interaction: discord.Interaction, message_id: str):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+            
+        try:
+            msg_id_int = int(message_id.strip())
+            # Fetch the message from the channel the command was used in
+            msg = await interaction.channel.fetch_message(msg_id_int)
+            
+            # Rebuild the embed to match the original
+            embed = discord.Embed(
+                title="🤝 Join a Team",
+                description="Click a Captain below to send them a request to join their team. If their team is full, the bot will let you know!",
+                color=discord.Color.blurple()
+            )
+            
+            # Generate a fresh View. This re-hooks the buttons to the bot's memory 
+            # and pulls the most up-to-date Captain names for the button labels!
+            view = self.TeamSelectionView(self, interaction.guild)
+            
+            # Apply the fresh view and embed to the old message
+            await msg.edit(embed=embed, view=view)
+            
+            await interaction.followup.send("✅ Successfully refreshed the team request buttons!", ephemeral=True)
+            
+        except discord.NotFound:
+            await interaction.followup.send(
+                "❌ Message not found. You must run this command in the **exact same channel** as the target message.", 
+                ephemeral=True
+            )
+        except ValueError:
+            await interaction.followup.send("❌ Invalid message ID format. Please provide a valid numeric ID.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error refreshing message: {e}", ephemeral=True)
+    
     @app_commands.command(name="signup_set_id", description="Link the bot to an existing signup list message.")
     @app_commands.describe(message_id="The ID of the message to update")
     async def signup_set_id(self, interaction: discord.Interaction, message_id: str):
