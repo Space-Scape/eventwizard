@@ -3034,7 +3034,6 @@ class MonopolyCog(commands.Cog):
                                 valid_victims.append(holder)
 
                         if valid_victims:
-                            
                             victim_team = random.choice(valid_victims) 
                             stealable_cards.append({
                                 "sheet": self.chest_sheet,
@@ -3047,6 +3046,9 @@ class MonopolyCog(commands.Cog):
             if not stealable_cards:
                 await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
                 return 
+
+            await self.remove_card(team_name, "Rogue's Gloves")
+            await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
 
             team_card_counts = {}
             for c in stealable_cards:
@@ -3071,7 +3073,7 @@ class MonopolyCog(commands.Cog):
             view = self.CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
             await interaction.followup.send(embed=embed, view=view, ephemeral=False)
             return
-
+            
         elif card_name == "Pickpocket":
             all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
