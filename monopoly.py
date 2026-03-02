@@ -2831,7 +2831,7 @@ class MonopolyCog(commands.Cog):
                 print(f"❌ Error during card effect execution: {e}")
                 await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
             
-            elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
+        elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
             try:
                 stored_roll = team_wildcard_value
                 move_amount = -stored_roll
@@ -2975,9 +2975,10 @@ class MonopolyCog(commands.Cog):
 
                 await self.remove_card(team_name, card_name)
                 return
-            except Exception as e:
-                print(f"❌ Error in Dragon Spear block: {e}")
-                return
+                
+                except Exception as e:
+                    print(f"❌ Error in Dragon Spear block: {e}")
+                    return
 
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
