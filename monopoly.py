@@ -2972,19 +2972,18 @@ class MonopolyCog(commands.Cog):
                                 color=discord.Color.dark_red()
                             )
                             await victim_channel.send(embed=victim_embed)
+                            # ... end of vengeance/maul checks ...
                             await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
-            # Send the final receipt
-            final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
-            await interaction.followup.send(embed=final_embed)
-            
-            await self.remove_card(team_name, card_name)
-            return
+                        final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
+                        await interaction.followup.send(embed=final_embed)
 
-            elif card_name == "Rogue's Gloves":
+                        await self.remove_card(team_name, card_name)
+                        return
+
+             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
                 
-                # --- YOUR EXACT CHANCE PARSING LOGIC ---
                 chance_data = self.chance_sheet.get_all_values()
                 if chance_data:
                     headers = chance_data[0]
@@ -3018,7 +3017,6 @@ class MonopolyCog(commands.Cog):
                                     "victim_team": held_by_str.strip() 
                                 })
     
-                # --- YOUR EXACT CHEST PARSING LOGIC ---
                 chest_data = self.chest_sheet.get_all_values()
                 if chest_data:
                     headers = chest_data[0]
@@ -3062,7 +3060,6 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
                     return 
     
-                # --- NEW: COUNT CARDS AND SUMMON DROPDOWN ---
                 team_card_counts = {}
                 for c in stealable_cards:
                     t = c["victim_team"]
@@ -3078,7 +3075,6 @@ class MonopolyCog(commands.Cog):
                 for t, count in team_card_counts.items():
                     embed.description += f"\n• **{t}**: {count} cards"
     
-                # Pass the parsed cards and the exact Rogue's Gloves sheet/row to the execution handler!
                 extra_memory = {
                     "stealable_cards": stealable_cards,
                     "rg_sheet": card_sheet,
@@ -3089,7 +3085,6 @@ class MonopolyCog(commands.Cog):
                 return
 
             elif card_name == "Pickpocket":
-            # 1. Fetch data snapshot to see who has GP
             all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
             valid_targets = []
@@ -3109,7 +3104,6 @@ class MonopolyCog(commands.Cog):
                     caster_record = record
                     continue
 
-                # Anyone with more than 0 GP is a valid target
                 if current_gp > 0:
                     valid_targets.append(current_team)
                     target_gp_data[current_team] = current_gp
@@ -3122,7 +3116,6 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
                 return
 
-            # Prepare the Dropdown
             embed = discord.Embed(
                 title="🎯 Target Selection: Pickpocket",
                 description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
