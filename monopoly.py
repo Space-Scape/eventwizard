@@ -4863,30 +4863,28 @@ class MonopolyCog(commands.Cog):
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
-            # Removed the extra ** from here so it doesn't conflict with the header bolding
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
-                members = role.members
-                # Wrap the entire header line cleanly in one set of bold tags
-                description += f"**{team_name} (Size: {len(members)}/{cap_data['max']}){cap_status}**\n"
+                # ---> THE FIX: Manually filter the fresh guild members list
+                # instead of relying on the notoriously slow role.members property
+                actual_members = [m for m in guild.members if role in m.roles]
                 
-                if members:
+                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
+                
+                if actual_members:
                     captains_list = []
                     players_list = []
                     
-                    # 1. Sort members into captains and regular players
-                    for member in members:
+                    for member in actual_members:
                         if self.has_event_captain_role(member):
                             captains_list.append(member)
                         else:
                             players_list.append(member)
                             
-                    # 2. Add Captains to the embed first!
                     for cap in captains_list:
                         description += f"👑 {cap.mention} • **Captain**\n"
                         
-                    # 3. Add the rest of the players underneath
                     for player in players_list:
                         description += f"👤 {player.mention}\n"
                 else:
@@ -4894,7 +4892,7 @@ class MonopolyCog(commands.Cog):
             else:
                 description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
                 
-            description += "\n" # Add space between teams
+            description += "\n"
                 
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
@@ -4909,13 +4907,16 @@ class MonopolyCog(commands.Cog):
         if not channel_id or not message_id:
             return
             
-        channel = guild.get_channel(channel_id)
+        channel = guild.get_channel(int(channel_id))
         if not channel:
             return
             
         try:
-            msg = await channel.fetch_message(message_id)
-            # Fetch fresh math and build the new embed
+            # ---> THE FIX: Force the bot to download a fresh member list from Discord 
+            # so it doesn't use stale cached data from 3 seconds ago!
+            await guild.chunk()
+            
+            msg = await channel.fetch_message(int(message_id))
             capacities = await self.get_team_capacity_limits(guild)
             embed = self.build_team_list_embed(guild, capacities)
             await msg.edit(embed=embed)
