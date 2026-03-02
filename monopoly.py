@@ -4812,33 +4812,47 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error saving team list config: {e}")
 
     def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams and their cap status."""
+        """Constructs the roster embed showing all teams, keeping captains at the top."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
         description = ""
+
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
-            # Format the "FULL" warning
-            cap_status = " 🔴 **(FULL)**" if cap_data["is_full"] else ""
+            # Removed the extra ** from here so it doesn't conflict with the header bolding
+            cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
                 members = role.members
+                # Wrap the entire header line cleanly in one set of bold tags
                 description += f"**{team_name} (Size: {len(members)}/{cap_data['max']}){cap_status}**\n"
                 
                 if members:
+                    captains_list = []
+                    players_list = []
+                    
+                    # 1. Sort members into captains and regular players
                     for member in members:
                         if self.has_event_captain_role(member):
-                            description += f"👑 {member.mention} • **Captain**\n"
+                            captains_list.append(member)
                         else:
-                            description += f"👤 {member.mention}\n"
+                            players_list.append(member)
+                            
+                    # 2. Add Captains to the embed first!
+                    for cap in captains_list:
+                        description += f"👑 {cap.mention} • **Captain**\n"
+                        
+                    # 3. Add the rest of the players underneath
+                    for player in players_list:
+                        description += f"👤 {player.mention}\n"
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role not found.*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
                 
-            description += "\n"
+            description += "\n" # Add space between teams
                 
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
