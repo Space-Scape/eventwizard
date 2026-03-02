@@ -4512,10 +4512,19 @@ class MonopolyCog(commands.Cog):
         return None
 
     async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
-        """Calculates dynamic team caps based on the Signups sheet."""
+        """Calculates dynamic team caps based on the Signups sheet (Row 10 and below)."""
         try:
-            records = await asyncio.to_thread(self.signup_sheet.get_all_records)
-            total_draftable_players = len(records)
+            # Get raw values to bypass header parsing and slice exactly at Row 10
+            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            
+            total_draftable_players = 0
+            
+            # values[9:] grabs everything from Row 10 downwards (0-indexed)
+            if len(values) >= 10:
+                for row in values[9:]:
+                    # Check if the row actually contains data (a name) to prevent counting empty rows
+                    if any(str(cell).strip() for cell in row):
+                        total_draftable_players += 1
             
             active_captains = len(ACTIVE_TEAMS)
             if active_captains == 0: 
@@ -4634,25 +4643,20 @@ class MonopolyCog(commands.Cog):
             await interaction.response.edit_message(embed=embed, view=self)
 
     class TeamSelectionView(ui.View):
-        def __init__(self, cog, capacities, member: discord.Member, guild: discord.Guild):
-            super().__init__(timeout=180)
+        def __init__(self, cog, guild: discord.Guild):
+            # timeout=None ensures the buttons never expire so anyone can click them anytime!
+            super().__init__(timeout=None)
             self.cog = cog
-            self.member = member
             
             for team in ACTIVE_TEAMS:
-                cap_data = capacities.get(team, {"current": 0, "max": 99, "is_full": False})
                 captain = self.cog.get_team_captain(guild, team)
-                
                 # Use Captain's display name if found, otherwise default to Team name
                 cap_name = captain.display_name if captain else team
                 
-                is_full = cap_data["is_full"]
-                btn_label = f"{cap_name} (Full)" if is_full else f"{cap_name} ({cap_data['current']}/{cap_data['max']})"
-                
+                # Button is always clickable and only shows the Captain's name
                 btn = ui.Button(
-                    label=btn_label,
-                    style=discord.ButtonStyle.secondary if is_full else discord.ButtonStyle.primary,
-                    disabled=is_full,
+                    label=cap_name,
+                    style=discord.ButtonStyle.primary,
                     custom_id=f"req_{team}"
                 )
                 btn.callback = self.make_callback(team, captain, cap_name)
@@ -4660,45 +4664,52 @@ class MonopolyCog(commands.Cog):
 
         def make_callback(self, team_name, captain: discord.Member, cap_name: str):
             async def callback(interaction: discord.Interaction):
-                if interaction.user.id != self.member.id:
-                    await interaction.response.send_message("❌ This menu is not for you.", ephemeral=True)
+                # 1. Check if the clicker is already on a team
+                current_team = self.cog.get_team(interaction.user)
+                if current_team:
+                    await interaction.response.send_message(f"❌ You are already on **{current_team}**!", ephemeral=True)
                     return
                 
-                await interaction.response.edit_message(content=f"✅ Request sent to **{cap_name}**!", view=None, embed=None)
+                # 2. Check the capacity dynamically AT THE TIME of the click
+                capacities = await self.cog.get_team_capacity_limits(interaction.guild)
+                team_cap_data = capacities.get(team_name, {"is_full": False})
                 
+                if team_cap_data["is_full"]:
+                    # Private error sent only to the person who clicked
+                    await interaction.response.send_message(f"❌ **Action Denied:** {cap_name}'s team is currently at maximum capacity.", ephemeral=True)
+                    return
+                
+                # 3. Success! Send the request to the Captain
                 request_channel = self.cog.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
                 if request_channel:
                     embed = discord.Embed(
                         title="📥 New Team Request",
-                        description=f"**{self.member.mention}** has requested to join **{team_name}**!",
+                        description=f"**{interaction.user.mention}** has requested to join **{team_name}**!",
                         color=discord.Color.blue()
                     )
-                    view = self.cog.CaptainApprovalView(self.cog, self.member, team_name)
+                    view = self.cog.CaptainApprovalView(self.cog, interaction.user, team_name)
                     
-                    # Ping the captain dynamically if they exist!
                     ping_text = captain.mention if captain else f"Attention {team_name} Captain!"
                     await request_channel.send(content=ping_text, embed=embed, view=view)
+                    
+                    await interaction.response.send_message(f"✅ Request sent to **{cap_name}**!", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ Team request channel not found.", ephemeral=True)
             return callback
 
-    @app_commands.command(name="team_request", description="Request to join a specific captain's team.")
+    @app_commands.command(name="team_request", description="Post a public team request board.")
     async def team_request(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        current_team = self.get_team(interaction.user)
-        if current_team:
-            await interaction.followup.send(f"❌ You are already on **{current_team}**!", ephemeral=True)
-            return
-            
-        capacities = await self.get_team_capacity_limits(interaction.guild)
+        # Make the panel public so everyone can see and click the buttons
+        await interaction.response.defer(ephemeral=False)
         
         embed = discord.Embed(
             title="🤝 Join a Team",
-            description="Select a Captain below to send them a request to join their team. If a button is disabled, their team has reached maximum capacity based on the signup sheet.",
+            description="Click a Captain below to send them a request to join their team. If their team is full, the bot will let you know!",
             color=discord.Color.blurple()
         )
         
-        view = self.TeamSelectionView(self, capacities, interaction.user, interaction.guild)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view = self.TeamSelectionView(self, interaction.guild)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="player_request", description="[Captains Only] Request a player to join your team.")
     @app_commands.describe(player="The player you want to invite to your team")
@@ -4753,12 +4764,14 @@ class MonopolyCog(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=False)
-        embed = self.build_team_list_embed(interaction.guild)
+        
+        # Calculate capacities before building the embed
+        capacities = await self.get_team_capacity_limits(interaction.guild)
+        embed = self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
         self.save_team_list_config(interaction.channel_id, msg.id)
         
-        # Follow up privately so the channel stays clean
         await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
 
     @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
@@ -4774,11 +4787,11 @@ class MonopolyCog(commands.Cog):
             msg_id_int = int(message_id.strip())
             msg = await interaction.channel.fetch_message(msg_id_int)
             
-            # Save the new hook
             self.save_team_list_config(interaction.channel_id, msg.id)
             
             # Immediately force an update to prove it works
-            embed = self.build_team_list_embed(interaction.guild)
+            capacities = await self.get_team_capacity_limits(interaction.guild)
+            embed = self.build_team_list_embed(interaction.guild, capacities)
             await msg.edit(embed=embed)
             
             await interaction.followup.send("✅ Successfully linked and updated the team list message!", ephemeral=True)
@@ -4788,16 +4801,6 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ Invalid message ID format.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-    
-    def load_team_list_config(self):
-        """Loads the saved team list message ID from a local file."""
-        try:
-            if os.path.exists(TEAM_LIST_CONFIG_FILE):
-                with open(TEAM_LIST_CONFIG_FILE, "r") as f:
-                    return json.load(f)
-        except Exception as e:
-            print(f"❌ Error loading team list config: {e}")
-        return {"channel_id": None, "message_id": None}
 
     def save_team_list_config(self, channel_id: int, message_id: int):
         """Saves the team list message ID so it survives bot resets."""
@@ -4807,28 +4810,34 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    def build_team_list_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Constructs the roster embed showing all teams and their members."""
+    def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
+        """Constructs the roster embed showing all teams and their cap status."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
         description = ""
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
+            cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
+            
+            # Format the "FULL" warning
+            cap_status = " 🔴 **(FULL)**" if cap_data["is_full"] else ""
+            
             if role:
                 members = role.members
-                description += f"**{team_name} (Size: {len(members)})**\n"
+                description += f"**{team_name} (Size: {len(members)}/{cap_data['max']}){cap_status}**\n"
                 
                 if members:
                     for member in members:
-                        # Emphasize Captains with an emoji to match your screenshot style
                         if self.has_event_captain_role(member):
                             description += f"👑 {member.mention} • **Captain**\n"
                         else:
                             description += f"👤 {member.mention}\n"
                 else:
                     description += "*No members drafted yet.*\n"
+            else:
+                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role not found.*\n"
                 
-                description += "\n" # Add a blank line between teams
+            description += "\n"
                 
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
@@ -4849,7 +4858,9 @@ class MonopolyCog(commands.Cog):
             
         try:
             msg = await channel.fetch_message(message_id)
-            embed = self.build_team_list_embed(guild)
+            # Fetch fresh math and build the new embed
+            capacities = await self.get_team_capacity_limits(guild)
+            embed = self.build_team_list_embed(guild, capacities)
             await msg.edit(embed=embed)
         except discord.NotFound:
             print("❌ Live team list message was deleted.")
