@@ -4561,7 +4561,7 @@ class MonopolyCog(commands.Cog):
                 
             max_non_captains_per_team = math.ceil(total_draftable_players / active_captains)
             
-            max_team_size = max_non_captains_per_team + 3
+            max_team_size = max_non_captains_per_team + 2
 
             capacity_data = {}
             for team_name in ACTIVE_TEAMS:
@@ -4787,6 +4787,61 @@ class MonopolyCog(commands.Cog):
     # 📋 LIVE TEAM LIST LOGIC
     # ==========================================
 
+    @app_commands.command(name="signup_list", description="View the current list of signed-up players.")
+    async def signup_list(self, interaction: discord.Interaction):
+        # We defer so the bot has time to fetch from Google Sheets without timing out
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            # 1. Fetch all data from the sheet
+            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            
+            rsn_list = []
+            
+            # 2. Slice from Row 10 downwards (Index 9)
+            if len(values) >= 10:
+                for row in values[9:]:
+                    # Column C is Index 2. Make sure the row actually has at least 3 columns!
+                    if len(row) > 2:
+                        rsn = str(row[2]).strip()
+                        # Only add it if the cell isn't empty
+                        if rsn:
+                            rsn_list.append(rsn)
+                            
+            # 3. Handle the empty state
+            if not rsn_list:
+                embed = discord.Embed(
+                    title="📝 Current Signups",
+                    description="No one has signed up yet! Use `/signup` to be the first.",
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+            # 4. Build the numbered list
+            description = ""
+            for i, rsn in enumerate(rsn_list, 1):
+                line = f"**{i}.** {rsn}\n"
+                
+                # Safety check: Discord embeds max out at 4096 characters in the description
+                if len(description) + len(line) > 4000:
+                    description += "\n*...and more! (List too long for Discord)*"
+                    break
+                    
+                description += line
+                
+            embed = discord.Embed(
+                title=f"📝 Current Signups ({len(rsn_list)} Total)",
+                description=description,
+                color=discord.Color.blue()
+            )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            print(f"❌ Error in /signup_list: {e}")
+            await interaction.followup.send(f"❌ An error occurred while fetching the list: {e}", ephemeral=True)
+    
     @app_commands.command(name="team_list", description="Post a live-updating roster of all teams.")
     async def team_list(self, interaction: discord.Interaction):
         if not self.has_event_staff_role(interaction.user):
