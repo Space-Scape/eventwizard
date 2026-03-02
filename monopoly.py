@@ -1262,6 +1262,9 @@ class MonopolyCog(commands.Cog):
                 color=discord.Color.green()
             )
             await interaction.followup.send(embed=success_embed, ephemeral=False)
+
+            asyncio.create_task(self.update_live_team_list(interaction.guild))
+            
         except Exception as e:
             print(f"❌ Error in /signup: {e}")
             traceback.print_exc()
@@ -4501,6 +4504,23 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in trigger_passive_random_event: {e}")
 
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """Listens for manual Discord role changes and updates the team list automatically."""
+        # Quick exit if their roles didn't change
+        if before.roles == after.roles:
+            return
+
+        # Check if the change involved any of our active teams
+        before_teams = set(r.name for r in before.roles if r.name in ACTIVE_TEAMS)
+        after_teams = set(r.name for r in after.roles if r.name in ACTIVE_TEAMS)
+
+        if before_teams != after_teams:
+            print(f"🔄 Role change detected for {after.display_name}. Updating live team list...")
+            # Brief pause to ensure Discord's cache has updated before we take the snapshot
+            await asyncio.sleep(1.5)
+            await self.update_live_team_list(after.guild)
+    
     def get_team_captain(self, guild: discord.Guild, team_name: str) -> Optional[discord.Member]:
         """Dynamically finds the Captain of a specific team by checking roles."""
         team_role = discord.utils.get(guild.roles, name=team_name)
