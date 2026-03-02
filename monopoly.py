@@ -3650,11 +3650,14 @@ class MonopolyCog(commands.Cog):
     async def execute_targeted_card_effect(self, interaction: discord.Interaction, team_name: str, target_team: str, card_name: str, action: str, extra_data: dict):
         """Catches the dropdown selection and applies the effects of the card."""
         
+        # 1. Standardize imports to prevent 'local variable not associated with value' errors
+        import json
+        import random
+
         if action == "pickpocket":
             all_teams_data = extra_data.get("all_teams_data")
             caster_record = extra_data.get("caster_record")
             
-            # Find the specific target record based on the dropdown selection
             target_record = None
             highest_gp = 0 
             for record in all_teams_data:
@@ -3679,7 +3682,7 @@ class MonopolyCog(commands.Cog):
             target_row_idx = all_teams_data.index(target_record) + 2
             caster_row_idx = all_teams_data.index(caster_record) + 2
 
-            # 2. Check Redemption (Total Fizzle)
+            # Check Redemption
             if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
                 if victim_channel:
@@ -3687,68 +3690,76 @@ class MonopolyCog(commands.Cog):
                     await victim_channel.send(embed=fizzle_embed)
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            # 3. Check Vengeance (Rebound to Caster)
+            # Check Vengeance
             elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
                 base_percent = 0.20
                 maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                maul_note = ""
-                if maul_active:
-                    base_percent = 0.10
-                    maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
+                steal_amount = max(1, int(caster_gp * (0.10 if maul_active else base_percent)))
+                
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, max(0, caster_gp - steal_amount))
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, highest_gp + steal_amount)
 
-                steal_amount = max(1, int(caster_gp * base_percent))
-                new_caster_gp = max(0, caster_gp - steal_amount)
-                new_target_gp = highest_gp + steal_amount
+                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! They stole **{steal_amount:,} GP** from your team instead!"
 
-                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
-                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
-
-                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! They stole **{steal_amount:,} GP** from **{team_name}** instead!{maul_note}"
-
-                if victim_channel:
-                    victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Vengeance** rebounded it! You stole **{steal_amount:,} GP** from them!{maul_note}", color=discord.Color.green())
-                    await victim_channel.send(embed=victim_embed)
-                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-            # 4. Normal Hit (Caster steals from Target)
+            # Normal Hit
             else:
                 base_percent = 0.20
                 maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                maul_note = ""
-                if maul_active:
-                    base_percent = 0.10
-                    maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
+                steal_amount = max(1, int(highest_gp * (0.10 if maul_active else base_percent)))
 
-                steal_amount = max(1, int(highest_gp * base_percent))
-                new_target_gp = max(0, highest_gp - steal_amount)
-                new_caster_gp = caster_gp + steal_amount
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, max(0, highest_gp - steal_amount))
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, caster_gp + steal_amount)
 
-                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
-                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
-
-                embed_description += f"> Stole **{steal_amount:,} GP** from **{target_team}**!{maul_note}"
-
+                embed_description += f"> Stole **{steal_amount:,} GP** from **{target_team}**!"
                 if victim_channel:
-                    maul_msg = "\n\n🛡️ Your **Elder Maul** activated and halved the losses!" if maul_active else ""
-                    victim_embed = discord.Embed(
-                        title="💸 Pickpocketed!",
-                        description=f"**{team_name}** used **Pickpocket** and stole **{steal_amount:,} GP** from your team.{maul_msg}",
-                        color=discord.Color.dark_red() if not maul_active else discord.Color.blue()
-                    )
-                    await victim_channel.send(embed=victim_embed)
-                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                    
-            # Send the final receipt to the channel where the card was used
-            final_embed = discord.Embed(title="🃏 Pickpocket Used!", description=embed_description, color=discord.Color.dark_gold())
-            await interaction.channel.send(embed=final_embed)
+                    v_emb = discord.Embed(title="💸 Pickpocketed!", description=f"**{team_name}** stole **{steal_amount:,} GP** from your team.", color=discord.Color.dark_red())
+                    await victim_channel.send(embed=v_emb)
+
+            await self.remove_card(team_name, "Pickpocket")
+            await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
+            await interaction.channel.send(embed=discord.Embed(title="🃏 Pickpocket Used!", description=embed_description, color=discord.Color.dark_gold()))
 
         elif action == "rogues_gloves":
-            # Retrieve memory passed from the dropdown
+            stealable_cards = extra_data.get("stealable_cards", [])
+            target_cards = [c for c in stealable_cards if c["victim_team"] == target_team]
+            
+            if not target_cards:
+                await interaction.channel.send("❌ Error: No cards found for that target.")
+                return
+            
+            stolen_card = random.choice(target_cards)
+            victim_team = target_team
+            target_sheet = stolen_card["sheet"]
+            target_row = stolen_card["row_index"]
+            victim_channel = self.get_team_channel(victim_team)
+
+            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
+                embed_description = f"🧤 **{team_name}**'s Rogue's Gloves fizzled! **{victim_team}**'s Redemption activated!"
+                if victim_channel:
+                    await victim_channel.send(embed=discord.Embed(title="🛡️ Redemption Activated", description=f"You blocked {team_name}'s Rogue's Gloves!", color=discord.Color.blue()))
+            
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
+                embed_description = f"🧤 Rebounded! **{victim_team}**'s Vengeance caused the steal to fail."
+                if victim_channel:
+                    await victim_channel.send(embed=discord.Embed(title="⚔️ Vengeance Activated", description=f"You rebounded {team_name}'s Rogue's Gloves!", color=discord.Color.red()))
+
+            else:
+                held_by_str = str(target_sheet.cell(target_row, 3).value or "")
+                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                if victim_team in teams: teams.remove(victim_team)
+                if team_name not in teams: teams.append(team_name)
+                target_sheet.update_cell(target_row, 3, ", ".join(teams))
+                embed_description = f"🧤 **{team_name}** used Rogue's Gloves to steal **{stolen_card['card_name']}** from **{victim_team}**!"
+
+            await self.remove_card(team_name, "Rogue's Gloves")
+            await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
+            await interaction.channel.send(embed=discord.Embed(title="🃏 Rogue's Gloves Used!", description=embed_description, color=discord.Color.dark_gray()))
+
+        elif action == "rogues_gloves":
             stealable_cards = extra_data.get("stealable_cards", [])
             card_sheet = extra_data.get("rg_sheet")
             card_row = extra_data.get("rg_row")
 
-            # Filter the stealable cards down to ONLY the team the Captain clicked
             target_cards = [c for c in stealable_cards if c["victim_team"] == target_team]
             if not target_cards:
                 await interaction.channel.send("❌ Error: No cards found for that target.")
@@ -4088,7 +4099,6 @@ class MonopolyCog(commands.Cog):
                     await victim_channel.send(embed=victim_embed)
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
-            # --- DEDUCT THE CARD FROM INVENTORY ---
             card_sheet = extra_data.get("card_sheet")
             card_row = extra_data.get("card_row")
             wildcard_data = extra_data.get("wildcard_data", {})
