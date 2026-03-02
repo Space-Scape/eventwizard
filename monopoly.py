@@ -1288,6 +1288,11 @@ class MonopolyCog(commands.Cog):
             # Combine these two flags into one threaded call if possible, or run them back-to-back
             await asyncio.to_thread(self.set_used_card_flag, team_name, "no")
             await asyncio.to_thread(self.set_bought_house_flag, team_name, "no")
+
+            # --- ADDED: Clear Random Event flags ---
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Silenced"))
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Double Card"))
+
         except Exception as e:
             print(f"❌ Error during turn reset: {e}")
 
@@ -1316,7 +1321,28 @@ class MonopolyCog(commands.Cog):
             return
 
         # 3. Dice Roll Execution
-        result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
+        raw_result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
+        
+        # --- ADDED: Apply Pre-Roll Nerfs ---
+        team_record = all_records[team_row_index-2]
+        is_poisoned = str(team_record.get("Poisoned Roll", "no")).strip().lower() == "yes"
+        is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
+        try:
+            roll_penalty = int(team_record.get("Roll Penalty", 0))
+        except ValueError:
+            roll_penalty = 0
+
+        result = raw_result
+        if is_poisoned:
+            result = min(result, 3)
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Poisoned Roll"))
+        if is_halved:
+            result = max(1, result // 2)
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Halved"))
+        if roll_penalty > 0:
+            result = max(1, result - roll_penalty)
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Penalty"))
+
         await asyncio.to_thread(self.decrement_rolls_available, team_name)
 
         raw_pos = current_tile + result
@@ -1333,9 +1359,20 @@ class MonopolyCog(commands.Cog):
                 cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
                 cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
                 
+                # --- ADDED: Ents GP Halved Check ---
+                is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
+                go_reward = 10_000_000 if is_gp_halved else 20_000_000
+                
+                if is_gp_halved:
+                    asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
+
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
-                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + 20_000_000)
-                go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
+                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + go_reward)
+                
+                if is_gp_halved:
+                    go_message = f"🌳 **THE ENTS TOOK THEIR TOLL!** You passed **GO**, but your gear was damaged. You only received **10,000,000 GP**!"
+                else:
+                    go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
 
@@ -1354,9 +1391,20 @@ class MonopolyCog(commands.Cog):
                     cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
                     cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
                     
+                    # --- ADDED: Ents GP Halved Check ---
+                    is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
+                    glider_reward = 10_000_000 if is_gp_halved else 20_000_000
+                    
+                    if is_gp_halved:
+                        asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
+
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + 20_000_000)
-                    go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
+                    
+                    if is_gp_halved:
+                        go_message = f"🌳 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
+                    else:
+                        go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
                 except Exception as e:
                     print(f"❌ Error updating Glider Go Bonus: {e}")
             else:
@@ -1371,9 +1419,21 @@ class MonopolyCog(commands.Cog):
         await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pos_idx, new_pos)
         
         tile_name = self.get_tile_name_for_display(new_pos)
+        
+        # --- ADDED: Dynamic Roll Description ---
+        roll_desc = f"**{interaction.user.display_name}** rolled a **{raw_result}**!"
+        if is_poisoned:
+            roll_desc += f"\n🥀 *Your poison capped your roll at **{result}**!*"
+        elif is_halved:
+            roll_desc += f"\n🏋️ *The Demon's exhaustion cut your roll to **{result}**!*"
+        elif roll_penalty > 0:
+            roll_desc += f"\n🪦 *The Gravedigger's fatigue reduced your roll to **{result}**!*"
+            
+        roll_desc += f"\nMoving to the **{tile_name}** tile."
+        
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
-            description=f"**{interaction.user.display_name}** rolled a **{result}**! Moving to the **{tile_name}** tile.",
+            description=roll_desc,
             color=discord.Color.blue()
         )
         await interaction.followup.send(embed=roll_embed)
@@ -1390,6 +1450,16 @@ class MonopolyCog(commands.Cog):
 
         # Final checks (Cards & Free Rolls)
         await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
+
+        # --- ADDED: PASSIVE RANDOM EVENT ENGINE ---
+        try:
+            team_mult = float(all_records[team_row_index-2].get("Multiplier", 1))
+        except ValueError:
+            team_mult = 1.0
+
+        spawn_chance = int(team_mult * 5)
+        if random.randint(1, 100) <= spawn_chance:
+            asyncio.create_task(self.trigger_passive_random_event(interaction.channel, team_name))
 
 
     def _get_tile_boss_map(self) -> dict[int, list[str]]:
@@ -1556,6 +1626,22 @@ class MonopolyCog(commands.Cog):
         else:
             return f"{gp:,}"
 
+    def clear_flag_column(self, team_name: str, column_name: str):
+        """Helper to quickly clear a status flag from the TeamData sheet."""
+        try:
+            records = self.team_data_sheet.get_all_records()
+            headers = list(records[0].keys())
+            if column_name not in headers:
+                return
+                
+            col_idx = headers.index(column_name) + 1
+            for idx, r in enumerate(records, start=2):
+                if r.get("Team", "").strip() == team_name:
+                    self.team_data_sheet.update_cell(idx, col_idx, "") # Clear the cell
+                    break
+        except Exception as e:
+            print(f"❌ Error clearing {column_name} flag for {team_name}: {e}")
+    
     @app_commands.command(name="show_drops", description="Show available drops and prices for your current tile.")
     @app_commands.checks.has_any_role(*TEAM_ROLES)
     async def show_drops(self, interaction: Interaction):
@@ -4104,6 +4190,277 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in /random_event: {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ A database error occurred while rolling the random event.", ephemeral=True)
+
+    async def trigger_passive_random_event(self, channel: discord.TextChannel, team_name: str):
+        """Silently handles a random event if the 5% spawn chance is met in /roll."""
+        try:
+            # 1. Fetch a fresh snapshot so we have their updated GP and Position from the roll
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            team_info = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), None)
+            if not team_info: return
+
+            chosen_team = str(team_info.get("Team")).strip()
+            team_row_idx = records.index(team_info) + 2
+            
+            # Find max multiplier on the board for the Buff math
+            team_multipliers = []
+            for row in records:
+                try:
+                    mult = float(row.get("Multiplier", 1))
+                except ValueError:
+                    mult = 1.0
+                team_multipliers.append(mult)
+                
+            max_mult = max(team_multipliers) if team_multipliers else 1.0
+            
+            # Get Victim's Multiplier
+            try:
+                victim_mult = float(team_info.get("Multiplier", 1))
+            except ValueError:
+                victim_mult = 1.0
+
+            # 2. Determine Nerf vs Buff using the Inverse Weight Math
+            nerf_weight = victim_mult
+            buff_weight = (max_mult - victim_mult) + 1.0
+            
+            event_type = random.choices(["nerf", "buff"], weights=[nerf_weight, buff_weight], k=1)[0]
+            
+            headers = list(records[0].keys())
+            gp_col = headers.index("GP") + 1 if "GP" in headers else -1
+            current_gp = int(str(team_info.get("GP", 0)).replace(',', ''))
+            current_pos = int(team_info.get("Position", 0))
+
+            embed_desc = ""
+            event_title = ""
+            embed_color = discord.Color.red() if event_type == "nerf" else discord.Color.green()
+
+            # ==========================================
+            # 🔴 NERF MECHANICS
+            # ==========================================
+            if event_type == "nerf":
+                event_title = "⚠️ A Disastrous Random Event Appears!"
+                nerf_pool = [
+                    "dwarf", "whirlpool", "ents", "forester", "bob", "twin", 
+                    "pete", "gravedigger", "sandwich", "jekyll", "demon", 
+                    "plant", "beekeeper", "mime", "maze"
+                ]
+                chosen_nerf = random.choice(nerf_pool)
+
+                if chosen_nerf == "dwarf":
+                    fine = int(current_gp * 0.20)
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp - fine)
+                    embed_desc = f"🍺 **The Drunken Dwarf!**\n*\"Have a kebab, mate!\"* The dwarf corners **{chosen_team}** and forces them to pay his massive bar tab! They lose **20%** of their total wealth (**{fine:,} GP**)!"
+
+                elif chosen_nerf == "ents":
+                    col = headers.index("GP Halved") + 1 if "GP Halved" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! Their gear is damaged. **All GP earned is cut in half** until their next roll!"
+
+                elif chosen_nerf == "forester":
+                    all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
+                    all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
+                    owned_cards = []
+                    for idx, r in enumerate(all_chance, start=2):
+                        if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]:
+                            owned_cards.append({"sheet": self.chance_sheet, "row": idx, "data": r})
+                    for idx, r in enumerate(all_chest, start=2):
+                        if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]:
+                            owned_cards.append({"sheet": self.chest_sheet, "row": idx, "data": r})
+                            
+                    if owned_cards:
+                        card_to_lose = random.choice(owned_cards)
+                        teams_holding = [t.strip() for t in str(card_to_lose["data"].get("Held By Team", "")).split(",") if t.strip() != chosen_team]
+                        await asyncio.to_thread(card_to_lose["sheet"].update_cell, card_to_lose["row"], 3, ", ".join(teams_holding))
+                        embed_desc = f"🌽 **The Freaky Forester!**\n*\"You killed the wrong pheasant!\"* The Forester banishes **{chosen_team}** and strips them of their **{card_to_lose['data'].get('Name')}** card!"
+                    else:
+                        fine = int(current_gp * 0.15)
+                        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp - fine)
+                        embed_desc = f"🌽 **The Freaky Forester!**\n*\"You killed the wrong pheasant!\"* **{chosen_team}** had no cards to give, so they were fined **15%** of their wealth (**{fine:,} GP**)!"
+
+                elif chosen_nerf == "whirlpool":
+                    spaces_back = random.randint(1, 6)
+                    new_pos = max(0, current_pos - spaces_back)
+                    if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
+                    embed_desc = f"🌀 **The Whirlpool!**\nA sudden whirlpool sucks **{chosen_team}** under! They wash up **{spaces_back}** spaces backwards on Tile **{new_pos}**!"
+
+                elif chosen_nerf == "sandwich":
+                    spaces_back = random.randint(1, 6)
+                    new_pos = max(0, current_pos - spaces_back)
+                    await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
+                    embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}** and receive **no tile rewards**!"
+
+                elif chosen_nerf == "demon":
+                    col = headers.index("Roll Halved") + 1 if "Roll Halved" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                    embed_desc = f"🏋️ **The Demon Drill Sergeant!**\n*\"Drop and give me 50!\"* The Demon exhausts **{chosen_team}**. Their next dice roll is strictly **cut in half**!"
+
+                elif chosen_nerf == "beekeeper":
+                    new_pos = max(0, current_pos - 3)
+                    if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
+                    embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **3 tiles** to Tile **{new_pos}**!"
+
+                elif chosen_nerf == "plant":
+                    col = headers.index("Poisoned Roll") + 1 if "Poisoned Roll" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                    embed_desc = f"🥀 **The Strange Plant!**\nA strange plant poisons **{chosen_team}**, severely draining their stamina! They can barely walk—their next dice roll **cannot exceed a 3**!"
+
+                elif chosen_nerf == "jekyll":
+                    house_records = await asyncio.to_thread(self.house_data_sheet.get_all_records)
+                    owned_houses = [r for r in house_records if str(r.get("OwnerTeam", "")).strip() == chosen_team]
+                    if owned_houses:
+                        target_prop = random.choice(owned_houses)
+                        prop_idx = house_records.index(target_prop) + 2
+                        current_count = int(target_prop.get("HouseCount", 0))
+                        if current_count <= 1:
+                            await asyncio.to_thread(self.house_data_sheet.update_cell, prop_idx, 3, "") 
+                            await asyncio.to_thread(self.house_data_sheet.update_cell, prop_idx, 4, 0)
+                        else:
+                            await asyncio.to_thread(self.house_data_sheet.update_cell, prop_idx, 4, current_count - 1)
+                        await asyncio.to_thread(self.sync_houses_owned, chosen_team)
+                        embed_desc = f"🧪 **Mr. Hyde's Rampage!**\n**{chosen_team}** refused to hand over a guam leaf... Mr. Hyde goes berserk! **1 House** on Tile **{target_prop.get('Tile')}** has been completely destroyed!"
+                    else:
+                        embed_desc = f"🧪 **Mr. Hyde's Rampage!**\nMr. Hyde attacks **{chosen_team}**, but they don't own any houses to destroy! They narrowly escape."
+
+                elif chosen_nerf == "gravedigger":
+                    col = headers.index("Roll Penalty") + 1 if "Roll Penalty" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "3")
+                    embed_desc = f"🪦 **The Gravedigger!**\nLeo forces **{chosen_team}** to organize heavy coffins. A heavy fatigue penalty is applied; their next dice roll will receive a strict **-3 penalty**!"
+
+                elif chosen_nerf == "maze":
+                    spaces_back = random.randint(1, 12)
+                    new_pos = max(0, current_pos - spaces_back)
+                    if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
+                    embed_desc = f"🧩 **The Mysterious Old Man's Maze!**\n**{chosen_team}** is dragged into the maze and completely loses their sense of direction! They eventually stumble out **{spaces_back}** spaces backwards, ending up on Tile **{new_pos}**!"
+
+                elif chosen_nerf == "twin":
+                    all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
+                    all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
+                    owned_cards = []
+                    for idx, r in enumerate(all_chance, start=2):
+                        if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]:
+                            owned_cards.append({"sheet": self.chance_sheet, "row": idx, "data": r})
+                    for idx, r in enumerate(all_chest, start=2):
+                        if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]:
+                            owned_cards.append({"sheet": self.chest_sheet, "row": idx, "data": r})
+                            
+                    if owned_cards:
+                        card_to_lose = random.choice(owned_cards)
+                        teams_holding = [t.strip() for t in str(card_to_lose["data"].get("Held By Team", "")).split(",") if t.strip() != chosen_team]
+                        underdogs = [str(r.get("Team", "")) for r in records if float(r.get("Multiplier", 1)) == 1.0 and str(r.get("Team", "")) != chosen_team]
+                        beneficiary = random.choice(underdogs) if underdogs else None
+                        
+                        if beneficiary:
+                            teams_holding.append(beneficiary)
+                            await asyncio.to_thread(card_to_lose["sheet"].update_cell, card_to_lose["row"], 3, ", ".join(teams_holding))
+                            embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin frames **{chosen_team}**! Their **{card_to_lose['data'].get('Name')}** card is confiscated by the authorities and awarded to **{beneficiary}** as compensation!"
+                        else:
+                            await asyncio.to_thread(card_to_lose["sheet"].update_cell, card_to_lose["row"], 3, ", ".join(teams_holding))
+                            embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin frames **{chosen_team}**! Their **{card_to_lose['data'].get('Name')}** card is confiscated by the authorities and destroyed!"
+                    else:
+                        embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin attempts to frame **{chosen_team}**, but their pockets are completely empty!"
+
+                elif chosen_nerf == "pete":
+                    await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": 10})
+                    if hasattr(self, "set_jail_status"): await asyncio.to_thread(self.set_jail_status, chosen_team, "yes")
+                    embed_desc = f"🎈 **Prison Pete!**\n**{chosen_team}** is trapped in the balloon animal cage! They are instantly dragged to **Tile 10 (Jail)**!"
+
+                elif chosen_nerf == "bob":
+                    if hasattr(self, "set_teleblock_status"): await asyncio.to_thread(self.set_teleblock_status, chosen_team, "yes")
+                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch uncerted fish! They are **Teleblocked** until their next roll!"
+
+                elif chosen_nerf == "mime":
+                    col = headers.index("Silenced") + 1 if "Silenced" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                    embed_desc = f"🎭 **The Mime!**\n**{chosen_team}** failed to copy the Mime's emotes! A silencing aura is cast over them. They are **unable to use ANY cards** until they roll the dice again!"
+
+            # ==========================================
+            # 🟢 BUFF MECHANICS
+            # ==========================================
+            else:
+                event_title = "✨ A Blessing Appears!"
+                buff_pool = ["certers", "arnav", "oldman", "frog", "countcheck", "exam", "genie"]
+                chosen_buff = random.choice(buff_pool)
+
+                if chosen_buff == "certers":
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
+                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles uncert some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
+
+                elif chosen_buff == "arnav":
+                    all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
+                    available_cards = [r for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]]
+                    if available_cards:
+                        drawn_card = random.choice(available_cards)
+                        card_idx = all_chest.index(drawn_card) + 2
+                        current_holders = [t.strip() for t in str(drawn_card.get("Held By Team", "")).split(",") if t.strip()]
+                        current_holders.append(chosen_team)
+                        await asyncio.to_thread(self.chest_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
+                        embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** successfully cracked the combination! They have been granted a free **{drawn_card.get('Name')}** Chest card!"
+                    else:
+                        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
+                        embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** opened the chest but already has all the cards! They found **10,000,000 GP** instead!"
+
+                elif chosen_buff == "oldman":
+                    all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
+                    available_cards = [r for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]]
+                    if available_cards:
+                        drawn_card = random.choice(available_cards)
+                        card_idx = all_chance.index(drawn_card) + 2
+                        current_holders = [t.strip() for t in str(drawn_card.get("Held By Team", "")).split(",") if t.strip()]
+                        current_holders.append(chosen_team)
+                        await asyncio.to_thread(self.chance_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
+                        embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** successfully solved the Strange Box! They have been granted a free **{drawn_card.get('Name')}** Chance card!"
+                    else:
+                        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
+                        embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** solved the box but already has all the cards! They found **10,000,000 GP** inside instead!"
+
+                elif chosen_buff == "frog":
+                    await asyncio.to_thread(self.increment_rolls_available, chosen_team)
+                    embed_desc = f"🐸 **Kiss the Frog!**\n**{chosen_team}** kisses the royal frog and breaks the curse! The Frog Princess has rewarded them with an immediate **Free Dice Roll**!"
+
+                elif chosen_buff == "countcheck":
+                    col = headers.index("Double Card") + 1 if "Double Card" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                    embed_desc = f"✅ **Count Check!**\n**{chosen_team}** sets up their Authenticator and Bank PIN! Their account security grants them the ability to use **TWO cards** on their current tile instead of just one!"
+
+                elif chosen_buff == "exam":
+                    all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
+                    all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
+                    owned_cards_count = sum(1 for r in all_chance + all_chest if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")])
+                    if owned_cards_count == 0:
+                        await asyncio.to_thread(self.increment_rolls_available, chosen_team)
+                        embed_desc = f"🍎 **Surprise Exam!**\nMr. Mordaut notices **{chosen_team}** has empty pockets and takes pity on them. He awards them a **Free Dice Roll**!"
+                    else:
+                        unowned_cards = [
+                            {"sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                        ] + [
+                            {"sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                        ]
+                        if unowned_cards:
+                            drawn_card = random.choice(unowned_cards)
+                            current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                            current_holders.append(chosen_team)
+                            await asyncio.to_thread(drawn_card["sheet"].update_cell, drawn_card["row"], 3, ", ".join(current_holders))
+                            embed_desc = f"🍎 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card['data'].get('Name')}** card!"
+                        else:
+                            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
+                            embed_desc = f"🍎 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, but they already know everything! He awards them a **10,000,000 GP** scholarship instead!"
+
+                elif chosen_buff == "genie":
+                    boost = int(current_gp * 0.15)
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + boost)
+                    embed_desc = f"🧞 **The Genie!**\n*\"A wish granted!\"* The Genie magically multiplies **{chosen_team}**'s wealth, granting them a permanent **15% boost** to their current GP stack (**+{boost:,} GP**)!"
+
+            # 4. Announce the Chaos to the channel!
+            embed = discord.Embed(title=event_title, description=embed_desc, color=embed_color)
+            await channel.send(embed=embed)
+            await self.mirror_to_game_log(channel, embed=embed)
+
+        except Exception as e:
+            print(f"❌ Error in trigger_passive_random_event: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
