@@ -1834,6 +1834,8 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in /gp command: {e}")
             await interaction.followup.send("❌ An error occurred while fetching GP balance.", ephemeral=True)
 
+    
+    
     @app_commands.command(name="stats", description="Show GP, Go Passes, and Houses Owned for all teams.")
     async def stats(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
@@ -2582,7 +2584,53 @@ class MonopolyCog(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-
+    class CardTargetView(discord.ui.View):
+        def __init__(self, cog, user_team: str, valid_targets: list, card_name: str, card_action: str, extra_data: dict = None):
+            super().__init__(timeout=180)
+            self.cog = cog
+            self.user_team = user_team
+            self.card_name = card_name
+            self.card_action = card_action
+            self.extra_data = extra_data or {} 
+    
+            options = []
+            for target in valid_targets:
+                desc = None
+                
+                # If Rogue's Gloves, show the eligible card count directly in the dropdown menu
+                if card_action == "rogues_gloves":
+                    try:
+                        # We can pull the exact count directly from the memory we passed in!
+                        stealable = self.extra_data.get("stealable_cards", [])
+                        target_count = len([c for c in stealable if c["victim_team"] == target])
+                        desc = f"Holding {target_count} eligible card(s)"
+                    except:
+                        desc = "Card count unknown"
+                        
+                options.append(discord.SelectOption(label=target, description=desc, value=target))
+    
+            select = discord.ui.Select(
+                placeholder=f"Select target for {card_name}...", 
+                options=options
+                # Removed custom_id to prevent conflicts if multiple cards are used at once
+            )
+            select.callback = self.select_callback
+            self.add_item(select)
+    
+        async def select_callback(self, interaction: discord.Interaction):
+            # Security: Only let the captain of the team that used the card click the dropdown
+            if self.cog.get_team(interaction.user) != self.user_team:
+                await interaction.response.send_message("❌ You cannot make selections for this team.", ephemeral=True)
+                return
+    
+            target_team = self.children[0].values[0]
+            
+            # Disable the dropdown so it can't be clicked twice
+            self.children[0].disabled = True
+            await interaction.response.edit_message(view=self)
+    
+            await self.cog.execute_targeted_card_effect(interaction, self.user_team, target_team, self.card_name, self.card_action, self.extra_data)
+    
     @app_commands.command(name="use_card", description="Use a held card by its index from /cards")
     @app_commands.describe(index="The index of the card you want to use (starts at 1)")
     async def use_card(self, interaction: discord.Interaction, index: int):
@@ -2787,6 +2835,7 @@ class MonopolyCog(commands.Cog):
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 caster_pos = -1
                 targets = []
+                actual_target_pos = -1
                 
                 for record in all_teams_data:
                     if record.get("Team") == team_name:
@@ -2794,18 +2843,34 @@ class MonopolyCog(commands.Cog):
                         break
                 
                 if caster_pos != -1:
+                    import random
+                    valid_targets_data = []
+                    
                     for record in all_teams_data:
                         opponent_team_name = record.get("Team")
                         if opponent_team_name == team_name:
                             continue
-                        if int(record.get("Position", -1)) == caster_pos:
-                            targets.append(opponent_team_name)
+                        
+                        opp_pos = int(record.get("Position", -1))
+                        
+                        # CHANGE: Target teams within 1 tile (ahead, behind, or same tile)
+                        if abs(opp_pos - caster_pos) <= 1:
+                            valid_targets_data.append((opponent_team_name, opp_pos))
+                            
+                    if valid_targets_data:
+                        # CHANGE: Randomly pick exactly ONE valid target
+                        chosen = random.choice(valid_targets_data)
+                        targets.append(chosen[0])
+                        actual_target_pos = chosen[1]
                 
                 if not targets:
-                    await interaction.followup.send("❌ Card effect failed: No other teams are on your tile.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
                     return 
 
-                embed_description = ""
+                # CHANGE: Updated message to show the auto-selected target
+                embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
+                
+                # Kept your exact loop structure so the indentation remains flawless
                 for target_team in targets:
                     victim_channel = self.get_team_channel(target_team)
                     
@@ -2880,7 +2945,8 @@ class MonopolyCog(commands.Cog):
                         final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
                         maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                         
-                        target_pos = caster_pos 
+                        # CHANGE: Base the pushback off the target's actual position
+                        target_pos = actual_target_pos 
                         intended_target_pos = max(0, target_pos + final_move_amount)
                         new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
                         glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
@@ -2908,9 +2974,17 @@ class MonopolyCog(commands.Cog):
                             await victim_channel.send(embed=victim_embed)
                             await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
+            # Send the final receipt
+            final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
+            await interaction.followup.send(embed=final_embed)
+            
+            await self.remove_card(team_name, card_name)
+            return
+
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
                 
+                # --- YOUR EXACT CHANCE PARSING LOGIC ---
                 chance_data = self.chance_sheet.get_all_values()
                 if chance_data:
                     headers = chance_data[0]
@@ -2943,14 +3017,15 @@ class MonopolyCog(commands.Cog):
                                     "card_type": "Chance",
                                     "victim_team": held_by_str.strip() 
                                 })
-
+    
+                # --- YOUR EXACT CHEST PARSING LOGIC ---
                 chest_data = self.chest_sheet.get_all_values()
                 if chest_data:
                     headers = chest_data[0]
                     name_col = headers.index("Name")
                     held_by_col = headers.index("Held By Team")
                     wildcard_col = headers.index("Wildcard")
-
+    
                     for i, row in enumerate(chest_data[1:], start=2):
                         if len(row) <= max(name_col, held_by_col, wildcard_col): continue
                         held_by_str = str(row[held_by_col] or "")
@@ -2964,15 +3039,16 @@ class MonopolyCog(commands.Cog):
                                 wildcard_data_json = json.loads(wildcard_str)
                             except:
                                 pass
-
+    
                             valid_victims = []
                             for holder in all_holders:
                                 if holder == team_name: continue
                                 holder_status = wildcard_data_json.get(holder)
                                 if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
                                     valid_victims.append(holder)
-
+    
                             if valid_victims:
+                                import random
                                 victim_team = random.choice(valid_victims) 
                                 stealable_cards.append({
                                     "sheet": self.chest_sheet,
@@ -2985,264 +3061,84 @@ class MonopolyCog(commands.Cog):
                 if not stealable_cards:
                     await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
                     return 
-
-                stolen_card = random.choice(stealable_cards)
-                victim_team = stolen_card["victim_team"]
-                target_sheet = stolen_card["sheet"]
-                target_row = stolen_card["row_index"]
-                
-                victim_channel = self.get_team_channel(victim_team)
-
-                if self.check_and_consume_redemption(victim_team):
-                    embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(
-                            title="<:redemption:1437979567900987493> Redemption Activated!",
-                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Redemption** activated!",
-                            color=discord.Color.blue()
-                        )
-                        await victim_channel.send(embed=fizzle_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-
-                elif self.check_and_consume_vengeance(victim_team):
-                    embed_description = (
-                        f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
-                        f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
-                    )
-
-                    # Build caster's card list (with sheet refs) and exclude the Rogue's Gloves being used right now
-                    caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
-                    caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
-
-                    caster_cards_with_sheet = []
-                    for c in caster_chest_cards:
-                        caster_cards_with_sheet.append({
-                            "sheet": self.chest_sheet,
-                            "row_index": c["row_index"],
-                            "card_name": c["name"],
-                            "card_type": "Chest"
-                        })
-                    for c in caster_chance_cards:
-                        caster_cards_with_sheet.append({
-                            "sheet": self.chance_sheet,
-                            "row_index": c["row_index"],
-                            "card_name": c["name"],
-                            "card_type": "Chance"
-                        })
-
-                    # Exclude the exact Rogue's Gloves card currently being consumed
-                    other_caster_cards = [
-                        c for c in caster_cards_with_sheet
-                        if not (c["sheet"] == card_sheet and c["row_index"] == card_row)
-                    ]
-
-                    stolen_from_caster_name = None
-
-                    if other_caster_cards:
-                        # Victim steals a random card from caster instead
-                        rebounded_card = random.choice(other_caster_cards)
-                        rebound_sheet = rebounded_card["sheet"]
-                        rebound_row = rebounded_card["row_index"]
-                        stolen_from_caster_name = rebounded_card["card_name"]
-
-                        held_by_str_rebound = str(rebound_sheet.cell(rebound_row, 3).value or "")
-                        teams_rebound = [t.strip() for t in held_by_str_rebound.split(',') if t.strip()]
-                        if team_name in teams_rebound:
-                            teams_rebound.remove(team_name)
-                        if victim_team not in teams_rebound:
-                            teams_rebound.append(victim_team)
-                        rebound_sheet.update_cell(rebound_row, 3, ", ".join(teams_rebound))
-
-                        wildcard_str_rebound = str(rebound_sheet.cell(rebound_row, 4).value or "{}")
-                        try:
-                            wildcard_data_json_rebound = json.loads(wildcard_str_rebound)
-                            caster_wildcard = wildcard_data_json_rebound.pop(team_name, None)
-                            if caster_wildcard is not None:
-                                wildcard_data_json_rebound[victim_team] = caster_wildcard
-                            rebound_sheet.update_cell(rebound_row, 4, json.dumps(wildcard_data_json_rebound))
-                        except Exception as e:
-                            print(f"❌ Error transferring wildcard data on Rogue's Gloves Vengeance rebound: {e}")
-
-                        embed_description += f"🧤 The steal rebounded! **{victim_team}** stole **{stolen_from_caster_name}** from **{team_name}** instead."
-
-                    else:
-                        # Caster has no other cards -> victim steals the Rogue's Gloves itself
-                        stolen_from_caster_name = "Rogue's Gloves"
-
-                        held_by_str_rg = str(card_sheet.cell(card_row, 3).value or "")
-                        teams_rg = [t.strip() for t in held_by_str_rg.split(',') if t.strip()]
-                        if team_name in teams_rg:
-                            teams_rg.remove(team_name)
-                        if victim_team not in teams_rg:
-                            teams_rg.append(victim_team)
-                        card_sheet.update_cell(card_row, 3, ", ".join(teams_rg))
-
-                        wildcard_str_rg = str(card_sheet.cell(card_row, 4).value or "{}")
-                        try:
-                            wildcard_data_json_rg = json.loads(wildcard_str_rg)
-                            caster_wildcard = wildcard_data_json_rg.pop(team_name, None)
-                            if caster_wildcard is not None:
-                                wildcard_data_json_rg[victim_team] = caster_wildcard
-                            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data_json_rg))
-                        except Exception as e:
-                            print(f"❌ Error transferring wildcard data for Rogue's Gloves on Vengeance rebound: {e}")
-
-                        embed_description += f"🧤 The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
-
-                    skull_embed = discord.Embed(
-                        title="<:venge:1438084953559797884> Vengeance Activated!",
-                        description=f"You activated **{victim_team}**'s Vengeance!\nThey stole your **{stolen_from_caster_name}** card!",
-                        color=discord.Color.dark_red()
-                    )
-                    await interaction.channel.send(embed=skull_embed)
-
-                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-
-                    if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.",
-                            color=discord.Color.dark_red()
-                        )
-                        await victim_channel.send(embed=victim_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                
-                else:
-                    held_by_str = str(target_sheet.cell(target_row, 3).value or "")
-                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if victim_team in teams:
-                        teams.remove(victim_team)
-                    if team_name not in teams:
-                        teams.append(team_name)
-                    target_sheet.update_cell(target_row, 3, ", ".join(teams))
-
-                    wildcard_str = str(target_sheet.cell(target_row, 4).value or "{}")
-                    try:
-                        wildcard_data_json = json.loads(wildcard_str)
-                        victim_wildcard = wildcard_data_json.pop(victim_team, None)
-                        if victim_wildcard is not None:
-                            wildcard_data_json[team_name] = victim_wildcard
-                            target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
-                    except Exception as e:
-                        print(f"❌ Error transferring wildcard data: {e}")
-
-                    embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
-                    
-                    if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="‼️ Card Stolen!",
-                            description=f"**{team_name}** used **Rogue's Gloves** and stole your **{stolen_card['card_name']}** card!",
-                            color=discord.Color.dark_red()
-                        )
-                        await victim_channel.send(embed=victim_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+    
+                # --- NEW: COUNT CARDS AND SUMMON DROPDOWN ---
+                team_card_counts = {}
+                for c in stealable_cards:
+                    t = c["victim_team"]
+                    team_card_counts[t] = team_card_counts.get(t, 0) + 1
+    
+                valid_targets = list(team_card_counts.keys())
+    
+                embed = discord.Embed(
+                    title="🎯 Target Selection: Rogue's Gloves",
+                    description="Select a team to steal from! Here is what everyone is holding:\n",
+                    color=discord.Color.dark_gray()
+                )
+                for t, count in team_card_counts.items():
+                    embed.description += f"\n• **{t}**: {count} cards"
+    
+                # Pass the parsed cards and the exact Rogue's Gloves sheet/row to the execution handler!
+                extra_memory = {
+                    "stealable_cards": stealable_cards,
+                    "rg_sheet": card_sheet,
+                    "rg_row": card_row
+                }
+                view = CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+                return
 
             elif card_name == "Pickpocket":
-                # 1. Fetch data snapshot and locate target
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            # 1. Fetch data snapshot to see who has GP
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            valid_targets = []
+            target_gp_data = {}
+            caster_record = None
+
+            for record in all_teams_data:
+                current_team = record.get("Team")
+                if not current_team: continue
                 
-                caster = team_name
-                target_record = None
-                highest_gp = -1
-                caster_record = None
+                try:
+                    current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+                except ValueError:
+                    current_gp = 0
 
-                for record in all_teams_data:
-                    current_team = record.get("Team")
-                    if not current_team: continue
-                    
-                    try:
-                        current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
-                    except ValueError:
-                        current_gp = 0
+                if current_team == team_name:
+                    caster_record = record
+                    continue
 
-                    if current_team == caster:
-                        caster_record = record
-                        continue
+                # Anyone with more than 0 GP is a valid target
+                if current_gp > 0:
+                    valid_targets.append(current_team)
+                    target_gp_data[current_team] = current_gp
 
-                    if current_gp > highest_gp:
-                        highest_gp = current_gp
-                        target_record = record
+            if not caster_record:
+                await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
+                return
 
-                if not target_record or highest_gp <= 0 or not caster_record:
-                    await interaction.followup.send("❌ Card effect failed: No eligible team has GP to steal.", ephemeral=True)
-                    return
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
+                return
 
-                target_team = target_record.get("Team")
-                victim_channel = self.get_team_channel(target_team)
-                caster_gp = int(str(caster_record.get("GP", 0)).replace(",", ""))
-                
-                embed_description = ""
-                headers = list(all_teams_data[0].keys())
-                gp_col_idx = headers.index("GP") + 1
-                target_row_idx = all_teams_data.index(target_record) + 2
-                caster_row_idx = all_teams_data.index(caster_record) + 2
+            # Prepare the Dropdown
+            embed = discord.Embed(
+                title="🎯 Target Selection: Pickpocket",
+                description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
+                color=discord.Color.dark_gold()
+            )
+            for t in valid_targets:
+                embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
 
-                # 2. Check Redemption (Total Fizzle)
-                if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-
-                # 3. Check Vengeance (Rebound to Caster)
-                elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                    base_percent = 0.20
-                    # If rebounded, check if CASTER has an Elder Maul to defend themselves
-                    maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                    maul_note = ""
-                    if maul_active:
-                        base_percent = 0.10
-                        maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
-
-                    # Target steals from Caster
-                    steal_amount = max(1, int(caster_gp * base_percent))
-
-                    new_caster_gp = max(0, caster_gp - steal_amount)
-                    new_target_gp = highest_gp + steal_amount
-
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
-
-                    embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! They stole **{steal_amount:,} GP** from **{team_name}** instead!{maul_note}"
-
-                    if victim_channel:
-                        victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Vengeance** rebounded it! You stole **{steal_amount:,} GP** from them!{maul_note}", color=discord.Color.green())
-                        await victim_channel.send(embed=victim_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-                # 4. Normal Hit (Caster steals from Target)
-                else:
-                    base_percent = 0.20
-                    # Check if TARGET has Elder Maul to defend against the steal
-                    maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                    maul_note = ""
-                    if maul_active:
-                        base_percent = 0.10
-                        maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
-
-                    steal_amount = max(1, int(highest_gp * base_percent))
-
-                    new_target_gp = max(0, highest_gp - steal_amount)
-                    new_caster_gp = caster_gp + steal_amount
-
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
-
-                    embed_description += f"> Stole **{steal_amount:,} GP** from **{target_team}**!{maul_note}"
-
-                    if victim_channel:
-                        maul_msg = "\n\n🛡️ Your **Elder Maul** activated and halved the losses!" if maul_active else ""
-                        victim_embed = discord.Embed(
-                            title="💸 Pickpocketed!",
-                            description=f"**{team_name}** used **Pickpocket** and stole **{steal_amount:,} GP** from your team.{maul_msg}",
-                            color=discord.Color.dark_red() if not maul_active else discord.Color.blue()
-                        )
-                        await victim_channel.send(embed=victim_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+            # Pass the parsed team data so we don't have to read the sheet twice!
+            extra_memory = {
+                "all_teams_data": all_teams_data,
+                "caster_record": caster_record
+            }
+            view = CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
 
             elif card_name == "Lure":
                 all_teams_data = self.team_data_sheet.get_all_records()
@@ -3348,8 +3244,8 @@ class MonopolyCog(commands.Cog):
                 
                 embed_description = "> 🎲 You have used your crystal to escape! You gained a free roll."
 
-            elif card_name == "Backstab" and isinstance(team_wildcard_value, int):
-                stored_roll = team_wildcard_value
+            elif card_name == "Backstab":
+                import random
                 
                 # Fetch a fast snapshot of the data
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
@@ -3371,18 +3267,31 @@ class MonopolyCog(commands.Cog):
                         continue
                     
                     opponent_pos = int(record.get("Position", -1))
-                    if opponent_pos > caster_pos:
-                        opponents_ahead.append((opponent_team_name, opponent_pos))
+                    dist = opponent_pos - caster_pos
+                    
+                    # CHANGE: Ensure they are strictly 1 to 5 tiles ahead
+                    if 1 <= dist <= 5:
+                        opponents_ahead.append((opponent_team_name, opponent_pos, dist))
                 
                 if not opponents_ahead:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No opponents are within 5 tiles ahead of you.", ephemeral=True)
                     return 
 
-                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
-                target_team = sorted_opponents[0][0]
-                target_pos = sorted_opponents[0][1] 
+                # Sort by distance to find the closest
+                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[2])
+                closest_dist = sorted_opponents[0][2]
                 
-                embed_description = ""
+                # Handle ties just in case two teams are equally close ahead
+                closest_teams = [opp for opp in sorted_opponents if opp[2] == closest_dist]
+                chosen_target = random.choice(closest_teams)
+                
+                target_team = chosen_target[0]
+                target_pos = chosen_target[1] 
+                
+                # CHANGE: Roll a 1d3 to determine how far behind the caster they are thrown
+                base_roll = random.randint(1, 3)
+                
+                embed_description = f"**{team_name}** lunges at **{target_team}** and rolled a **{base_roll}** on their d3!\n"
                 victim_channel = self.get_team_channel(target_team)
 
                 # 1. Check Redemption (Total Immunity)
@@ -3403,7 +3312,7 @@ class MonopolyCog(commands.Cog):
                     elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name) 
                     
                     # Halve the effect if Maul is active
-                    final_roll_val = (stored_roll // 2) if elder_maul_active else stored_roll
+                    final_roll_val = (base_roll // 2) if elder_maul_active else base_roll
                     maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                     
                     intended_rebound_pos = max(0, caster_pos - final_roll_val)
@@ -3450,10 +3359,11 @@ class MonopolyCog(commands.Cog):
                     elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
                     
                     # Halve the effect if Maul is active
-                    final_roll_val = (stored_roll // 2) if elder_maul_active else stored_roll 
+                    final_roll_val = (base_roll // 2) if elder_maul_active else base_roll 
                     maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                     
-                    intended_backstab_pos = max(0, target_pos - final_roll_val) 
+                    # CHANGE: The destination is now the CASTER'S position minus the d3 roll
+                    intended_backstab_pos = max(0, caster_pos - final_roll_val) 
                     new_pos = self.resolve_nonroll_landing_tile(intended_backstab_pos)
                     glider_note = self.get_glider_redirect_note(intended_backstab_pos, new_pos)
                     glider_note_victim = self.get_glider_redirect_note(intended_backstab_pos, new_pos, second_person=True, quoted=False)
@@ -3463,8 +3373,8 @@ class MonopolyCog(commands.Cog):
                     await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
                     
                     embed_description += (
-                        f"> **{target_team}** was moved back **{final_roll_val}** tiles from the **{source_tile_name}** tile "
-                        f"(Tile **{target_pos}**) to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                        f"> **{target_team}** was dragged from the **{source_tile_name}** tile (Tile **{target_pos}**) "
+                        f"and thrown **{final_roll_val}** tiles behind {team_name} to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                     )
                     embed_description += glider_note
 
@@ -3476,159 +3386,47 @@ class MonopolyCog(commands.Cog):
                             title="<:boner:1438085053102948383> You Were Backstabbed!",
                             description=(
                                 f"**{team_name}** used **Backstab** on your team.\n"
-                                f"You were moved back **{final_roll_val}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                                f"You were dragged behind them to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                                 + glider_note_victim
                             ),
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                        
             elif card_name == "Smite":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return 
+            # 1. Fetch data snapshot to get all teams
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            valid_targets = []
+            for record in all_teams_data:
+                current_team_name = record.get("Team")
+                # Add all teams except the caster to the target list
+                if current_team_name and current_team_name != team_name:
+                    valid_targets.append(current_team_name)
 
-                target_tiles = [caster_pos - 1, caster_pos, caster_pos + 1]
-                if caster_pos == 0:
-                    target_tiles = [0, 1, BOARD_SIZE - 1] 
-                elif caster_pos == BOARD_SIZE - 1:
-                    target_tiles = [BOARD_SIZE - 1, BOARD_SIZE - 2, 0] 
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: There are no other teams to Smite.", ephemeral=True)
+                return 
 
-                valid_targets = []
-                for record in all_teams_data:
-                    opponent_team_name = record.get("Team")
-                    if opponent_team_name == team_name:
-                        continue
-                    
-                    opponent_pos = int(record.get("Position", -1))
-                    if opponent_pos in target_tiles:
-                        valid_targets.append(opponent_team_name)
-                
-                if not valid_targets:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are within 1 tile of you.", ephemeral=True)
-                    return 
+            # Prepare the Dropdown
+            embed = discord.Embed(
+                title="🎯 Target Selection: Smite",
+                description="Select a team to Smite! You can choose ANY team on the board.",
+                color=discord.Color.red()
+            )
 
-                victim_team = random.choice(valid_targets)
-                embed_description = ""
-                
-                victim_channel = self.get_team_channel(victim_team)
-
-                victim_chest_cards = self.get_held_cards(self.chest_sheet, victim_team)
-                victim_chance_cards = self.get_held_cards(self.chance_sheet, victim_team)
-                all_victim_cards = victim_chest_cards + victim_chance_cards
-                
-                if not all_victim_cards:
-                    await interaction.followup.send(f"❌ Card effect failed: **{victim_team}** has no cards. Your **Smite** card was not used.", ephemeral=True)
-                    return
-
-                non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
-                
-                if not non_active_cards:
-                    await interaction.followup.send(f"❌ Card effect failed: **{victim_team}**'s cards are all active and cannot be removed. Your **Smite** card was not used.", ephemeral=True)
-                    return 
-
-                if self.check_and_consume_redemption(victim_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{victim_team}**\'s Redemption activated!"
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                
-                elif self.check_and_consume_vengeance(victim_team):
-                    embed_description += f"> <:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect rebounded.\n> "
-                    
-                    caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
-                    caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
-                    all_caster_cards = caster_chest_cards + caster_chance_cards
-                    non_active_caster_cards = [card for card in all_caster_cards if "(ACTIVE)" not in card['text']]
-                    
-                    if not non_active_caster_cards:
-                        embed_description += f"**{team_name}** had no cards to lose."
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:venge:1438084953559797884> Vengeance Activated!",
-                                description=(
-                                    f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
-                                    f"They had no removable cards to lose."
-                                ),
-                                color=discord.Color.dark_red()
-                            )
-                            await victim_channel.send(embed=victim_embed)
-
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                    else:
-                        card_to_remove = random.choice(non_active_caster_cards)
-                        remove_sheet = self.chest_sheet if card_to_remove in caster_chest_cards else self.chance_sheet
-                        remove_row = card_to_remove['row_index']
-                        
-                        wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
-                        try:
-                            wildcard_data = json.loads(wildcard_str)
-                            wildcard_data.pop(team_name, None)
-                            remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                        except Exception as e:
-                            print(f"❌ Error clearing wildcard on Vengeance Smite: {e}")
-                            
-                        held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
-                        teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                        if team_name in teams:
-                            teams.remove(team_name)
-                        remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
-                        
-                        embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card."
-                        
-                        skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
-                        await interaction.channel.send(embed=skull_embed)
-
-                        await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:venge:1438084953559797884> Vengeance Activated!",
-                                description=(
-                                    f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
-                                    f"They lost their **{card_to_remove['name']}** card."
-                                ),
-                                color=discord.Color.dark_red()
-                            )
-                            await victim_channel.send(embed=victim_embed)
-
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-                else:
-                    card_to_remove = random.choice(non_active_cards)
-                    remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
-                    remove_row = card_to_remove['row_index']
-
-                    wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
-                    try:
-                        wildcard_data = json.loads(wildcard_str)
-                        wildcard_data.pop(victim_team, None)
-                        remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                    except Exception as e:
-                        print(f"❌ Error clearing wildcard on Smite: {e}")
-                        
-                    held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
-                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if victim_team in teams:
-                        teams.remove(victim_team)
-                    remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
-
-                    embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
-                    
-                    if victim_channel:
-                        victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
-                        await victim_channel.send(embed=victim_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+            # Pass the card's sheet/row data so we can delete it from their inventory later!
+            extra_memory = {
+                "card_sheet": card_sheet,
+                "card_row": card_row,
+                "wildcard_data": wildcard_data,
+                "team_wildcard_value": team_wildcard_value
+            }
+            
+            view = CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
 
             elif card_name == "Varrock Tele":
                 # Check Teleblock
@@ -3845,102 +3643,518 @@ class MonopolyCog(commands.Cog):
                     await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
 
             elif card_name == "Tele Block":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                opponents_on_tile = []
+            # 1. Fetch data snapshot to get all teams
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            valid_targets = []
+            for record in all_teams_data:
+                current_team_name = record.get("Team")
+                # Add all teams except the caster to the target list
+                if current_team_name and current_team_name != team_name:
+                    valid_targets.append(current_team_name)
 
-                for record in all_teams_data:
-                    current_team_name = record.get("Team")
-                    current_pos = int(record.get("Position", -1))
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: There are no other teams to Teleblock.", ephemeral=True)
+                return 
+
+            # Prepare the Dropdown
+            embed = discord.Embed(
+                title="🎯 Target Selection: Tele Block",
+                description="Select a team to Teleblock! You can choose ANY team on the board.",
+                color=discord.Color.dark_purple()
+            )
+
+            # Pass the card's sheet/row data so we can delete it from their inventory later!
+            extra_memory = {
+                "card_sheet": card_sheet,
+                "card_row": card_row,
+                "wildcard_data": wildcard_data,
+                "team_wildcard_value": team_wildcard_value
+            }
+            
+            view = CardTargetView(self, team_name, valid_targets, "Tele Block", "teleblock", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
+
+    async def execute_targeted_card_effect(self, interaction: discord.Interaction, team_name: str, target_team: str, card_name: str, action: str, extra_data: dict):
+        """Catches the dropdown selection and applies the effects of the card."""
+        
+        if action == "pickpocket":
+            all_teams_data = extra_data.get("all_teams_data")
+            caster_record = extra_data.get("caster_record")
+            
+            # Find the specific target record based on the dropdown selection
+            target_record = None
+            highest_gp = 0 
+            for record in all_teams_data:
+                if record.get("Team") == target_team:
+                    target_record = record
+                    try:
+                        highest_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+                    except ValueError:
+                        highest_gp = 0
+                    break
                     
-                    if current_team_name == team_name:
-                        caster_pos = current_pos
-                    elif current_team_name:
-                        opponents_on_tile.append((current_team_name, current_pos))
+            if not target_record:
+                await interaction.channel.send("❌ Error: Target data could not be located.")
+                return
 
-                opponents_on_tile = [team for team, pos in opponents_on_tile if pos == caster_pos]
+            victim_channel = self.get_team_channel(target_team)
+            caster_gp = int(str(caster_record.get("GP", 0)).replace(",", ""))
+            
+            embed_description = f"**{team_name}** targeted **{target_team}** with **Pickpocket**!\n"
+            headers = list(all_teams_data[0].keys())
+            gp_col_idx = headers.index("GP") + 1
+            target_row_idx = all_teams_data.index(target_record) + 2
+            caster_row_idx = all_teams_data.index(caster_record) + 2
 
-                if not opponents_on_tile:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are on your tile to Tele Block.", ephemeral=True)
-                    return 
-                
-                target_team = random.choice(opponents_on_tile)
-                embed_description = ""
-                victim_channel = self.get_team_channel(target_team)
+            # 2. Check Redemption (Total Fizzle)
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-                if self.check_and_consume_redemption(target_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**\'s Redemption activated! The effect fizzled."
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
+            # 3. Check Vengeance (Rebound to Caster)
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                base_percent = 0.20
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
+                maul_note = ""
+                if maul_active:
+                    base_percent = 0.10
+                    maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
 
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+                steal_amount = max(1, int(caster_gp * base_percent))
+                new_caster_gp = max(0, caster_gp - steal_amount)
+                new_target_gp = highest_gp + steal_amount
 
-                elif self.check_and_consume_vengeance(target_team):
-                    embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! The effect rebounded, and your team is now **Teleblocked**."
-                    self.set_teleblock_status(team_name, "yes") 
-                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
-                    await interaction.channel.send(embed=skull_embed)
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
 
-                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed) 
-                    if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=f"**{team_name}** tried to use **Tele Block** on your team, but your **Vengeance** rebounded the effect and **Teleblocked** them instead!",
-                            color=discord.Color.dark_red()
-                        )
-                        await victim_channel.send(embed=victim_embed)
+                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! They stole **{steal_amount:,} GP** from **{team_name}** instead!{maul_note}"
 
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                if victim_channel:
+                    victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Vengeance** rebounded it! You stole **{steal_amount:,} GP** from them!{maul_note}", color=discord.Color.green())
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            # 4. Normal Hit (Caster steals from Target)
+            else:
+                base_percent = 0.20
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                maul_note = ""
+                if maul_active:
+                    base_percent = 0.10
+                    maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)"
+
+                steal_amount = max(1, int(highest_gp * base_percent))
+                new_target_gp = max(0, highest_gp - steal_amount)
+                new_caster_gp = caster_gp + steal_amount
+
+                await asyncio.to_thread(self.team_data_sheet.update_cell, target_row_idx, gp_col_idx, new_target_gp)
+                await asyncio.to_thread(self.team_data_sheet.update_cell, caster_row_idx, gp_col_idx, new_caster_gp)
+
+                embed_description += f"> Stole **{steal_amount:,} GP** from **{target_team}**!{maul_note}"
+
+                if victim_channel:
+                    maul_msg = "\n\n🛡️ Your **Elder Maul** activated and halved the losses!" if maul_active else ""
+                    victim_embed = discord.Embed(
+                        title="💸 Pickpocketed!",
+                        description=f"**{team_name}** used **Pickpocket** and stole **{steal_amount:,} GP** from your team.{maul_msg}",
+                        color=discord.Color.dark_red() if not maul_active else discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                    
+            # Send the final receipt to the channel where the card was used
+            final_embed = discord.Embed(title="🃏 Pickpocket Used!", description=embed_description, color=discord.Color.dark_gold())
+            await interaction.channel.send(embed=final_embed)
+
+        elif action == "rogues_gloves":
+            # Retrieve memory passed from the dropdown
+            stealable_cards = extra_data.get("stealable_cards", [])
+            card_sheet = extra_data.get("rg_sheet")
+            card_row = extra_data.get("rg_row")
+
+            # Filter the stealable cards down to ONLY the team the Captain clicked
+            target_cards = [c for c in stealable_cards if c["victim_team"] == target_team]
+            if not target_cards:
+                await interaction.channel.send("❌ Error: No cards found for that target.")
+                return
+            
+            stolen_card = random.choice(target_cards)
+            victim_team = target_team
+            target_sheet = stolen_card["sheet"]
+            target_row = stolen_card["row_index"]
+            
+            victim_channel = self.get_team_channel(victim_team)
+
+            if self.check_and_consume_redemption(victim_team):
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
+                if victim_channel:
+                    fizzle_embed = discord.Embed(
+                        title="<:redemption:1437979567900987493> Redemption Activated!",
+                        description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Redemption** activated!",
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+
+            elif self.check_and_consume_vengeance(victim_team):
+                embed_description = (
+                    f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
+                    f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
+                )
+
+                caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
+                caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
+
+                caster_cards_with_sheet = []
+                for c in caster_chest_cards:
+                    caster_cards_with_sheet.append({
+                        "sheet": self.chest_sheet,
+                        "row_index": c["row_index"],
+                        "card_name": c["name"],
+                        "card_type": "Chest"
+                    })
+                for c in caster_chance_cards:
+                    caster_cards_with_sheet.append({
+                        "sheet": self.chance_sheet,
+                        "row_index": c["row_index"],
+                        "card_name": c["name"],
+                        "card_type": "Chance"
+                    })
+
+                other_caster_cards = [
+                    c for c in caster_cards_with_sheet
+                    if not (c["sheet"] == card_sheet and c["row_index"] == card_row)
+                ]
+
+                stolen_from_caster_name = None
+
+                if other_caster_cards:
+                    rebounded_card = random.choice(other_caster_cards)
+                    rebound_sheet = rebounded_card["sheet"]
+                    rebound_row = rebounded_card["row_index"]
+                    stolen_from_caster_name = rebounded_card["card_name"]
+
+                    held_by_str_rebound = str(rebound_sheet.cell(rebound_row, 3).value or "")
+                    teams_rebound = [t.strip() for t in held_by_str_rebound.split(',') if t.strip()]
+                    if team_name in teams_rebound:
+                        teams_rebound.remove(team_name)
+                    if victim_team not in teams_rebound:
+                        teams_rebound.append(victim_team)
+                    rebound_sheet.update_cell(rebound_row, 3, ", ".join(teams_rebound))
+
+                    wildcard_str_rebound = str(rebound_sheet.cell(rebound_row, 4).value or "{}")
+                    try:
+                        import json
+                        wildcard_data_json_rebound = json.loads(wildcard_str_rebound)
+                        caster_wildcard = wildcard_data_json_rebound.pop(team_name, None)
+                        if caster_wildcard is not None:
+                            wildcard_data_json_rebound[victim_team] = caster_wildcard
+                        rebound_sheet.update_cell(rebound_row, 4, json.dumps(wildcard_data_json_rebound))
+                    except Exception as e:
+                        print(f"❌ Error transferring wildcard data on Rogue's Gloves Vengeance rebound: {e}")
+
+                    embed_description += f"🧤 The steal rebounded! **{victim_team}** stole **{stolen_from_caster_name}** from **{team_name}** instead."
 
                 else:
-                    embed_description += f"> <:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked** until after their next roll."
-                    self.set_teleblock_status(target_team, "yes") 
+                    stolen_from_caster_name = "Rogue's Gloves"
 
-                    if victim_channel:
-                        tb_embed = discord.Embed(title="<:teleblock:1438088930816819271> You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
-                        await victim_channel.send(embed=tb_embed)
+                    held_by_str_rg = str(card_sheet.cell(card_row, 3).value or "")
+                    teams_rg = [t.strip() for t in held_by_str_rg.split(',') if t.strip()]
+                    if team_name in teams_rg:
+                        teams_rg.remove(team_name)
+                    if victim_team not in teams_rg:
+                        teams_rg.append(victim_team)
+                    card_sheet.update_cell(card_row, 3, ", ".join(teams_rg))
 
-                        await self.mirror_to_game_log(victim_channel, embed=tb_embed)
+                    wildcard_str_rg = str(card_sheet.cell(card_row, 4).value or "{}")
+                    try:
+                        import json
+                        wildcard_data_json_rg = json.loads(wildcard_str_rg)
+                        caster_wildcard = wildcard_data_json_rg.pop(team_name, None)
+                        if caster_wildcard is not None:
+                            wildcard_data_json_rg[victim_team] = caster_wildcard
+                        card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data_json_rg))
+                    except Exception as e:
+                        print(f"❌ Error transferring wildcard data for Rogue's Gloves on Vengeance rebound: {e}")
 
-            else:
-                embed_description = f"> {final_card_text}"
+                    embed_description += f"🧤 The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
+
+                skull_embed = discord.Embed(
+                    title="<:venge:1438084953559797884> Vengeance Activated!",
+                    description=f"You activated **{victim_team}**'s Vengeance!\nThey stole your **{stolen_from_caster_name}** card!",
+                    color=discord.Color.dark_red()
+                )
+                await interaction.channel.send(embed=skull_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!",
+                        description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.",
+                        color=discord.Color.dark_red()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
             
-            if not is_status_activation:
+            else:
+                held_by_str = str(target_sheet.cell(target_row, 3).value or "")
+                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                if victim_team in teams:
+                    teams.remove(victim_team)
+                if team_name not in teams:
+                    teams.append(team_name)
+                target_sheet.update_cell(target_row, 3, ", ".join(teams))
+
+                wildcard_str = str(target_sheet.cell(target_row, 4).value or "{}")
+                try:
+                    import json
+                    wildcard_data_json = json.loads(wildcard_str)
+                    victim_wildcard = wildcard_data_json.pop(victim_team, None)
+                    if victim_wildcard is not None:
+                        wildcard_data_json[team_name] = victim_wildcard
+                        target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
+                except Exception as e:
+                    print(f"❌ Error transferring wildcard data: {e}")
+
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="‼️ Card Stolen!",
+                        description=f"**{team_name}** used **Rogue's Gloves** and stole your **{stolen_card['card_name']}** card!",
+                        color=discord.Color.dark_red()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            # Send the final result embed to the channel
+            final_embed = discord.Embed(title="🃏 Rogue's Gloves Used!", description=embed_description, color=discord.Color.dark_gray())
+            await interaction.channel.send(embed=final_embed)
+        
+        elif action == "teleblock":
+            victim_channel = self.get_team_channel(target_team)
+            embed_description = ""
+
+            # 1. Check Redemption (Total Fizzle)
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The effect fizzled."
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+
+            # 2. Check Vengeance (Rebound to Caster)
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! The effect rebounded, and your team is now **Teleblocked**."
+                self.set_teleblock_status(team_name, "yes") 
+                
+                skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
+                await interaction.channel.send(embed=skull_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=skull_embed) 
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!",
+                        description=f"**{team_name}** tried to use **Tele Block** on your team, but your **Vengeance** rebounded the effect and **Teleblocked** them instead!",
+                        color=discord.Color.dark_red()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            # 3. Normal Hit (Target is Teleblocked)
+            else:
+                embed_description += f"> <:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked** until after their next roll."
+                self.set_teleblock_status(target_team, "yes") 
+
+                if victim_channel:
+                    tb_embed = discord.Embed(title="<:teleblock:1438088930816819271> You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
+                    await victim_channel.send(embed=tb_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=tb_embed)
+
+            # --- DEDUCT THE CARD FROM INVENTORY ---
+            card_sheet = extra_data.get("card_sheet")
+            card_row = extra_data.get("card_row")
+            wildcard_data = extra_data.get("wildcard_data", {})
+            team_wildcard_value = extra_data.get("team_wildcard_value")
+
+            try:
+                import json
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
-                    card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                    print(f"✅ Cleared wildcard for {team_name} from card {selected_card['name']}")
+                    await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
+                    print(f"✅ Cleared wildcard for {team_name} from Tele Block")
                 
-                cell_val = str(card_sheet.cell(card_row, 3).value or "")
+                cell_val = str(await asyncio.to_thread(lambda: card_sheet.cell(card_row, 3).value) or "")
                 teams = [t.strip() for t in cell_val.split(',') if t.strip()]
                 if team_name in teams:
                     teams.remove(team_name)
-                card_sheet.update_cell(card_row, 3, ", ".join(teams))
-                
-                embed = discord.Embed(
-                    title=f"{card_emoji} {team_name} used {card_name}!",
-                    description=embed_description,
-                    color=discord.Color.blue()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=False)
-                await self.mirror_to_game_log(interaction.channel, embed=embed)
-
-            if is_status_activation:
-                embed = discord.Embed(
-                    title=f"{card_emoji} {team_name} activated {card_name}!",
-                    description=embed_description,
-                    color=discord.Color.green()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=False)
+                await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
+            except Exception as e:
+                print(f"❌ Error updating inventory for Tele Block: {e}")
 
             self.set_used_card_flag(team_name, "yes")
-        
-        except Exception as e:
-            print(f"❌ Error in /use_card: {e}")
-            traceback.print_exc()
-            await interaction.followup.send(f"❌ An error occurred while using the card: {e}", ephemeral=True)
 
+            # --- SEND FINAL RECEIPT ---
+            final_embed = discord.Embed(
+                title=f"🃏 {team_name} used Tele Block!",
+                description=embed_description,
+                color=discord.Color.blue()
+            )
+            await interaction.channel.send(embed=final_embed)
+            await self.mirror_to_game_log(interaction.channel, embed=final_embed)
+
+        elif action == "smite":
+            victim_team = target_team
+            embed_description = ""
+            victim_channel = self.get_team_channel(victim_team)
+
+            # --- YOUR EXACT EXECUTION LOGIC ---
+            victim_chest_cards = self.get_held_cards(self.chest_sheet, victim_team)
+            victim_chance_cards = self.get_held_cards(self.chance_sheet, victim_team)
+            all_victim_cards = victim_chest_cards + victim_chance_cards
+            
+            if not all_victim_cards:
+                await interaction.channel.send(f"❌ Card effect failed: **{victim_team}** has no cards. Your **Smite** card was not used.")
+                return
+
+            non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
+            
+            if not non_active_cards:
+                await interaction.channel.send(f"❌ Card effect failed: **{victim_team}**'s cards are all active and cannot be removed. Your **Smite** card was not used.")
+                return 
+
+            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{victim_team}**'s Redemption activated!"
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+            
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
+                embed_description += f"> <:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect rebounded.\n> "
+                
+                caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
+                caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
+                all_caster_cards = caster_chest_cards + caster_chance_cards
+                non_active_caster_cards = [card for card in all_caster_cards if "(ACTIVE)" not in card['text']]
+                
+                if not non_active_caster_cards:
+                    embed_description += f"**{team_name}** had no cards to lose."
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:venge:1438084953559797884> Vengeance Activated!",
+                            description=(
+                                f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
+                                f"They had no removable cards to lose."
+                            ),
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                else:
+                    import random
+                    card_to_remove = random.choice(non_active_caster_cards)
+                    remove_sheet = self.chest_sheet if card_to_remove in caster_chest_cards else self.chance_sheet
+                    remove_row = card_to_remove['row_index']
+                    
+                    wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
+                    try:
+                        import json
+                        wildcard_data = json.loads(wildcard_str)
+                        wildcard_data.pop(team_name, None)
+                        await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
+                    except Exception as e:
+                        print(f"❌ Error clearing wildcard on Vengeance Smite: {e}")
+                        
+                    held_by_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 3).value) or "")
+                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                    if team_name in teams:
+                        teams.remove(team_name)
+                    await asyncio.to_thread(remove_sheet.update_cell, remove_row, 3, ", ".join(teams))
+                    
+                    embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card."
+                    
+                    skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nYou lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
+                    await interaction.channel.send(embed=skull_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:venge:1438084953559797884> Vengeance Activated!",
+                            description=(
+                                f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
+                                f"They lost their **{card_to_remove['name']}** card."
+                            ),
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            else:
+                import random
+                card_to_remove = random.choice(non_active_cards)
+                remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
+                remove_row = card_to_remove['row_index']
+
+                wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
+                try:
+                    import json
+                    wildcard_data = json.loads(wildcard_str)
+                    wildcard_data.pop(victim_team, None)
+                    await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
+                except Exception as e:
+                    print(f"❌ Error clearing wildcard on Smite: {e}")
+                    
+                held_by_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 3).value) or "")
+                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                if victim_team in teams:
+                    teams.remove(victim_team)
+                await asyncio.to_thread(remove_sheet.update_cell, remove_row, 3, ", ".join(teams))
+
+                embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            # --- DEDUCT THE CARD FROM INVENTORY ---
+            card_sheet = extra_data.get("card_sheet")
+            card_row = extra_data.get("card_row")
+            wildcard_data = extra_data.get("wildcard_data", {})
+            team_wildcard_value = extra_data.get("team_wildcard_value")
+
+            try:
+                import json
+                if team_wildcard_value is not None:
+                    wildcard_data.pop(team_name, None) 
+                    await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
+                    
+                cell_val = str(await asyncio.to_thread(lambda: card_sheet.cell(card_row, 3).value) or "")
+                teams = [t.strip() for t in cell_val.split(',') if t.strip()]
+                if team_name in teams:
+                    teams.remove(team_name)
+                await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
+            except Exception as e:
+                print(f"❌ Error updating inventory for Smite: {e}")
+
+            self.set_used_card_flag(team_name, "yes")
+
+            # --- SEND FINAL RECEIPT ---
+            final_embed = discord.Embed(
+                title=f"🃏 {team_name} used Smite!",
+                description=embed_description,
+                color=discord.Color.blue()
+            )
+            await interaction.channel.send(embed=final_embed)
+            await self.mirror_to_game_log(interaction.channel, embed=final_embed)
+
+    
     @app_commands.command(name="random_event", description="[TESTING] Simulate a tile-landing random event.")
     @app_commands.describe(
         team_name="The team to test the event on",
