@@ -4507,18 +4507,26 @@ class MonopolyCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         """Listens for manual Discord role changes and updates the team list automatically."""
-        # Quick exit if their roles didn't change
         if before.roles == after.roles:
             return
 
-        # Check if the change involved any of our active teams
         before_teams = set(r.name for r in before.roles if r.name in ACTIVE_TEAMS)
         after_teams = set(r.name for r in after.roles if r.name in ACTIVE_TEAMS)
 
         if before_teams != after_teams:
             print(f"🔄 Role change detected for {after.display_name}. Updating live team list...")
-            # Brief pause to ensure Discord's cache has updated before we take the snapshot
-            await asyncio.sleep(1.5)
+            
+            # 1. Wait 3 seconds to ensure Discord's database has caught up
+            await asyncio.sleep(3.0)
+            
+            # 2. Force the bot to fetch the freshest version of this user directly from Discord's API
+            # This overwrites any stale cache the bot might be holding onto!
+            try:
+                await after.guild.fetch_member(after.id)
+            except discord.HTTPException:
+                pass # Ignore if it fails, it will still try to update the board
+                
+            # 3. Draw the new board
             await self.update_live_team_list(after.guild)
     
     def get_team_captain(self, guild: discord.Guild, team_name: str) -> Optional[discord.Member]:
