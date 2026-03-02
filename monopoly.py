@@ -52,6 +52,8 @@ TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
 ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3"]
 TEAM_LIST_CONFIG_FILE = "team_list_config.json"
 
+SIGNUP_LIST_CONFIG_FILE = "signup_list_config.json"
+
 EVENT_STAFF_ROLE_ID = 1286238788716199952
 EVENT_CAPTAIN_ROLE_ID = 1286238713210474559
 BINGO_PLAYER_ROLE_ID = 1464304452059267208
@@ -1263,7 +1265,23 @@ class MonopolyCog(commands.Cog):
             )
             await interaction.followup.send(embed=success_embed, ephemeral=False)
 
-            asyncio.create_task(self.update_live_team_list(interaction.guild))
+            # ---> UPDATED: Give Google Sheets 2.5 seconds to save, then refresh both boards <---
+            async def delayed_list_update():
+                await asyncio.sleep(2.5)
+                if interaction.guild:
+                    try:
+                        await self.update_live_team_list(interaction.guild)
+                        print(f"✅ Live team list successfully updated for {rsn_clean}'s signup.")
+                    except Exception as err:
+                        print(f"❌ Error updating team list: {err}")
+                        
+                    try:
+                        await self.update_live_signup_list(interaction.guild)
+                        print(f"✅ Live signup list successfully updated for {rsn_clean}'s signup.")
+                    except Exception as err:
+                        print(f"❌ Error updating signup list: {err}")
+            
+            self.bot.loop.create_task(delayed_list_update())
             
         except Exception as e:
             print(f"❌ Error in /signup: {e}")
@@ -4787,60 +4805,129 @@ class MonopolyCog(commands.Cog):
     # 📋 LIVE TEAM LIST LOGIC
     # ==========================================
 
-    @app_commands.command(name="signup_list", description="View the current list of signed-up players.")
+    @app_commands.command(name="signup_list", description="Post a live-updating list of signed-up players.")
     async def signup_list(self, interaction: discord.Interaction):
-        # We defer so the bot has time to fetch from Google Sheets without timing out
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=False)
+        
+        embed = await self.build_signup_list_embed()
+        msg = await interaction.followup.send(embed=embed)
+        
+        self.save_signup_list_config(interaction.channel_id, msg.id)
+        
+        # We send a tiny private message so the channel doesn't get cluttered
+        await interaction.followup.send("✅ Live signup list posted and linked.", ephemeral=True)
 
+    @app_commands.command(name="signup_set_id", description="Link the bot to an existing signup list message.")
+    @app_commands.describe(message_id="The ID of the message to update")
+    async def signup_set_id(self, interaction: discord.Interaction, message_id: str):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+            
         try:
-            # 1. Fetch all data from the sheet
-            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            msg_id_int = int(message_id.strip())
+            msg = await interaction.channel.fetch_message(msg_id_int)
             
-            rsn_list = []
+            self.save_signup_list_config(interaction.channel_id, msg.id)
             
-            # 2. Slice from Row 10 downwards (Index 9)
-            if len(values) >= 10:
-                for row in values[9:]:
-                    # Column C is Index 2. Make sure the row actually has at least 3 columns!
-                    if len(row) > 2:
-                        rsn = str(row[2]).strip()
-                        # Only add it if the cell isn't empty
-                        if rsn:
-                            rsn_list.append(rsn)
-                            
-            # 3. Handle the empty state
-            if not rsn_list:
-                embed = discord.Embed(
-                    title="📝 Current Signups",
-                    description="No one has signed up yet! Use `/signup` to be the first.",
-                    color=discord.Color.blue()
-                )
-                await interaction.followup.send(embed=embed)
-                return
+            # Immediately force an update
+            embed = await self.build_signup_list_embed()
+            await msg.edit(embed=embed)
+            
+            await interaction.followup.send("✅ Successfully linked and updated the signup list message!", ephemeral=True)
+        except discord.NotFound:
+            await interaction.followup.send("❌ Message not found in this channel.", ephemeral=True)
+        except ValueError:
+            await interaction.followup.send("❌ Invalid message ID format.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+    # ==========================================
+    # 📝 LIVE SIGNUP LIST LOGIC
+    # ==========================================
 
-            # 4. Build the numbered list
-            description = ""
-            for i, rsn in enumerate(rsn_list, 1):
-                line = f"**{i}.** {rsn}\n"
-                
-                # Safety check: Discord embeds max out at 4096 characters in the description
-                if len(description) + len(line) > 4000:
-                    description += "\n*...and more! (List too long for Discord)*"
-                    break
-                    
-                description += line
-                
-            embed = discord.Embed(
-                title=f"📝 Current Signups ({len(rsn_list)} Total)",
-                description=description,
+    def load_signup_list_config(self):
+        """Loads the saved signup list message ID from a local file."""
+        import os
+        import json
+        try:
+            if os.path.exists(SIGNUP_LIST_CONFIG_FILE):
+                with open(SIGNUP_LIST_CONFIG_FILE, "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"❌ Error loading signup list config: {e}")
+        return {"channel_id": None, "message_id": None}
+
+    def save_signup_list_config(self, channel_id: int, message_id: int):
+        """Saves the signup list message ID so it survives bot resets."""
+        import json
+        try:
+            with open(SIGNUP_LIST_CONFIG_FILE, "w") as f:
+                json.dump({"channel_id": channel_id, "message_id": message_id}, f)
+        except Exception as e:
+            print(f"❌ Error saving signup list config: {e}")
+
+    async def build_signup_list_embed(self) -> discord.Embed:
+        """Fetches the Google Sheet and constructs the signup list embed."""
+        values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+        rsn_list = []
+        
+        if len(values) >= 10:
+            for row in values[9:]:
+                if len(row) > 2:
+                    rsn = str(row[2]).strip()
+                    if rsn:
+                        rsn_list.append(rsn)
+                        
+        if not rsn_list:
+            return discord.Embed(
+                title="📝 Current Signups",
+                description="No one has signed up yet! Use `/signup` to be the first.",
                 color=discord.Color.blue()
             )
+
+        description = ""
+        for i, rsn in enumerate(rsn_list, 1):
+            line = f"**{i}.** {rsn}\n"
+            if len(description) + len(line) > 4000:
+                description += "\n*...and more! (List too long for Discord)*"
+                break
+            description += line
             
-            await interaction.followup.send(embed=embed)
+        embed = discord.Embed(
+            title=f"📝 Current Signups ({len(rsn_list)} Total)",
+            description=description,
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="List updates automatically as players sign up!")
+        return embed
+
+    async def update_live_signup_list(self, guild: discord.Guild):
+        """Fetches and edits the linked signup list message with fresh data."""
+        config = self.load_signup_list_config()
+        channel_id = config.get("channel_id")
+        message_id = config.get("message_id")
+        
+        if not channel_id or not message_id:
+            return
             
+        channel = guild.get_channel(int(channel_id))
+        if not channel:
+            return
+            
+        try:
+            msg = await channel.fetch_message(int(message_id))
+            embed = await self.build_signup_list_embed()
+            await msg.edit(embed=embed)
+        except discord.NotFound:
+            print("❌ Live signup list message was deleted.")
         except Exception as e:
-            print(f"❌ Error in /signup_list: {e}")
-            await interaction.followup.send(f"❌ An error occurred while fetching the list: {e}", ephemeral=True)
+            print(f"❌ Failed to update live signup list: {e}")
     
     @app_commands.command(name="team_list", description="Post a live-updating roster of all teams.")
     async def team_list(self, interaction: discord.Interaction):
