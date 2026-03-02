@@ -4824,6 +4824,19 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
+    def load_team_list_config(self):
+        """Loads the saved team list message ID from a local file."""
+        import os
+        import json
+        try:
+            # Make sure this filename matches your TEAM_LIST_CONFIG_FILE constant
+            if os.path.exists("team_list_config.json"):
+                with open("team_list_config.json", "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"❌ Error loading team list config: {e}")
+        return {"channel_id": None, "message_id": None}
+
     def save_team_list_config(self, channel_id: int, message_id: int):
         """Saves the team list message ID so it survives bot resets."""
         try:
