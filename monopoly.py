@@ -1256,7 +1256,7 @@ class MonopolyCog(commands.Cog):
                 ),
                 color=discord.Color.green()
             )
-            await interaction.followup.send(embed=success_embed, ephemeral=True)
+            await interaction.followup.send(embed=success_embed, ephemeral=False)
         except Exception as e:
             print(f"❌ Error in /signup: {e}")
             traceback.print_exc()
