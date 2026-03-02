@@ -3790,7 +3790,7 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send(f"❌ An error occurred while using the card: {e}", ephemeral=True)
 
-@app_commands.command(name="random_event", description="[TESTING] Simulate a tile-landing random event.")
+    @app_commands.command(name="random_event", description="[TESTING] Simulate a tile-landing random event.")
     @app_commands.describe(
         team_name="The team to test the event on",
         force_trigger="If True, bypasses the 5% chance and forces an event to spawn"
