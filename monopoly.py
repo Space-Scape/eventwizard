@@ -4532,7 +4532,8 @@ class MonopolyCog(commands.Cog):
                 active_captains = 1 
                 
             max_non_captains_per_team = math.ceil(total_draftable_players / active_captains)
-            max_team_size = max_non_captains_per_team + 1
+            
+            max_team_size = max_non_captains_per_team + 3
 
             capacity_data = {}
             for team_name in ACTIVE_TEAMS:
@@ -4549,7 +4550,7 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error calculating capacities: {e}")
             return {team: {"current": 0, "max": 99, "is_full": False} for team in ACTIVE_TEAMS}
-
+            
     class CaptainApprovalView(ui.View):
         def __init__(self, cog, target_member: discord.Member, team_name: str):
             super().__init__(timeout=None)
