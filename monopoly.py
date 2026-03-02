@@ -2842,7 +2842,7 @@ class MonopolyCog(commands.Cog):
                     break
             
             if caster_pos != -1:
-                import random
+                
                 valid_targets_data = []
                 
                 for record in all_teams_data:
@@ -2988,7 +2988,6 @@ class MonopolyCog(commands.Cog):
                         wildcard_str = str(row[wildcard_col] or "{}")
                         if wildcard_str != "{}" and wildcard_str:
                             try:
-                                import json
                                 wildcard_data_json = json.loads(wildcard_str)
                                 victim_team = held_by_str.strip() 
                                 victim_status = wildcard_data_json.get(victim_team)
@@ -3023,7 +3022,6 @@ class MonopolyCog(commands.Cog):
                         wildcard_str = str(row[wildcard_col] or "{}")
                         wildcard_data_json = {}
                         try:
-                            import json
                             wildcard_data_json = json.loads(wildcard_str)
                         except:
                             pass
@@ -3036,7 +3034,7 @@ class MonopolyCog(commands.Cog):
                                 valid_victims.append(holder)
 
                         if valid_victims:
-                            import random
+                            
                             victim_team = random.choice(valid_victims) 
                             stealable_cards.append({
                                 "sheet": self.chest_sheet,
@@ -3218,7 +3216,7 @@ class MonopolyCog(commands.Cog):
             embed_description = "> 🎲 You have used your crystal to escape! You gained a free roll."
 
         elif card_name == "Backstab":
-            import random
+            
             
             # Fetch a fast snapshot of the data
             all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
@@ -3822,7 +3820,6 @@ class MonopolyCog(commands.Cog):
 
                     wildcard_str_rebound = str(rebound_sheet.cell(rebound_row, 4).value or "{}")
                     try:
-                        import json
                         wildcard_data_json_rebound = json.loads(wildcard_str_rebound)
                         caster_wildcard = wildcard_data_json_rebound.pop(team_name, None)
                         if caster_wildcard is not None:
@@ -3846,7 +3843,6 @@ class MonopolyCog(commands.Cog):
 
                     wildcard_str_rg = str(card_sheet.cell(card_row, 4).value or "{}")
                     try:
-                        import json
                         wildcard_data_json_rg = json.loads(wildcard_str_rg)
                         caster_wildcard = wildcard_data_json_rg.pop(team_name, None)
                         if caster_wildcard is not None:
@@ -3885,7 +3881,6 @@ class MonopolyCog(commands.Cog):
 
                 wildcard_str = str(target_sheet.cell(target_row, 4).value or "{}")
                 try:
-                    import json
                     wildcard_data_json = json.loads(wildcard_str)
                     victim_wildcard = wildcard_data_json.pop(victim_team, None)
                     if victim_wildcard is not None:
@@ -3956,7 +3951,6 @@ class MonopolyCog(commands.Cog):
             team_wildcard_value = extra_data.get("team_wildcard_value")
 
             try:
-                import json
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -4030,14 +4024,13 @@ class MonopolyCog(commands.Cog):
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                 else:
-                    import random
+                    
                     card_to_remove = random.choice(non_active_caster_cards)
                     remove_sheet = self.chest_sheet if card_to_remove in caster_chest_cards else self.chance_sheet
                     remove_row = card_to_remove['row_index']
                     
                     wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
                     try:
-                        import json
                         wildcard_data = json.loads(wildcard_str)
                         wildcard_data.pop(team_name, None)
                         await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
@@ -4069,14 +4062,13 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             else:
-                import random
+                
                 card_to_remove = random.choice(non_active_cards)
                 remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
                 remove_row = card_to_remove['row_index']
 
                 wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
                 try:
-                    import json
                     wildcard_data = json.loads(wildcard_str)
                     wildcard_data.pop(victim_team, None)
                     await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
@@ -4103,7 +4095,6 @@ class MonopolyCog(commands.Cog):
             team_wildcard_value = extra_data.get("team_wildcard_value")
 
             try:
-                import json
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -5045,8 +5036,6 @@ class MonopolyCog(commands.Cog):
 
     def load_signup_list_config(self):
         """Loads the saved signup list message ID from a local file."""
-        import os
-        import json
         try:
             if os.path.exists(SIGNUP_LIST_CONFIG_FILE):
                 with open(SIGNUP_LIST_CONFIG_FILE, "r") as f:
@@ -5057,7 +5046,6 @@ class MonopolyCog(commands.Cog):
 
     def save_signup_list_config(self, channel_id: int, message_id: int):
         """Saves the signup list message ID so it survives bot resets."""
-        import json
         try:
             with open(SIGNUP_LIST_CONFIG_FILE, "w") as f:
                 json.dump({"channel_id": channel_id, "message_id": message_id}, f)
@@ -5168,8 +5156,8 @@ class MonopolyCog(commands.Cog):
 
     def load_team_list_config(self):
         """Loads the saved team list message ID from a local file."""
-        import os
-        import json
+        
+        
         try:
             # Make sure this filename matches your TEAM_LIST_CONFIG_FILE constant
             if os.path.exists("team_list_config.json"):
