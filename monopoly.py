@@ -2828,8 +2828,9 @@ class MonopolyCog(commands.Cog):
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
         elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
-            stored_roll = team_wildcard_value
-            move_amount = -stored_roll
+            try:
+                stored_roll = team_wildcard_value
+                move_amount = -stored_roll
                 
                 # Fetch a fast snapshot of the data
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
@@ -2866,14 +2867,13 @@ class MonopolyCog(commands.Cog):
                 if not targets:
                     await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
                     return 
-    
-                # Updated message to show the auto-selected target
+
                 embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
                 
                 for target_team in targets:
                     victim_channel = self.get_team_channel(target_team)
                     
-                    # 1. Check Redemption (Total Immunity)
+                    # 1. Check Redemption
                     if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                         embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
                         if victim_channel:
@@ -2886,12 +2886,9 @@ class MonopolyCog(commands.Cog):
                             await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                         continue  
                             
-                    # 2. Check Vengeance (Rebound)
+                    # 2. Check Vengeance
                     if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                        # Caster gets hit. Does the CASTER have an Elder Maul?
                         elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                        
-                        # Halve the effect if Maul is active
                         final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
                         maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                         
@@ -2937,14 +2934,10 @@ class MonopolyCog(commands.Cog):
                     
                     # 3. Normal Hit
                     else:
-                        # Target gets hit. Does the TARGET have an Elder Maul?
                         elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                        
-                        # Halve the effect if Maul is active
                         final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
                         maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                         
-                        # Base the pushback off the target's actual position
                         target_pos = actual_target_pos 
                         intended_target_pos = max(0, target_pos + final_move_amount)
                         new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
@@ -2972,11 +2965,14 @@ class MonopolyCog(commands.Cog):
                             )
                             await victim_channel.send(embed=victim_embed)
                             await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-    
+
                 final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
                 await interaction.followup.send(embed=final_embed)
-    
+
                 await self.remove_card(team_name, card_name)
+                return
+            except Exception as e:
+                print(f"❌ Error in Dragon Spear block: {e}")
                 return
 
             elif card_name == "Rogue's Gloves":
