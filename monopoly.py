@@ -4605,7 +4605,6 @@ class MonopolyCog(commands.Cog):
             self.team_name = team_name
 
         async def interaction_check(self, interaction: discord.Interaction) -> bool:
-            # Dynamically verify the clicker is the captain of THIS team
             if not self.cog.has_event_captain_role(interaction.user):
                 await interaction.response.send_message("❌ Only Captains can use this button.", ephemeral=True)
                 return False
@@ -4614,27 +4613,32 @@ class MonopolyCog(commands.Cog):
                 return False
             return True
 
-        @ui.button(label="Accept Player", style=discord.ButtonStyle.success, custom_id="cap_accept")
+        # Note: I removed custom_id so Discord dynamically maps this specific button to this specific player
+        @ui.button(label="Accept Player", style=discord.ButtonStyle.success)
         async def accept(self, interaction: discord.Interaction, button: ui.Button):
             role = discord.utils.get(interaction.guild.roles, name=self.team_name)
-            if role:
-                await self.target_member.add_roles(role, reason="Captain accepted team request")
-                
-                # ---> ADDED: Update the live roster message <---
-                await self.cog.update_live_team_list(interaction.guild)
-                
-                embed = interaction.message.embeds[0]
-                embed.color = discord.Color.green()
-                embed.title = "✅ Request Accepted"
-                embed.description = f"**{self.target_member.mention}** is now on **{self.team_name}**!"
-                
-                for child in self.children:
-                    child.disabled = True
-                await interaction.response.edit_message(embed=embed, view=self)
-            else:
+            if not role:
                 await interaction.response.send_message(f"❌ Could not find the {self.team_name} role.", ephemeral=True)
+                return
 
-        @ui.button(label="Deny", style=discord.ButtonStyle.danger, custom_id="cap_deny")
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.green()
+            embed.title = "✅ Request Accepted"
+            embed.description = f"**{self.target_member.mention}** is now on **{self.team_name}**!"
+            
+            for child in self.children:
+                child.disabled = True
+                
+            # Instantly update the message so the 3-second timer doesn't fail
+            await interaction.response.edit_message(embed=embed, view=self)
+
+            try:
+                # Adding the role triggers the on_member_update listener in the background
+                await self.target_member.add_roles(role, reason="Captain accepted team request")
+            except Exception as e:
+                print(f"❌ Error adding role in button click: {e}")
+
+        @ui.button(label="Deny", style=discord.ButtonStyle.danger)
         async def deny(self, interaction: discord.Interaction, button: ui.Button):
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.red()
@@ -4644,7 +4648,7 @@ class MonopolyCog(commands.Cog):
             for child in self.children:
                 child.disabled = True
             await interaction.response.edit_message(embed=embed, view=self)
-
+    
     class PlayerAcceptView(ui.View):
         def __init__(self, cog, target_member: discord.Member, captain_member: discord.Member, team_name: str):
             super().__init__(timeout=None)
@@ -4659,27 +4663,28 @@ class MonopolyCog(commands.Cog):
                 return False
             return True
 
-        @ui.button(label="Accept Invite", style=discord.ButtonStyle.success, custom_id="player_accept")
+        @ui.button(label="Accept Invite", style=discord.ButtonStyle.success)
         async def accept(self, interaction: discord.Interaction, button: ui.Button):
             role = discord.utils.get(interaction.guild.roles, name=self.team_name)
-            if role:
-                await self.target_member.add_roles(role, reason="Player accepted captain's invite")
-                
-                # ---> ADDED: Update the live roster message <---
-                await self.cog.update_live_team_list(interaction.guild)
-                
-                embed = interaction.message.embeds[0]
-                embed.color = discord.Color.green()
-                embed.title = "✅ Invite Accepted"
-                embed.description = f"**{self.target_member.mention}** has joined **{self.team_name}**!"
-                
-                for child in self.children:
-                    child.disabled = True
-                await interaction.response.edit_message(embed=embed, view=self)
-            else:
+            if not role:
                 await interaction.response.send_message(f"❌ Could not find the {self.team_name} role.", ephemeral=True)
+                return
 
-        @ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="player_deny")
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.green()
+            embed.title = "✅ Invite Accepted"
+            embed.description = f"**{self.target_member.mention}** has joined **{self.team_name}**!"
+            
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(embed=embed, view=self)
+
+            try:
+                await self.target_member.add_roles(role, reason="Player accepted captain's invite")
+            except Exception as e:
+                print(f"❌ Error adding role in button click: {e}")
+
+        @ui.button(label="Decline", style=discord.ButtonStyle.danger)
         async def deny(self, interaction: discord.Interaction, button: ui.Button):
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.red()
