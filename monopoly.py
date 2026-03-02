@@ -2719,525 +2719,412 @@ class MonopolyCog(commands.Cog):
         
         loop = asyncio.get_event_loop()
 
+        wildcard_data_str = card_sheet.cell(card_row, 4).value or "{}"
+        wildcard_data = {}
+        team_wildcard_value = None
         try:
-            wildcard_data_str = card_sheet.cell(card_row, 4).value or "{}"
-            wildcard_data = {}
-            team_wildcard_value = None
-            try:
-                wildcard_data = json.loads(wildcard_data_str)
-                val = wildcard_data.get(team_name)
-                if val is not None and isinstance(val, str):
-                    val_str = val.strip()
-                    if val_str.lstrip('-').isdigit():
-                        team_wildcard_value = int(val_str)
-                    else:
-                        team_wildcard_value = val_str
+            wildcard_data = json.loads(wildcard_data_str)
+            val = wildcard_data.get(team_name)
+            if val is not None and isinstance(val, str):
+                val_str = val.strip()
+                if val_str.lstrip('-').isdigit():
+                    team_wildcard_value = int(val_str)
                 else:
-                    team_wildcard_value = val
-            except Exception as e:
-                print(f"❌ Error parsing wildcard for {team_name}: {e}")
-
-            if card_name == "Vengeance":
-                if team_wildcard_value == "active":
-                    await interaction.followup.send("❌ This card is already active!", ephemeral=True)
-                    return
-                
-                wildcard_data[team_name] = "active"
-                card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True
-                
-                embed_description = "> The next card effect used on your team will be rebounded."
-
-            elif card_name == "Redemption":
-                if team_wildcard_value == "active":
-                    await interaction.followup.send("❌ This card is already active!", ephemeral=True)
-                    return
-                
-                wildcard_data[team_name] = "active"
-                card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True
-                
-                embed_description = "> The next negative card effect used on your team will be fizzled."
-
-            elif card_name == "Elder Maul":
-                if team_wildcard_value == "active":
-                    await interaction.followup.send("❌ This card is already active!", ephemeral=True)
-                    return
-                
-                wildcard_data[team_name] = "active"
-                
-                await asyncio.to_thread(
-                    card_sheet.update_cell, 
-                    card_row, 
-                    4, 
-                    json.dumps(wildcard_data)
-                )
-                
-                is_status_activation = True
-                embed_description = "> <:maul:1437979898865258668> **Elder Maul Activated!** The next negative card effect used on your team will be reduced."
-
-            elif card_name == "Low Alchemy":
-                if team_wildcard_value == "active":
-                    await interaction.followup.send("❌ This card is already active!", ephemeral=True)
-                    return
-
-                wildcard_data[team_name] = "active"
-                card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True
-                
-                embed_description = "> Your next drop this turn will be worth **double GP**."
-                
-            elif card_name == "High Alchemy":
-                if team_wildcard_value == "active":
-                    await interaction.followup.send("❌ This card is already active!", ephemeral=True)
-                    return
-                    
-                wildcard_data[team_name] = "active"
-                card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
-                is_status_activation = True
-                
-                embed_description = "> Your next drop this turn will be worth **triple GP**."
-                
-            elif card_name == "Vile Vigour" and isinstance(team_wildcard_value, int):
-                stored_roll = team_wildcard_value
-                
-                # Fetch snapshot
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                caster_pos = -1
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return
-
-                # Calculate movement
-                intended_pos = (caster_pos + stored_roll) % BOARD_SIZE
-                new_pos = self.resolve_nonroll_landing_tile(intended_pos)
-
-                await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                
-                destination_tile_name = self.get_tile_name_for_display(new_pos)
-                embed_description = f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
-                embed_description += self.get_glider_redirect_note(intended_pos, new_pos)
-
-                # Route through normal board triggers (Only grants rolls on Special tiles)
-                await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
-                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-            
-            elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
-                try:
-                    stored_roll = team_wildcard_value
-                    move_amount = -stored_roll
-                    
-                    # Fetch a fast snapshot of the data
-                    all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                    caster_pos = -1
-                    targets = []
-                    actual_target_pos = -1
-                    
-                    for record in all_teams_data:
-                        if record.get("Team") == team_name:
-                            caster_pos = int(record.get("Position", -1))
-                            break
-                    
-                    if caster_pos != -1:
-                        import random
-                        valid_targets_data = []
-                        
-                        for record in all_teams_data:
-                            opponent_team_name = record.get("Team")
-                            if opponent_team_name == team_name:
-                                continue
-                            
-                            opp_pos = int(record.get("Position", -1))
-                            
-                            # Target teams within 1 tile (ahead, behind, or same tile)
-                            if abs(opp_pos - caster_pos) <= 1:
-                                valid_targets_data.append((opponent_team_name, opp_pos))
-                                
-                        if valid_targets_data:
-                            # Randomly pick exactly ONE valid target
-                            chosen = random.choice(valid_targets_data)
-                            targets.append(chosen[0])
-                            actual_target_pos = chosen[1]
-                    
-                    if not targets:
-                        await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
-                        return 
-    
-                    embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
-                    
-                    for target_team in targets:
-                        victim_channel = self.get_team_channel(target_team)
-                        
-                        # 1. Check Redemption
-                        if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
-                            embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
-                            if victim_channel:
-                                fizzle_embed = discord.Embed(
-                                    title="<:redemption:1437979567900987493> Redemption Activated!", 
-                                    description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
-                                    color=discord.Color.blue()
-                                )
-                                await victim_channel.send(embed=fizzle_embed)
-                                await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                            continue  
-                                
-                        # 2. Check Vengeance
-                        if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                            elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                            final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                            maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                            
-                            intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
-                            new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
-                            destination_tile_name = self.get_tile_name_for_display(new_pos)
-                            glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
-                            glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
-                            
-                            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                            
-                            embed_description += (
-                                f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
-                                f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
-                                f"(stops at Go){maul_suffix}.\n"
-                            )
-                            embed_description += glider_note
-                            
-                            await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
-                            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                            
-                            skull_embed = discord.Embed(
-                                title="<:venge:1438084953559797884> Vengeance Activated!", 
-                                description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
-                                color=discord.Color.dark_red()
-                            )
-                            await interaction.channel.send(embed=skull_embed)
-                            await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-                            
-                            if victim_channel:
-                                victim_embed = discord.Embed(
-                                    title="<:venge:1438084953559797884> Vengeance Activated!",
-                                    description=(
-                                        f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
-                                        f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
-                                        + glider_note_victim
-                                    ),
-                                    color=discord.Color.dark_red()
-                                )
-                                await victim_channel.send(embed=victim_embed)
-                                await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                            continue  
-                        
-                        # 3. Normal Hit
-                        else:
-                            elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                            final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                            maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                            
-                            target_pos = actual_target_pos 
-                            intended_target_pos = max(0, target_pos + final_move_amount)
-                            new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
-                            glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
-                            glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
-                            
-                            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                            
-                            destination_tile_name = self.get_tile_name_for_display(new_pos)
-                            embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
-                            embed_description += glider_note
-                            
-                            await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
-                            await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
-                            
-                            if victim_channel:
-                                victim_embed = discord.Embed(
-                                    title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
-                                    description=(
-                                        f"**{team_name}** used **Dragon Spear** on your team.\n"
-                                        f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
-                                        + glider_note_victim
-                                    ),
-                                    color=discord.Color.dark_red()
-                                )
-                                await victim_channel.send(embed=victim_embed)
-                                await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-                    final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
-                    await interaction.followup.send(embed=final_embed)
-    
-                    await self.remove_card(team_name, card_name)
-                    return
-                
+                    team_wildcard_value = val_str
+            else:
+                team_wildcard_value = val
         except Exception as e:
-            print(f"❌ Error in Dragon Spear block: {e}")
+            print(f"❌ Error parsing wildcard for {team_name}: {e}")
+
+        if card_name == "Vengeance":
+            if team_wildcard_value == "active":
+                await interaction.followup.send("❌ This card is already active!", ephemeral=True)
+                return
+            
+            wildcard_data[team_name] = "active"
+            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+            is_status_activation = True
+            
+            embed_description = "> The next card effect used on your team will be rebounded."
+
+        elif card_name == "Redemption":
+            if team_wildcard_value == "active":
+                await interaction.followup.send("❌ This card is already active!", ephemeral=True)
+                return
+            
+            wildcard_data[team_name] = "active"
+            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+            is_status_activation = True
+            
+            embed_description = "> The next negative card effect used on your team will be fizzled."
+
+        elif card_name == "Elder Maul":
+            if team_wildcard_value == "active":
+                await interaction.followup.send("❌ This card is already active!", ephemeral=True)
+                return
+            
+            wildcard_data[team_name] = "active"
+            
+            await asyncio.to_thread(
+                card_sheet.update_cell, 
+                card_row, 
+                4, 
+                json.dumps(wildcard_data)
+            )
+            
+            is_status_activation = True
+            embed_description = "> <:maul:1437979898865258668> **Elder Maul Activated!** The next negative card effect used on your team will be reduced."
+
+        elif card_name == "Low Alchemy":
+            if team_wildcard_value == "active":
+                await interaction.followup.send("❌ This card is already active!", ephemeral=True)
+                return
+
+            wildcard_data[team_name] = "active"
+            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+            is_status_activation = True
+            
+            embed_description = "> Your next drop this turn will be worth **double GP**."
+            
+        elif card_name == "High Alchemy":
+            if team_wildcard_value == "active":
+                await interaction.followup.send("❌ This card is already active!", ephemeral=True)
+                return
+                
+            wildcard_data[team_name] = "active"
+            card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+            is_status_activation = True
+            
+            embed_description = "> Your next drop this turn will be worth **triple GP**."
+            
+        elif card_name == "Vile Vigour" and isinstance(team_wildcard_value, int):
+            stored_roll = team_wildcard_value
+            
+            # Fetch snapshot
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            caster_pos = -1
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
+            
+            if caster_pos == -1:
+                await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                return
+
+            # Calculate movement
+            intended_pos = (caster_pos + stored_roll) % BOARD_SIZE
+            new_pos = self.resolve_nonroll_landing_tile(intended_pos)
+
+            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+            
+            destination_tile_name = self.get_tile_name_for_display(new_pos)
+            embed_description = f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+            embed_description += self.get_glider_redirect_note(intended_pos, new_pos)
+
+            # Route through normal board triggers (Only grants rolls on Special tiles)
+            await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
+            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+        
+        elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
+            stored_roll = team_wildcard_value
+            move_amount = -stored_roll
+            
+            # Fetch a fast snapshot of the data
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            caster_pos = -1
+            targets = []
+            actual_target_pos = -1
+            
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
+            
+            if caster_pos != -1:
+                import random
+                valid_targets_data = []
+                
+                for record in all_teams_data:
+                    opponent_team_name = record.get("Team")
+                    if opponent_team_name == team_name:
+                        continue
+                    
+                    opp_pos = int(record.get("Position", -1))
+                    
+                    # Target teams within 1 tile (ahead, behind, or same tile)
+                    if abs(opp_pos - caster_pos) <= 1:
+                        valid_targets_data.append((opponent_team_name, opp_pos))
+                        
+                if valid_targets_data:
+                    # Randomly pick exactly ONE valid target
+                    chosen = random.choice(valid_targets_data)
+                    targets.append(chosen[0])
+                    actual_target_pos = chosen[1]
+            
+            if not targets:
+                await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
+                return 
+
+            embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
+            
+            for target_team in targets:
+                victim_channel = self.get_team_channel(target_team)
+                
+                # 1. Check Redemption
+                if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
+                    if victim_channel:
+                        fizzle_embed = discord.Embed(
+                            title="<:redemption:1437979567900987493> Redemption Activated!", 
+                            description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
+                            color=discord.Color.blue()
+                        )
+                        await victim_channel.send(embed=fizzle_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+                    continue  
+                        
+                # 2. Check Vengeance
+                if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
+                    final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                    
+                    intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
+                    new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
+                    glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
+                    
+                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+                    
+                    embed_description += (
+                        f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
+                        f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
+                        f"(stops at Go){maul_suffix}.\n"
+                    )
+                    embed_description += glider_note
+                    
+                    await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
+                    await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+                    
+                    skull_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!", 
+                        description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=skull_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:venge:1438084953559797884> Vengeance Activated!",
+                            description=(
+                                f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
+                                f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
+                                + glider_note_victim
+                            ),
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                    continue  
+                
+                # 3. Normal Hit
+                else:
+                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                    final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                    
+                    target_pos = actual_target_pos 
+                    intended_target_pos = max(0, target_pos + final_move_amount)
+                    new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
+                    glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
+                    
+                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
+                    
+                    destination_tile_name = self.get_tile_name_for_display(new_pos)
+                    embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
+                    embed_description += glider_note
+                    
+                    await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(
+                            title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
+                            description=(
+                                f"**{team_name}** used **Dragon Spear** on your team.\n"
+                                f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
+                                + glider_note_victim
+                            ),
+                            color=discord.Color.dark_red()
+                        )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
+            await interaction.followup.send(embed=final_embed)
+
+            await self.remove_card(team_name, card_name)
             return
 
-            elif card_name == "Rogue's Gloves":
-                stealable_cards = []
-                chance_data = self.chance_sheet.get_all_values()
-                if chance_data:
-                    headers = chance_data[0]
-                    name_col = headers.index("Name")
-                    held_by_col = headers.index("Held By Team")
-                    wildcard_col = headers.index("Wildcard")
+        elif card_name == "Rogue's Gloves":
+            stealable_cards = []
+            chance_data = self.chance_sheet.get_all_values()
+            if chance_data:
+                headers = chance_data[0]
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+                
+                for i, row in enumerate(chance_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
+                    held_by_str = str(row[held_by_col] or "")
                     
-                    for i, row in enumerate(chance_data[1:], start=2):
-                        if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                        held_by_str = str(row[held_by_col] or "")
-                        
-                        if held_by_str and team_name not in held_by_str:
-                            is_active = False
-                            wildcard_str = str(row[wildcard_col] or "{}")
-                            if wildcard_str != "{}" and wildcard_str:
-                                try:
-                                    import json
-                                    wildcard_data_json = json.loads(wildcard_str)
-                                    victim_team = held_by_str.strip() 
-                                    victim_status = wildcard_data_json.get(victim_team)
-                                    if victim_status and isinstance(victim_status, str) and victim_status.strip() == "active":
-                                        is_active = True
-                                except:
-                                    pass 
-                            
-                            if not is_active:
-                                stealable_cards.append({
-                                    "sheet": self.chance_sheet,
-                                    "row_index": i,
-                                    "card_name": str(row[name_col]),
-                                    "card_type": "Chance",
-                                    "victim_team": held_by_str.strip() 
-                                })
-    
-                chest_data = self.chest_sheet.get_all_values()
-                if chest_data:
-                    headers = chest_data[0]
-                    name_col = headers.index("Name")
-                    held_by_col = headers.index("Held By Team")
-                    wildcard_col = headers.index("Wildcard")
-    
-                    for i, row in enumerate(chest_data[1:], start=2):
-                        if len(row) <= max(name_col, held_by_col, wildcard_col): continue
-                        held_by_str = str(row[held_by_col] or "")
-                        
-                        if held_by_str and team_name not in held_by_str:
-                            all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                            
-                            wildcard_str = str(row[wildcard_col] or "{}")
-                            wildcard_data_json = {}
+                    if held_by_str and team_name not in held_by_str:
+                        is_active = False
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        if wildcard_str != "{}" and wildcard_str:
                             try:
                                 import json
                                 wildcard_data_json = json.loads(wildcard_str)
+                                victim_team = held_by_str.strip() 
+                                victim_status = wildcard_data_json.get(victim_team)
+                                if victim_status and isinstance(victim_status, str) and victim_status.strip() == "active":
+                                    is_active = True
                             except:
-                                pass
-    
-                            valid_victims = []
-                            for holder in all_holders:
-                                if holder == team_name: continue
-                                holder_status = wildcard_data_json.get(holder)
-                                if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
-                                    valid_victims.append(holder)
-    
-                            if valid_victims:
-                                import random
-                                victim_team = random.choice(valid_victims) 
-                                stealable_cards.append({
-                                    "sheet": self.chest_sheet,
-                                    "row_index": i,
-                                    "card_name": str(row[name_col]),
-                                    "card_type": "Chest",
-                                    "victim_team": victim_team
-                                })
+                                pass 
+                        
+                        if not is_active:
+                            stealable_cards.append({
+                                "sheet": self.chance_sheet,
+                                "row_index": i,
+                                "card_name": str(row[name_col]),
+                                "card_type": "Chance",
+                                "victim_team": held_by_str.strip() 
+                            })
+
+            chest_data = self.chest_sheet.get_all_values()
+            if chest_data:
+                headers = chest_data[0]
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+
+                for i, row in enumerate(chest_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col): continue
+                    held_by_str = str(row[held_by_col] or "")
+                    
+                    if held_by_str and team_name not in held_by_str:
+                        all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        wildcard_data_json = {}
+                        try:
+                            import json
+                            wildcard_data_json = json.loads(wildcard_str)
+                        except:
+                            pass
+
+                        valid_victims = []
+                        for holder in all_holders:
+                            if holder == team_name: continue
+                            holder_status = wildcard_data_json.get(holder)
+                            if not (holder_status and isinstance(holder_status, str) and holder_status.strip() == "active"):
+                                valid_victims.append(holder)
+
+                        if valid_victims:
+                            import random
+                            victim_team = random.choice(valid_victims) 
+                            stealable_cards.append({
+                                "sheet": self.chest_sheet,
+                                "row_index": i,
+                                "card_name": str(row[name_col]),
+                                "card_type": "Chest",
+                                "victim_team": victim_team
+                            })
+            
+            if not stealable_cards:
+                await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
+                return 
+
+            team_card_counts = {}
+            for c in stealable_cards:
+                t = c["victim_team"]
+                team_card_counts[t] = team_card_counts.get(t, 0) + 1
+
+            valid_targets = list(team_card_counts.keys())
+
+            embed = discord.Embed(
+                title="🎯 Target Selection: Rogue's Gloves",
+                description="Select a team to steal from! Here is what everyone is holding:\n",
+                color=discord.Color.dark_gray()
+            )
+            for t, count in team_card_counts.items():
+                embed.description += f"\n• **{t}**: {count} cards"
+
+            extra_memory = {
+                "stealable_cards": stealable_cards,
+                "rg_sheet": card_sheet,
+                "rg_row": card_row
+            }
+            view = CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
+
+        elif card_name == "Pickpocket":
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            
+            valid_targets = []
+            target_gp_data = {}
+            caster_record = None
+
+            for record in all_teams_data:
+                current_team = record.get("Team")
+                 if not current_team: continue
                 
-                if not stealable_cards:
-                    await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
-                    return 
-    
-                team_card_counts = {}
-                for c in stealable_cards:
-                    t = c["victim_team"]
-                    team_card_counts[t] = team_card_counts.get(t, 0) + 1
-    
-                valid_targets = list(team_card_counts.keys())
-    
-                embed = discord.Embed(
-                    title="🎯 Target Selection: Rogue's Gloves",
-                    description="Select a team to steal from! Here is what everyone is holding:\n",
-                    color=discord.Color.dark_gray()
-                )
-                for t, count in team_card_counts.items():
-                    embed.description += f"\n• **{t}**: {count} cards"
-    
-                extra_memory = {
-                    "stealable_cards": stealable_cards,
-                    "rg_sheet": card_sheet,
-                    "rg_row": card_row
-                }
-                view = CardTargetView(self, team_name, valid_targets, "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+                try:
+                    current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
+                except ValueError:
+                    current_gp = 0
+
+                if current_team == team_name:
+                    caster_record = record
+                    continue
+
+                if current_gp > 0:
+                    valid_targets.append(current_team)
+                    target_gp_data[current_team] = current_gp
+
+            if not caster_record:
+                await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
                 return
 
-            elif card_name == "Pickpocket":
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                
-                valid_targets = []
-                target_gp_data = {}
-                caster_record = None
-    
-                for record in all_teams_data:
-                    current_team = record.get("Team")
-                     if not current_team: continue
-                    
-                    try:
-                        current_gp = int(str(record.get("GP", 0)).replace(",", "") or 0)
-                    except ValueError:
-                        current_gp = 0
-    
-                    if current_team == team_name:
-                        caster_record = record
-                        continue
-    
-                    if current_gp > 0:
-                        valid_targets.append(current_team)
-                        target_gp_data[current_team] = current_gp
-    
-                if not caster_record:
-                    await interaction.followup.send("❌ Card effect failed: Could not locate your team's data.", ephemeral=True)
-                    return
-    
-                if not valid_targets:
-                    await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
-                    return
-    
-                embed = discord.Embed(
-                    title="🎯 Target Selection: Pickpocket",
-                    description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
-                    color=discord.Color.dark_gold()
-                )
-                for t in valid_targets:
-                    embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
-    
-                # Pass the parsed team data so we don't have to read the sheet twice!
-                extra_memory = {
-                    "all_teams_data": all_teams_data,
-                    "caster_record": caster_record
-                }
-                view = CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            if not valid_targets:
+                await interaction.followup.send("❌ Card effect failed: No other teams have any GP to steal.", ephemeral=True)
                 return
-    
-                elif card_name == "Lure":
-                    all_teams_data = self.team_data_sheet.get_all_records()
-                    caster_pos = -1
-                    opponents_ahead = []
-    
-                    for record in all_teams_data:
-                        if record.get("Team") == team_name:
-                            caster_pos = int(record.get("Position", -1))
-                            break
-                    
-                    if caster_pos == -1:
-                        await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                        return
-    
-                    for record in all_teams_data:
-                        opponent_team_name = record.get("Team")
-                        if opponent_team_name == team_name:
-                            continue
-                        
-                        opponent_pos = int(record.get("Position", -1))
-                        if opponent_pos > caster_pos:
-                            opponents_ahead.append((opponent_team_name, opponent_pos))
-                    
-                    if not opponents_ahead:
-                        await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
-                        return 
-    
-                    sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
-                    target_team = sorted_opponents[0][0]
-                    target_pos = sorted_opponents[0][1]
-                    
-                    victim_channel = self.get_team_channel(target_team)
-    
-                    if self.check_and_consume_redemption(target_team):
-                        embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
-                        if victim_channel:
-                            fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                            await victim_channel.send(embed=fizzle_embed)
-    
-                            await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                    
-                    else:
-                        intended_lure_pos = caster_pos
-                        final_lure_pos = self.resolve_nonroll_landing_tile(intended_lure_pos)
-                        glider_note = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos)
-                        glider_note_victim = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos, second_person=True, quoted=False)
-                        self.log_command(
-                            team_name,
-                            "/card_effect_set_tile",
-                            {"team": target_team, "tile": final_lure_pos}
-                        )
-                        source_tile_name = self.get_tile_name_for_display(target_pos)
-                        destination_tile_name = self.get_tile_name_for_display(final_lure_pos)
-                        embed_description = (
-                            f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
-                            f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
-                            f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
-                        )
-                        embed_description += glider_note
-                        
-                        if victim_channel:
-                        
-                            lure_embed = discord.Embed(
-                        
-                                title="<:fishing:1437980297017688114> You Were Lured!",
-                        
-                                description=(f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**)." + glider_note_victim),
-                        
-                                color=discord.Color.orange()
-                        
-                            )
-                        
-                            await victim_channel.send(embed=lure_embed)
-    
-                        
-                            await self.mirror_to_game_log(victim_channel, embed=lure_embed)
-    
-                        
-                        await self.check_and_award_card_on_land(target_team, final_lure_pos, "being lured to")
-                        await self.auto_post_show_drops_if_boss_tile(target_team, final_lure_pos)
 
-            elif card_name == "Escape Crystal":
-                # 1. Teleblock Check
-                if self.get_teleblock_status(team_name) == "yes":
-                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card, even in jail!", ephemeral=True)
-                    return 
+            embed = discord.Embed(
+                title="🎯 Target Selection: Pickpocket",
+                description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n",
+                color=discord.Color.dark_gold()
+            )
+            for t in valid_targets:
+                embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
 
-                # 2. Jail Status Check (The new guard clause)
-                jail_status = await asyncio.to_thread(self.get_jail_status, team_name)
-                if jail_status != "yes":
-                    await interaction.followup.send(
-                        "❌ **Action Denied:** You are currently 'Just Visiting' Tile 10. "
-                        "The Escape Crystal can only be used if you were sent to Jail!",
-                        ephemeral=True
-                    )
-                    return
+            # Pass the parsed team data so we don't have to read the sheet twice!
+            extra_memory = {
+                "all_teams_data": all_teams_data,
+                "caster_record": caster_record
+            }
+            view = CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+            return
 
-                # 3. Execution
-                self.increment_rolls_available(team_name)
-                # Clear the jail status after a successful escape
-                await asyncio.to_thread(self.set_jail_status, team_name, "no")
-                
-                embed_description = "> 🎲 You have used your crystal to escape! You gained a free roll."
-
-            elif card_name == "Backstab":
-                import random
-                
-                # Fetch a fast snapshot of the data
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            elif card_name == "Lure":
+                all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
                 opponents_ahead = []
 
@@ -3248,7 +3135,7 @@ class MonopolyCog(commands.Cog):
                 
                 if caster_pos == -1:
                     await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return 
+                    return
 
                 for record in all_teams_data:
                     opponent_team_name = record.get("Team")
@@ -3256,414 +3143,521 @@ class MonopolyCog(commands.Cog):
                         continue
                     
                     opponent_pos = int(record.get("Position", -1))
-                    dist = opponent_pos - caster_pos
-                    
-                    # CHANGE: Ensure they are strictly 1 to 5 tiles ahead
-                    if 1 <= dist <= 5:
-                        opponents_ahead.append((opponent_team_name, opponent_pos, dist))
+                    if opponent_pos > caster_pos:
+                        opponents_ahead.append((opponent_team_name, opponent_pos))
                 
                 if not opponents_ahead:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are within 5 tiles ahead of you.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
                     return 
 
-                # Sort by distance to find the closest
-                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[2])
-                closest_dist = sorted_opponents[0][2]
+                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
+                target_team = sorted_opponents[0][0]
+                target_pos = sorted_opponents[0][1]
                 
-                # Handle ties just in case two teams are equally close ahead
-                closest_teams = [opp for opp in sorted_opponents if opp[2] == closest_dist]
-                chosen_target = random.choice(closest_teams)
-                
-                target_team = chosen_target[0]
-                target_pos = chosen_target[1] 
-                
-                # CHANGE: Roll a 1d3 to determine how far behind the caster they are thrown
-                base_roll = random.randint(1, 3)
-                
-                embed_description = f"**{team_name}** lunges at **{target_team}** and rolled a **{base_roll}** on their d3!\n"
                 victim_channel = self.get_team_channel(target_team)
 
-                # 1. Check Redemption (Total Immunity)
-                if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Backstab** fizzled!\n"
+                if self.check_and_consume_redemption(target_team):
+                    embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
                     if victim_channel:
-                        fizzle_embed = discord.Embed(
-                            title="<:redemption:1437979567900987493> Redemption Activated!", 
-                            description=f"**{team_name}** tried to use **Backstab** on you, but your **Redemption** activated!", 
-                            color=discord.Color.blue()
-                        )
+                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
+
                         await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
                 
-                # 2. Check Vengeance (Rebound)
-                elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                    # Caster gets hit. Does the CASTER have an Elder Maul?
-                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name) 
-                    
-                    # Halve the effect if Maul is active
-                    final_roll_val = (base_roll // 2) if elder_maul_active else base_roll
-                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                    
-                    intended_rebound_pos = max(0, caster_pos - final_roll_val)
-                    new_pos = self.resolve_nonroll_landing_tile(intended_rebound_pos)
-                    destination_tile_name = self.get_tile_name_for_display(new_pos)
-                    glider_note = self.get_glider_redirect_note(intended_rebound_pos, new_pos)
-                    glider_note_victim = self.get_glider_redirect_note(intended_rebound_pos, new_pos, second_person=True, quoted=False)
-                    
-                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                    
-                    embed_description += (
-                        f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to the "
-                        f"**{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}.\n"
-                    )
-                    embed_description += glider_note
-                    
-                    await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
-                    await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                    
-                    skull_embed = discord.Embed(
-                        title="<:venge:1438084953559797884> Vengeance Activated!", 
-                        description=(f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
-                        color=discord.Color.dark_red()
-                    )
-                    await interaction.channel.send(embed=skull_embed)
-                    await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-                    
-                    if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=(
-                                f"**{team_name}** tried to use **Backstab** on your team, but your **Vengeance** rebounded the effect!\n"
-                                f"They were moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
-                                + glider_note_victim
-                            ),
-                            color=discord.Color.dark_red()
-                        )
-                        await victim_channel.send(embed=victim_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                
-                # 3. Normal Hit
                 else:
-                    # Target gets hit. Does the TARGET have an Elder Maul?
-                    elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                    
-                    # Halve the effect if Maul is active
-                    final_roll_val = (base_roll // 2) if elder_maul_active else base_roll 
-                    maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
-                    
-                    # CHANGE: The destination is now the CASTER'S position minus the d3 roll
-                    intended_backstab_pos = max(0, caster_pos - final_roll_val) 
-                    new_pos = self.resolve_nonroll_landing_tile(intended_backstab_pos)
-                    glider_note = self.get_glider_redirect_note(intended_backstab_pos, new_pos)
-                    glider_note_victim = self.get_glider_redirect_note(intended_backstab_pos, new_pos, second_person=True, quoted=False)
+                    intended_lure_pos = caster_pos
+                    final_lure_pos = self.resolve_nonroll_landing_tile(intended_lure_pos)
+                    glider_note = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos)
+                    glider_note_victim = self.get_glider_redirect_note(intended_lure_pos, final_lure_pos, second_person=True, quoted=False)
+                    self.log_command(
+                        team_name,
+                        "/card_effect_set_tile",
+                        {"team": target_team, "tile": final_lure_pos}
+                    )
                     source_tile_name = self.get_tile_name_for_display(target_pos)
-                    destination_tile_name = self.get_tile_name_for_display(new_pos)
-                    
-                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                    
-                    embed_description += (
-                        f"> **{target_team}** was dragged from the **{source_tile_name}** tile (Tile **{target_pos}**) "
-                        f"and thrown **{final_roll_val}** tiles behind {team_name} to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                    destination_tile_name = self.get_tile_name_for_display(final_lure_pos)
+                    embed_description = (
+                        f"<:fishing:1437980297017688114> **{target_team}** was lured from the "
+                        f"**{source_tile_name}** tile (Tile **{target_pos}**) to your tile: the "
+                        f"**{destination_tile_name}** tile (Tile **{final_lure_pos}**)!"
                     )
                     embed_description += glider_note
-
-                    await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
-                    await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
                     
                     if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="<:boner:1438085053102948383> You Were Backstabbed!",
-                            description=(
-                                f"**{team_name}** used **Backstab** on your team.\n"
-                                f"You were dragged behind them to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
-                                + glider_note_victim
-                            ),
-                            color=discord.Color.dark_red()
+                    
+                        lure_embed = discord.Embed(
+                    
+                            title="<:fishing:1437980297017688114> You Were Lured!",
+                    
+                            description=(f"**{team_name}** used **Lure** and pulled your team to the **{self.get_tile_name_for_display(final_lure_pos)}** tile (Tile **{final_lure_pos}**)." + glider_note_victim),
+                    
+                            color=discord.Color.orange()
+                    
                         )
-                        await victim_channel.send(embed=victim_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                        
-            elif card_name == "Smite":
-            # 1. Fetch data snapshot to get all teams
-            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            
-            valid_targets = []
-            for record in all_teams_data:
-                current_team_name = record.get("Team")
-                # Add all teams except the caster to the target list
-                if current_team_name and current_team_name != team_name:
-                    valid_targets.append(current_team_name)
+                    
+                        await victim_channel.send(embed=lure_embed)
 
-            if not valid_targets:
-                await interaction.followup.send("❌ Card effect failed: There are no other teams to Smite.", ephemeral=True)
+                    
+                        await self.mirror_to_game_log(victim_channel, embed=lure_embed)
+
+                    
+                    await self.check_and_award_card_on_land(target_team, final_lure_pos, "being lured to")
+                    await self.auto_post_show_drops_if_boss_tile(target_team, final_lure_pos)
+
+        elif card_name == "Escape Crystal":
+            # 1. Teleblock Check
+            if self.get_teleblock_status(team_name) == "yes":
+                await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card, even in jail!", ephemeral=True)
                 return 
 
-            # Prepare the Dropdown
-            embed = discord.Embed(
-                title="🎯 Target Selection: Smite",
-                description="Select a team to Smite! You can choose ANY team on the board.",
-                color=discord.Color.red()
-            )
+            # 2. Jail Status Check (The new guard clause)
+            jail_status = await asyncio.to_thread(self.get_jail_status, team_name)
+            if jail_status != "yes":
+                await interaction.followup.send(
+                    "❌ **Action Denied:** You are currently 'Just Visiting' Tile 10. "
+                    "The Escape Crystal can only be used if you were sent to Jail!",
+                    ephemeral=True
+                )
+                return
 
-            # Pass the card's sheet/row data so we can delete it from their inventory later!
-            extra_memory = {
-                "card_sheet": card_sheet,
-                "card_row": card_row,
-                "wildcard_data": wildcard_data,
-                "team_wildcard_value": team_wildcard_value
-            }
+            # 3. Execution
+            self.increment_rolls_available(team_name)
+            # Clear the jail status after a successful escape
+            await asyncio.to_thread(self.set_jail_status, team_name, "no")
             
-            view = CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-            return
+            embed_description = "> 🎲 You have used your crystal to escape! You gained a free roll."
 
-            elif card_name == "Varrock Tele":
-                # Check Teleblock
-                if await asyncio.to_thread(self.get_teleblock_status, team_name) == "yes":
-                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
-                    return 
+        elif card_name == "Backstab":
+            import random
+            
+            # Fetch a fast snapshot of the data
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            caster_pos = -1
+            opponents_ahead = []
 
-                # Fetch snapshot
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                caster_pos = -1
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
+            
+            if caster_pos == -1:
+                await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                return 
+
+            for record in all_teams_data:
+                opponent_team_name = record.get("Team")
+                if opponent_team_name == team_name:
+                    continue
                 
-                if caster_pos == 10:
-                    await interaction.followup.send("❌ You cannot use **Varrock Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
-                    return 
+                opponent_pos = int(record.get("Position", -1))
+                dist = opponent_pos - caster_pos
+                
+                # CHANGE: Ensure they are strictly 1 to 5 tiles ahead
+                if 1 <= dist <= 5:
+                    opponents_ahead.append((opponent_team_name, opponent_pos, dist))
+            
+            if not opponents_ahead:
+                await interaction.followup.send("❌ Card effect failed: No opponents are within 5 tiles ahead of you.", ephemeral=True)
+                return 
 
-                new_pos = self.resolve_nonroll_landing_tile(BANK_STANDING_TILE)
+            # Sort by distance to find the closest
+            sorted_opponents = sorted(opponents_ahead, key=lambda x: x[2])
+            closest_dist = sorted_opponents[0][2]
+            
+            # Handle ties just in case two teams are equally close ahead
+            closest_teams = [opp for opp in sorted_opponents if opp[2] == closest_dist]
+            chosen_target = random.choice(closest_teams)
+            
+            target_team = chosen_target[0]
+            target_pos = chosen_target[1] 
+            
+            # CHANGE: Roll a 1d3 to determine how far behind the caster they are thrown
+            base_roll = random.randint(1, 3)
+            
+            embed_description = f"**{team_name}** lunges at **{target_team}** and rolled a **{base_roll}** on their d3!\n"
+            victim_channel = self.get_team_channel(target_team)
+
+            # 1. Check Redemption (Total Immunity)
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Backstab** fizzled!\n"
+                if victim_channel:
+                    fizzle_embed = discord.Embed(
+                        title="<:redemption:1437979567900987493> Redemption Activated!", 
+                        description=f"**{team_name}** tried to use **Backstab** on you, but your **Redemption** activated!", 
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=fizzle_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+            
+            # 2. Check Vengeance (Rebound)
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                # Caster gets hit. Does the CASTER have an Elder Maul?
+                elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name) 
+                
+                # Halve the effect if Maul is active
+                final_roll_val = (base_roll // 2) if elder_maul_active else base_roll
+                maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                
+                intended_rebound_pos = max(0, caster_pos - final_roll_val)
+                new_pos = self.resolve_nonroll_landing_tile(intended_rebound_pos)
+                destination_tile_name = self.get_tile_name_for_display(new_pos)
+                glider_note = self.get_glider_redirect_note(intended_rebound_pos, new_pos)
+                glider_note_victim = self.get_glider_redirect_note(intended_rebound_pos, new_pos, second_person=True, quoted=False)
+                
                 await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 
-                embed_description = "> Teleported to **Bank Standing** (Tile 20)."
-
-                # Route through normal board triggers (Tile 20 grants a free roll automatically here)
-                await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to via Varrock Tele")
+                embed_description += (
+                    f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to the "
+                    f"**{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}.\n"
+                )
+                embed_description += glider_note
+                
+                await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Backstab to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
-            elif card_name == "POH Voucher":
-                # 1. Fetch snapshot of data
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                house_data = await asyncio.to_thread(self.house_data_sheet.get_all_records)
                 
-                # 2. Get Caster Position
-                team_info = next((r for r in all_teams_data if r.get("Team") == team_name), None)
-                if not team_info:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return 
-
-                caster_pos = int(team_info.get("Position", -1))
-
-                # 3. Check Tile Data
-                target_tile_data = next((h for h in house_data if int(h.get("Tile", -1)) == caster_pos), None)
-
-                if not target_tile_data:
-                    await interaction.followup.send("❌ This tile is not a valid tile for housing.", ephemeral=True)
-                    return
-
-                current_owner = str(target_tile_data.get("OwnerTeam", "")).strip()
-                try:
-                    current_house_count = int(target_tile_data.get("HouseCount", 0) or 0)
-                except ValueError:
-                    current_house_count = 0
-
-                # 4a. VALIDATION: Check if someone else owns it
-                if current_owner and current_owner != team_name:
-                    await interaction.followup.send(
-                        f"❌ **Action Denied:** Tile {caster_pos} is already owned by **{current_owner}**. "
-                        "You cannot use a POH Voucher on another team's property!",
-                        ephemeral=True
+                skull_embed = discord.Embed(
+                    title="<:venge:1438084953559797884> Vengeance Activated!", 
+                    description=(f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
+                    color=discord.Color.dark_red()
+                )
+                await interaction.channel.send(embed=skull_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!",
+                        description=(
+                            f"**{team_name}** tried to use **Backstab** on your team, but your **Vengeance** rebounded the effect!\n"
+                            f"They were moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+                            + glider_note_victim
+                        ),
+                        color=discord.Color.dark_red()
                     )
-                    return
-
-                # 4b. VALIDATION: Check if max houses (4) is reached
-                if current_owner == team_name and current_house_count >= 4:
-                    await interaction.followup.send(
-                        f"❌ **Action Denied:** Tile {caster_pos} already has the maximum of 4 houses! "
-                        "Save your POH Voucher for another property.",
-                        ephemeral=True
-                    )
-                    return
-
-                # 5. Success: ACTUALLY PLACE THE HOUSE!
-                # We call your place_house function in a thread so it runs fast
-                house_placed_successfully = await asyncio.to_thread(self.place_house, team_name, caster_pos, True)
-                
-                if house_placed_successfully:
-                    # Still log it for your records
-                    await asyncio.to_thread(self.log_command, team_name, "/card_effect_place_house_free", {"team": team_name, "tile": caster_pos})
-                    embed_description = f"> <:houseicon:1438085020156821555> Placed a **free house** on tile **{caster_pos}**!"
-                else:
-                    await interaction.followup.send("❌ A database error occurred while trying to place the house. Your card was not consumed.", ephemeral=True)
-                    return # Exit so the card isn't lost
-
-            elif card_name == "Home Tele":
-                if self.get_teleblock_status(team_name) == "yes":
-                    await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
-                    return 
-
-                all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return  
-
-                if caster_pos == 10:
-                    await interaction.followup.send("❌ You cannot use **Home Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
-                    return  
-
-                try:
-                    houses = self.get_houses()
-                except Exception as e:
-                    print(f"❌ Error fetching houses for Home Tele: {e}")
-                    await interaction.followup.send("❌ An internal error occurred while finding houses.", ephemeral=True)
-                    return
-
-                closest_house_pos = -1
-                min_distance = float('inf')
-
-                for house in houses:
-                    house_tile = house.get("tile", 0)
-                    if house_tile > caster_pos:
-                        distance = house_tile - caster_pos
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_house_pos = house_tile
-
-                if closest_house_pos == -1:
-                    await interaction.followup.send("❌ Card effect failed: No house tiles are ahead of you on the board.", ephemeral=True)
-                    return  
-
-                new_pos = self.resolve_nonroll_landing_tile(closest_house_pos)
-                destination_tile_name = self.get_tile_name_for_display(new_pos)
-                embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**) — nearest house tile ahead."
-                await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
-                await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
-            elif card_name == "Tele Other":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                opponents = []
-
-                for record in all_teams_data:
-                    current_team_name = record.get("Team")
-                    if current_team_name == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                    elif current_team_name:
-                        opponents.append({
-                            "team": current_team_name,
-                            "pos": int(record.get("Position", -1))
-                        })
-                
-                if caster_pos == 10:
-                    await interaction.followup.send("❌ You cannot use **Tele Other** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
-                    return 
-
-                if not opponents:
-                    await interaction.followup.send("❌ Card effect failed: There are no other teams to swap with.", ephemeral=True)
-                    return 
-
-                target = random.choice(opponents)
-                target_team = target["team"]
-                target_pos = target["pos"]
-                victim_channel = self.get_team_channel(target_team)
-                embed_description = ""
-                
-                if self.check_and_consume_vengeance(target_team):
-                    embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed."
-                    if victim_channel:
-                        victim_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=f"**{team_name}** tried to use **Tele Other** on your team, but your **Vengeance** caused the teleport to fizzle.",
-                            color=discord.Color.dark_red()
-                        )
-                        await victim_channel.send(embed=victim_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                
-                elif self.check_and_consume_redemption(target_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**\'s Redemption activated! The teleport was cancelled."
-                    if victim_channel:
-                        fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
-                        await victim_channel.send(embed=fizzle_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-
-                else:
-                    caster_intended_pos = target_pos
-                    target_intended_pos = caster_pos
-                    caster_final_pos = self.resolve_nonroll_landing_tile(caster_intended_pos)
-                    target_final_pos = self.resolve_nonroll_landing_tile(target_intended_pos)
-                    caster_glider_note = self.get_glider_redirect_note(caster_intended_pos, caster_final_pos)
-                    target_glider_note = self.get_glider_redirect_note(target_intended_pos, target_final_pos)
-                    target_glider_note_victim = self.get_glider_redirect_note(target_intended_pos, target_final_pos, second_person=True, quoted=False)
-                    caster_dest_name = self.get_tile_name_for_display(caster_final_pos)
-                    target_dest_name = self.get_tile_name_for_display(target_final_pos)
-                    embed_description += (
-                        f"> Swapped places with **{target_team}**. "
-                        f"You moved to the **{caster_dest_name}** tile (Tile **{caster_final_pos}**), "
-                        f"and they moved to the **{target_dest_name}** tile (Tile **{target_final_pos}**)."
-                    )
-                    embed_description += caster_glider_note
-                    if target_glider_note:
-                        embed_description += target_glider_note.replace(" was launched", f" {target_team} was launched")
-                    
-                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": caster_final_pos})
-                    await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": target_final_pos})
-
-                    if victim_channel:
-                        swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=(f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**)." + target_glider_note_victim), color=discord.Color.orange())
-                        await victim_channel.send(embed=swap_embed)
-
-                        await self.mirror_to_game_log(victim_channel, embed=swap_embed)
-
-                    await self.check_and_award_card_on_land(team_name, caster_final_pos, "being teleported to")
-                    await self.check_and_award_card_on_land(target_team, target_final_pos, "being teleported to")
-                    await self.auto_post_show_drops_if_boss_tile(team_name, caster_final_pos)
-                    await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
-
-            elif card_name == "Tele Block":
-            # 1. Fetch data snapshot to get all teams
-            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
             
-            valid_targets = []
-            for record in all_teams_data:
-                current_team_name = record.get("Team")
-                # Add all teams except the caster to the target list
-                if current_team_name and current_team_name != team_name:
-                    valid_targets.append(current_team_name)
+            # 3. Normal Hit
+            else:
+                # Target gets hit. Does the TARGET have an Elder Maul?
+                elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                
+                # Halve the effect if Maul is active
+                final_roll_val = (base_roll // 2) if elder_maul_active else base_roll 
+                maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                
+                # CHANGE: The destination is now the CASTER'S position minus the d3 roll
+                intended_backstab_pos = max(0, caster_pos - final_roll_val) 
+                new_pos = self.resolve_nonroll_landing_tile(intended_backstab_pos)
+                glider_note = self.get_glider_redirect_note(intended_backstab_pos, new_pos)
+                glider_note_victim = self.get_glider_redirect_note(intended_backstab_pos, new_pos, second_person=True, quoted=False)
+                source_tile_name = self.get_tile_name_for_display(target_pos)
+                destination_tile_name = self.get_tile_name_for_display(new_pos)
+                
+                await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
+                
+                embed_description += (
+                    f"> **{target_team}** was dragged from the **{source_tile_name}** tile (Tile **{target_pos}**) "
+                    f"and thrown **{final_roll_val}** tiles behind {team_name} to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                )
+                embed_description += glider_note
 
-            if not valid_targets:
-                await interaction.followup.send("❌ Card effect failed: There are no other teams to Teleblock.", ephemeral=True)
+                await self.check_and_award_card_on_land(target_team, new_pos, "being backstabbed to")
+                await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="<:boner:1438085053102948383> You Were Backstabbed!",
+                        description=(
+                            f"**{team_name}** used **Backstab** on your team.\n"
+                            f"You were dragged behind them to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                            + glider_note_victim
+                        ),
+                        color=discord.Color.dark_red()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                    
+        elif card_name == "Smite":
+        # 1. Fetch data snapshot to get all teams
+        all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        
+        valid_targets = []
+        for record in all_teams_data:
+            current_team_name = record.get("Team")
+            # Add all teams except the caster to the target list
+            if current_team_name and current_team_name != team_name:
+                valid_targets.append(current_team_name)
+
+        if not valid_targets:
+            await interaction.followup.send("❌ Card effect failed: There are no other teams to Smite.", ephemeral=True)
+            return 
+
+        # Prepare the Dropdown
+        embed = discord.Embed(
+            title="🎯 Target Selection: Smite",
+            description="Select a team to Smite! You can choose ANY team on the board.",
+            color=discord.Color.red()
+        )
+
+        # Pass the card's sheet/row data so we can delete it from their inventory later!
+        extra_memory = {
+            "card_sheet": card_sheet,
+            "card_row": card_row,
+            "wildcard_data": wildcard_data,
+            "team_wildcard_value": team_wildcard_value
+        }
+        
+        view = CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+        return
+
+        elif card_name == "Varrock Tele":
+            # Check Teleblock
+            if await asyncio.to_thread(self.get_teleblock_status, team_name) == "yes":
+                await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
                 return 
 
-            # Prepare the Dropdown
-            embed = discord.Embed(
-                title="🎯 Target Selection: Tele Block",
-                description="Select a team to Teleblock! You can choose ANY team on the board.",
-                color=discord.Color.dark_purple()
-            )
-
-            # Pass the card's sheet/row data so we can delete it from their inventory later!
-            extra_memory = {
-                "card_sheet": card_sheet,
-                "card_row": card_row,
-                "wildcard_data": wildcard_data,
-                "team_wildcard_value": team_wildcard_value
-            }
+            # Fetch snapshot
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            caster_pos = -1
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
             
-            view = CardTargetView(self, team_name, valid_targets, "Tele Block", "teleblock", extra_data=extra_memory)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-            return
+            if caster_pos == 10:
+                await interaction.followup.send("❌ You cannot use **Varrock Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
+                return 
+
+            new_pos = self.resolve_nonroll_landing_tile(BANK_STANDING_TILE)
+            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+            
+            embed_description = "> Teleported to **Bank Standing** (Tile 20)."
+
+            # Route through normal board triggers (Tile 20 grants a free roll automatically here)
+            await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to via Varrock Tele")
+            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+
+        elif card_name == "POH Voucher":
+            # 1. Fetch snapshot of data
+            all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            house_data = await asyncio.to_thread(self.house_data_sheet.get_all_records)
+            
+            # 2. Get Caster Position
+            team_info = next((r for r in all_teams_data if r.get("Team") == team_name), None)
+            if not team_info:
+                await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                return 
+
+            caster_pos = int(team_info.get("Position", -1))
+
+            # 3. Check Tile Data
+            target_tile_data = next((h for h in house_data if int(h.get("Tile", -1)) == caster_pos), None)
+
+            if not target_tile_data:
+                await interaction.followup.send("❌ This tile is not a valid tile for housing.", ephemeral=True)
+                return
+
+            current_owner = str(target_tile_data.get("OwnerTeam", "")).strip()
+            try:
+                current_house_count = int(target_tile_data.get("HouseCount", 0) or 0)
+            except ValueError:
+                current_house_count = 0
+
+            # 4a. VALIDATION: Check if someone else owns it
+            if current_owner and current_owner != team_name:
+                await interaction.followup.send(
+                    f"❌ **Action Denied:** Tile {caster_pos} is already owned by **{current_owner}**. "
+                    "You cannot use a POH Voucher on another team's property!",
+                    ephemeral=True
+                )
+                return
+
+            # 4b. VALIDATION: Check if max houses (4) is reached
+            if current_owner == team_name and current_house_count >= 4:
+                await interaction.followup.send(
+                    f"❌ **Action Denied:** Tile {caster_pos} already has the maximum of 4 houses! "
+                    "Save your POH Voucher for another property.",
+                    ephemeral=True
+                )
+                return
+
+            # 5. Success: ACTUALLY PLACE THE HOUSE!
+            # We call your place_house function in a thread so it runs fast
+            house_placed_successfully = await asyncio.to_thread(self.place_house, team_name, caster_pos, True)
+            
+            if house_placed_successfully:
+                # Still log it for your records
+                await asyncio.to_thread(self.log_command, team_name, "/card_effect_place_house_free", {"team": team_name, "tile": caster_pos})
+                embed_description = f"> <:houseicon:1438085020156821555> Placed a **free house** on tile **{caster_pos}**!"
+            else:
+                await interaction.followup.send("❌ A database error occurred while trying to place the house. Your card was not consumed.", ephemeral=True)
+                return # Exit so the card isn't lost
+
+        elif card_name == "Home Tele":
+            if self.get_teleblock_status(team_name) == "yes":
+                await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
+                return 
+
+            all_teams_data = self.team_data_sheet.get_all_records()
+            caster_pos = -1
+            for record in all_teams_data:
+                if record.get("Team") == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                    break
+
+            if caster_pos == -1:
+                await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                return  
+
+            if caster_pos == 10:
+                await interaction.followup.send("❌ You cannot use **Home Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
+                return  
+
+            try:
+                houses = self.get_houses()
+            except Exception as e:
+                print(f"❌ Error fetching houses for Home Tele: {e}")
+                await interaction.followup.send("❌ An internal error occurred while finding houses.", ephemeral=True)
+                return
+
+            closest_house_pos = -1
+            min_distance = float('inf')
+
+            for house in houses:
+                house_tile = house.get("tile", 0)
+                if house_tile > caster_pos:
+                    distance = house_tile - caster_pos
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_house_pos = house_tile
+
+            if closest_house_pos == -1:
+                await interaction.followup.send("❌ Card effect failed: No house tiles are ahead of you on the board.", ephemeral=True)
+                return  
+
+            new_pos = self.resolve_nonroll_landing_tile(closest_house_pos)
+            destination_tile_name = self.get_tile_name_for_display(new_pos)
+            embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**) — nearest house tile ahead."
+            await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+            await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
+            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+
+        elif card_name == "Tele Other":
+            all_teams_data = self.team_data_sheet.get_all_records()
+            caster_pos = -1
+            opponents = []
+
+            for record in all_teams_data:
+                current_team_name = record.get("Team")
+                if current_team_name == team_name:
+                    caster_pos = int(record.get("Position", -1))
+                elif current_team_name:
+                    opponents.append({
+                        "team": current_team_name,
+                        "pos": int(record.get("Position", -1))
+                    })
+            
+            if caster_pos == 10:
+                await interaction.followup.send("❌ You cannot use **Tele Other** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
+                return 
+
+            if not opponents:
+                await interaction.followup.send("❌ Card effect failed: There are no other teams to swap with.", ephemeral=True)
+                return 
+
+            target = random.choice(opponents)
+            target_team = target["team"]
+            target_pos = target["pos"]
+            victim_channel = self.get_team_channel(target_team)
+            embed_description = ""
+            
+            if self.check_and_consume_vengeance(target_team):
+                embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance active! The teleport fizzled, and both cards were consumed."
+                if victim_channel:
+                    victim_embed = discord.Embed(
+                        title="<:venge:1438084953559797884> Vengeance Activated!",
+                        description=f"**{team_name}** tried to use **Tele Other** on your team, but your **Vengeance** caused the teleport to fizzle.",
+                        color=discord.Color.dark_red()
+                    )
+                    await victim_channel.send(embed=victim_embed)
+
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+            
+            elif self.check_and_consume_redemption(target_team):
+                embed_description += f"> <:redemption:1437979567900987493> **{target_team}**\'s Redemption activated! The teleport was cancelled."
+                if victim_channel:
+                    fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
+                    await victim_channel.send(embed=fizzle_embed)
+
+                    await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+
+            else:
+                caster_intended_pos = target_pos
+                target_intended_pos = caster_pos
+                caster_final_pos = self.resolve_nonroll_landing_tile(caster_intended_pos)
+                target_final_pos = self.resolve_nonroll_landing_tile(target_intended_pos)
+                caster_glider_note = self.get_glider_redirect_note(caster_intended_pos, caster_final_pos)
+                target_glider_note = self.get_glider_redirect_note(target_intended_pos, target_final_pos)
+                target_glider_note_victim = self.get_glider_redirect_note(target_intended_pos, target_final_pos, second_person=True, quoted=False)
+                caster_dest_name = self.get_tile_name_for_display(caster_final_pos)
+                target_dest_name = self.get_tile_name_for_display(target_final_pos)
+                embed_description += (
+                    f"> Swapped places with **{target_team}**. "
+                    f"You moved to the **{caster_dest_name}** tile (Tile **{caster_final_pos}**), "
+                    f"and they moved to the **{target_dest_name}** tile (Tile **{target_final_pos}**)."
+                )
+                embed_description += caster_glider_note
+                if target_glider_note:
+                    embed_description += target_glider_note.replace(" was launched", f" {target_team} was launched")
+                
+                await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": caster_final_pos})
+                await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": target_final_pos})
+
+                if victim_channel:
+                    swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=(f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**)." + target_glider_note_victim), color=discord.Color.orange())
+                    await victim_channel.send(embed=swap_embed)
+
+                    await self.mirror_to_game_log(victim_channel, embed=swap_embed)
+
+                await self.check_and_award_card_on_land(team_name, caster_final_pos, "being teleported to")
+                await self.check_and_award_card_on_land(target_team, target_final_pos, "being teleported to")
+                await self.auto_post_show_drops_if_boss_tile(team_name, caster_final_pos)
+                await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
+
+        elif card_name == "Tele Block":
+        # 1. Fetch data snapshot to get all teams
+        all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        
+        valid_targets = []
+        for record in all_teams_data:
+            current_team_name = record.get("Team")
+            # Add all teams except the caster to the target list
+            if current_team_name and current_team_name != team_name:
+                valid_targets.append(current_team_name)
+
+        if not valid_targets:
+            await interaction.followup.send("❌ Card effect failed: There are no other teams to Teleblock.", ephemeral=True)
+            return 
+
+        # Prepare the Dropdown
+        embed = discord.Embed(
+            title="🎯 Target Selection: Tele Block",
+            description="Select a team to Teleblock! You can choose ANY team on the board.",
+            color=discord.Color.dark_purple()
+        )
+
+        # Pass the card's sheet/row data so we can delete it from their inventory later!
+        extra_memory = {
+            "card_sheet": card_sheet,
+            "card_row": card_row,
+            "wildcard_data": wildcard_data,
+            "team_wildcard_value": team_wildcard_value
+        }
+        
+        view = CardTargetView(self, team_name, valid_targets, "Tele Block", "teleblock", extra_data=extra_memory)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+        return
 
     async def execute_targeted_card_effect(self, interaction: discord.Interaction, team_name: str, target_team: str, card_name: str, action: str, extra_data: dict):
         """Catches the dropdown selection and applies the effects of the card."""
