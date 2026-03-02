@@ -47,6 +47,9 @@ TEAM_CHANNELS_MAP = {
 }
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
+TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
+ACTIVE_TEAMS = ["Dfn/Brutal", "Space", "Thrawn"]
+
 EVENT_STAFF_ROLE_ID = 1286238788716199952
 EVENT_CAPTAIN_ROLE_ID = 1286238713210474559
 BINGO_PLAYER_ROLE_ID = 1464304452059267208
@@ -4478,6 +4481,244 @@ class MonopolyCog(commands.Cog):
 
         except Exception as e:
             print(f"❌ Error in trigger_passive_random_event: {e}")
+
+    def get_team_captain(self, guild: discord.Guild, team_name: str) -> Optional[discord.Member]:
+        """Dynamically finds the Captain of a specific team by checking roles."""
+        team_role = discord.utils.get(guild.roles, name=team_name)
+        if not team_role:
+            return None
+            
+        for member in team_role.members:
+            if self.has_event_captain_role(member):
+                return member
+        return None
+
+    async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
+        """Calculates dynamic team caps based on the Signups sheet."""
+        try:
+            records = await asyncio.to_thread(self.signup_sheet.get_all_records)
+            total_draftable_players = len(records)
+            
+            active_captains = len(ACTIVE_TEAMS)
+            if active_captains == 0: 
+                active_captains = 1 
+                
+            max_non_captains_per_team = math.ceil(total_draftable_players / active_captains)
+            max_team_size = max_non_captains_per_team + 1
+
+            capacity_data = {}
+            for team_name in ACTIVE_TEAMS:
+                role = discord.utils.get(guild.roles, name=team_name)
+                current_size = len(role.members) if role else 0
+                
+                capacity_data[team_name] = {
+                    "current": current_size,
+                    "max": max_team_size,
+                    "is_full": current_size >= max_team_size
+                }
+                
+            return capacity_data
+        except Exception as e:
+            print(f"❌ Error calculating capacities: {e}")
+            return {team: {"current": 0, "max": 99, "is_full": False} for team in ACTIVE_TEAMS}
+
+    class CaptainApprovalView(ui.View):
+        def __init__(self, cog, target_member: discord.Member, team_name: str):
+            super().__init__(timeout=None)
+            self.cog = cog
+            self.target_member = target_member
+            self.team_name = team_name
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            # Dynamically verify the clicker is the captain of THIS team
+            if not self.cog.has_event_captain_role(interaction.user):
+                await interaction.response.send_message("❌ Only Captains can use this button.", ephemeral=True)
+                return False
+            if self.cog.get_team(interaction.user) != self.team_name:
+                await interaction.response.send_message(f"❌ You are not the captain of {self.team_name}.", ephemeral=True)
+                return False
+            return True
+
+        @ui.button(label="Accept Player", style=discord.ButtonStyle.success, custom_id="cap_accept")
+        async def accept(self, interaction: discord.Interaction, button: ui.Button):
+            role = discord.utils.get(interaction.guild.roles, name=self.team_name)
+            if role:
+                await self.target_member.add_roles(role, reason="Captain accepted team request")
+                
+                embed = interaction.message.embeds[0]
+                embed.color = discord.Color.green()
+                embed.title = "✅ Request Accepted"
+                embed.description = f"**{self.target_member.mention}** is now on **{self.team_name}**!"
+                
+                for child in self.children:
+                    child.disabled = True
+                await interaction.response.edit_message(embed=embed, view=self)
+            else:
+                await interaction.response.send_message(f"❌ Could not find the {self.team_name} role.", ephemeral=True)
+
+        @ui.button(label="Deny", style=discord.ButtonStyle.danger, custom_id="cap_deny")
+        async def deny(self, interaction: discord.Interaction, button: ui.Button):
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.red()
+            embed.title = "❌ Request Denied"
+            embed.description = f"The request for **{self.target_member.mention}** to join was denied."
+            
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    class PlayerAcceptView(ui.View):
+        def __init__(self, cog, target_member: discord.Member, captain_member: discord.Member, team_name: str):
+            super().__init__(timeout=None)
+            self.cog = cog
+            self.target_member = target_member
+            self.captain_member = captain_member
+            self.team_name = team_name
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            if interaction.user.id != self.target_member.id:
+                await interaction.response.send_message("❌ This invite is not for you.", ephemeral=True)
+                return False
+            return True
+
+        @ui.button(label="Accept Invite", style=discord.ButtonStyle.success, custom_id="player_accept")
+        async def accept(self, interaction: discord.Interaction, button: ui.Button):
+            role = discord.utils.get(interaction.guild.roles, name=self.team_name)
+            if role:
+                await self.target_member.add_roles(role, reason="Player accepted captain's invite")
+                
+                embed = interaction.message.embeds[0]
+                embed.color = discord.Color.green()
+                embed.title = "✅ Invite Accepted"
+                embed.description = f"**{self.target_member.mention}** has joined **{self.team_name}**!"
+                
+                for child in self.children:
+                    child.disabled = True
+                await interaction.response.edit_message(embed=embed, view=self)
+            else:
+                await interaction.response.send_message(f"❌ Could not find the {self.team_name} role.", ephemeral=True)
+
+        @ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="player_deny")
+        async def deny(self, interaction: discord.Interaction, button: ui.Button):
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.red()
+            embed.title = "❌ Invite Declined"
+            embed.description = f"**{self.target_member.mention}** declined the invite to {self.team_name}."
+            
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    class TeamSelectionView(ui.View):
+        def __init__(self, cog, capacities, member: discord.Member, guild: discord.Guild):
+            super().__init__(timeout=180)
+            self.cog = cog
+            self.member = member
+            
+            for team in ACTIVE_TEAMS:
+                cap_data = capacities.get(team, {"current": 0, "max": 99, "is_full": False})
+                captain = self.cog.get_team_captain(guild, team)
+                
+                # Use Captain's display name if found, otherwise default to Team name
+                cap_name = captain.display_name if captain else team
+                
+                is_full = cap_data["is_full"]
+                btn_label = f"{cap_name} (Full)" if is_full else f"{cap_name} ({cap_data['current']}/{cap_data['max']})"
+                
+                btn = ui.Button(
+                    label=btn_label,
+                    style=discord.ButtonStyle.secondary if is_full else discord.ButtonStyle.primary,
+                    disabled=is_full,
+                    custom_id=f"req_{team}"
+                )
+                btn.callback = self.make_callback(team, captain, cap_name)
+                self.add_item(btn)
+
+        def make_callback(self, team_name, captain: discord.Member, cap_name: str):
+            async def callback(interaction: discord.Interaction):
+                if interaction.user.id != self.member.id:
+                    await interaction.response.send_message("❌ This menu is not for you.", ephemeral=True)
+                    return
+                
+                await interaction.response.edit_message(content=f"✅ Request sent to **{cap_name}**!", view=None, embed=None)
+                
+                request_channel = self.cog.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
+                if request_channel:
+                    embed = discord.Embed(
+                        title="📥 New Team Request",
+                        description=f"**{self.member.mention}** has requested to join **{team_name}**!",
+                        color=discord.Color.blue()
+                    )
+                    view = self.cog.CaptainApprovalView(self.cog, self.member, team_name)
+                    
+                    # Ping the captain dynamically if they exist!
+                    ping_text = captain.mention if captain else f"Attention {team_name} Captain!"
+                    await request_channel.send(content=ping_text, embed=embed, view=view)
+            return callback
+
+    @app_commands.command(name="team_request", description="Request to join a specific captain's team.")
+    async def team_request(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        current_team = self.get_team(interaction.user)
+        if current_team:
+            await interaction.followup.send(f"❌ You are already on **{current_team}**!", ephemeral=True)
+            return
+            
+        capacities = await self.get_team_capacity_limits(interaction.guild)
+        
+        embed = discord.Embed(
+            title="🤝 Join a Team",
+            description="Select a Captain below to send them a request to join their team. If a button is disabled, their team has reached maximum capacity based on the signup sheet.",
+            color=discord.Color.blurple()
+        )
+        
+        view = self.TeamSelectionView(self, capacities, interaction.user, interaction.guild)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(name="player_request", description="[Captains Only] Request a player to join your team.")
+    @app_commands.describe(player="The player you want to invite to your team")
+    async def player_request(self, interaction: discord.Interaction, player: discord.Member):
+        if not self.has_event_captain_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Captains can use this command.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+        
+        captain_team = self.get_team(interaction.user)
+        if not captain_team:
+            await interaction.followup.send("❌ You are a captain, but you don't have a team role assigned yet!", ephemeral=True)
+            return
+
+        target_team = self.get_team(player)
+        if target_team:
+            await interaction.followup.send(f"❌ **{player.display_name}** is already on **{target_team}**.", ephemeral=True)
+            return
+
+        capacities = await self.get_team_capacity_limits(interaction.guild)
+        team_cap_data = capacities.get(captain_team)
+        
+        if team_cap_data and team_cap_data["is_full"]:
+            await interaction.followup.send(f"❌ **Action Denied:** Your team is at its maximum capacity ({team_cap_data['max']} players).", ephemeral=True)
+            return
+
+        request_channel = self.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
+        if not request_channel:
+            await interaction.followup.send("❌ Team request channel not found.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="💌 You've been drafted!",
+            description=f"**{interaction.user.mention}** wants you to join **{captain_team}**!\n\nDo you accept?",
+            color=discord.Color.gold()
+        )
+        
+        view = self.PlayerAcceptView(self, player, interaction.user, captain_team)
+        await request_channel.send(content=f"{player.mention}", embed=embed, view=view)
+        
+        await interaction.followup.send(f"✅ An invite has been sent to **{player.display_name}** in <#{TEAM_REQUEST_CHANNEL_ID}>.", ephemeral=True)
+
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
