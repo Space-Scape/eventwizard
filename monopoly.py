@@ -2575,17 +2575,34 @@ class MonopolyCog(commands.Cog):
             return
 
         try:
-            used_card_flag = self.get_used_card_flag(team_name)
-            if used_card_flag == "yes":
-                await interaction.followup.send("❌ You can only use one card per turn. Roll again to use another card.", ephemeral=True)
+            # 1. Fetch team data so team_info exists!
+            all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            team_info = next((r for r in all_records if r.get("Team") == team_name), None)
+            
+            if not team_info:
+                await interaction.followup.send(f"❌ Could not find data for **{team_name}**.", ephemeral=True)
                 return
-        except Exception as e:
-            print(f"❌ Error checking used_card_flag: {e}")
 
-        is_silenced = str(team_info.get("Silenced", "no")).strip().lower()
-        if is_silenced == "yes":
-            await interaction.followup.send("❌ 🎭 **You are Silenced!** The Mime's aura prevents you from using any cards. You must roll the dice to break the silence.", ephemeral=True)
-            return
+            # 2. Check if silenced by the Mime
+            is_silenced = str(team_info.get("Silenced", "no")).strip().lower()
+            if is_silenced == "yes":
+                await interaction.followup.send("❌ 🎭 **You are Silenced!** The Mime's aura prevents you from using any cards. You must roll the dice to break the silence.", ephemeral=True)
+                return
+            
+            # 3. Check normal card limits (and allow Double Card bypass)
+            has_double_card = str(team_info.get("Double Card", "no")).strip().lower() == "yes"
+            used_card_flag = str(team_info.get("Used Card This Turn", "no")).strip().lower()
+            
+            if used_card_flag == "yes":
+                if has_double_card:
+                    # They have the buff! Clear it so they can't use 3 cards, but let them pass.
+                    asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Double Card"))
+                else:
+                    await interaction.followup.send("❌ You can only use one card per turn. Roll again to use another card.", ephemeral=True)
+                    return
+                
+        except Exception as e:
+            print(f"❌ Error checking team status flags: {e}")
         
         chest_cards = self.get_held_cards(self.chest_sheet, team_name)
         chance_cards = self.get_held_cards(self.chance_sheet, team_name)
@@ -3875,7 +3892,7 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
             self.set_used_card_flag(team_name, "yes")
-                
+        
         except Exception as e:
             print(f"❌ Error in /use_card: {e}")
             traceback.print_exc()
