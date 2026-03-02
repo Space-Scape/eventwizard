@@ -1423,6 +1423,14 @@ class MonopolyCog(commands.Cog):
         
         tile_name = self.get_tile_name_for_display(new_pos)
         
+        # Check if they were sent to jail THIS turn
+        just_sent_to_jail = (new_pos == 10 and "GO TO JAIL" in go_message)
+        
+        if new_pos == 10 and not just_sent_to_jail:
+            tile_name = "Jail (Just Visiting) - Nex, Gauntlet"
+        elif new_pos == 10 and just_sent_to_jail:
+            tile_name = "Jail"
+        
         # --- ADDED: Dynamic Roll Description ---
         roll_desc = f"**{interaction.user.display_name}** rolled a **{raw_result}**!"
         if is_poisoned:
@@ -1448,13 +1456,16 @@ class MonopolyCog(commands.Cog):
         # 7. POST-MOVE TRIGGERS
         tile_boss_map = self._get_tile_boss_map()
         if new_pos in tile_boss_map:
-            if not (current_tile < 10 and raw_pos % BOARD_SIZE == 10):
+            # Only block the drop embed if they were actively arrested and sent to jail
+            if not just_sent_to_jail:
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
         # Final checks (Cards & Free Rolls)
         await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
 
-        # --- ADDED: PASSIVE RANDOM EVENT ENGINE ---
+        # --- PASSIVE RANDOM EVENT ENGINE ---
+        # (Leave your Random Event code here exactly as it is)
+        
         try:
             team_mult = float(all_records[team_row_index-2].get("Multiplier", 1))
         except ValueError:
@@ -2457,8 +2468,11 @@ class MonopolyCog(commands.Cog):
         if not team_channel:
             return
 
+        is_in_jail = await asyncio.to_thread(self.get_jail_status, team_name)
+        is_just_visiting = (new_pos == JAIL_TILE and is_in_jail == "no")
+
         # 1. Roll Protection Logic
-        if new_pos in ROLL_GRANTING_TILES:
+        if new_pos in ROLL_GRANTING_TILES or is_just_visiting:
             try:
                 rolls_available = self.get_team_rolls(team_name)
                 
@@ -2468,6 +2482,9 @@ class MonopolyCog(commands.Cog):
                     
                     try:
                         tile_name = self.get_tile_name_for_display(new_pos)
+                        if is_just_visiting:
+                            tile_name = "Jail (Just Visiting) - Nex, Gauntlet"
+                            
                         roll_embed = discord.Embed(
                             title="🎲 Free Roll Granted!",
                             description=f"**{team_name}** reached **{tile_name}** with no rolls remaining. A free roll has been granted!",
@@ -2482,12 +2499,12 @@ class MonopolyCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Error during roll protection check: {e}")
 
-        # Chest Emoji: <:purp:1406234308749824051>
+        # Chest Emoji
         if new_pos in CHEST_TILES:
             print(f"📦 {team_name} triggered CHEST on tile {new_pos}")
             await self.team_receives_card(team_name, "Chest", team_channel)
             
-        # Chance Emoji: <:questioning:1287623035381350441>
+        # Chance Emoji
         elif new_pos in CHANCE_TILES:
             print(f"❓ {team_name} triggered CHANCE on tile {new_pos}")
             await self.team_receives_card(team_name, "Chance", team_channel)
