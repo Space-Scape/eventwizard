@@ -2496,6 +2496,11 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error checking used_card_flag: {e}")
 
+        is_silenced = str(team_info.get("Silenced", "no")).strip().lower()
+        if is_silenced == "yes":
+            await interaction.followup.send("❌ 🎭 **You are Silenced!** The Mime's aura prevents you from using any cards. You must roll the dice to break the silence.", ephemeral=True)
+            return
+        
         chest_cards = self.get_held_cards(self.chest_sheet, team_name)
         chance_cards = self.get_held_cards(self.chance_sheet, team_name)
         all_cards = chest_cards + chance_cards
@@ -4002,9 +4007,10 @@ class MonopolyCog(commands.Cog):
                     embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch uncerted fish! They are **Teleblocked** until their next roll!"
 
                 elif chosen_nerf == "mime":
-                    if hasattr(self, "set_used_card_flag"): await asyncio.to_thread(self.set_used_card_flag, chosen_team, "yes")
+                    col = headers.index("Silenced") + 1 if "Silenced" in headers else -1
+                    if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                     embed_desc = f"🎭 **The Mime!**\n**{chosen_team}** failed to copy the Mime's emotes! A silencing aura is cast over them. They are **unable to use ANY cards** until they roll the dice again!"
-
+            
             # ==========================================
             # 🟢 BUFF MECHANICS
             # ==========================================
