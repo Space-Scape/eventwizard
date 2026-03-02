@@ -2827,9 +2827,9 @@ class MonopolyCog(commands.Cog):
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
-            elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
-                stored_roll = team_wildcard_value
-                move_amount = -stored_roll
+        elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
+            stored_roll = team_wildcard_value
+            move_amount = -stored_roll
                 
                 # Fetch a fast snapshot of the data
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
@@ -2973,7 +2973,6 @@ class MonopolyCog(commands.Cog):
                             await victim_channel.send(embed=victim_embed)
                             await self.mirror_to_game_log(victim_channel, embed=victim_embed)
     
-                # This is perfectly aligned so it runs AFTER the loop finishes!
                 final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
                 await interaction.followup.send(embed=final_embed)
     
@@ -2982,8 +2981,6 @@ class MonopolyCog(commands.Cog):
 
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
-                
-                # --- YOUR EXACT CHANCE PARSING LOGIC ---
                 chance_data = self.chance_sheet.get_all_values()
                 if chance_data:
                     headers = chance_data[0]
@@ -3018,7 +3015,6 @@ class MonopolyCog(commands.Cog):
                                     "victim_team": held_by_str.strip() 
                                 })
     
-                # --- YOUR EXACT CHEST PARSING LOGIC ---
                 chest_data = self.chest_sheet.get_all_values()
                 if chest_data:
                     headers = chest_data[0]
@@ -3063,7 +3059,6 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
                     return 
     
-                # --- COUNT CARDS AND SUMMON DROPDOWN ---
                 team_card_counts = {}
                 for c in stealable_cards:
                     t = c["victim_team"]
