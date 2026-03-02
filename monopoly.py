@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
 import asyncio
+import math
 import random
 import traceback
 from discord.ui import Modal, TextInput
@@ -48,7 +49,7 @@ TEAM_CHANNELS_MAP = {
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
-ACTIVE_TEAMS = ["Dfn/Brutal", "Space", "Thrawn"]
+ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3"]
 TEAM_LIST_CONFIG_FILE = "team_list_config.json"
 
 EVENT_STAFF_ROLE_ID = 1286238788716199952
