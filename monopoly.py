@@ -2827,154 +2827,154 @@ class MonopolyCog(commands.Cog):
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
             
-        elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
-            try:
-                stored_roll = team_wildcard_value
-                move_amount = -stored_roll
-                
-                # Fetch a fast snapshot of the data
-                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                caster_pos = -1
-                targets = []
-                actual_target_pos = -1
-                
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos != -1:
-                    import random
-                    valid_targets_data = []
+            elif card_name == "Dragon Spear" and isinstance(team_wildcard_value, int):
+                try:
+                    stored_roll = team_wildcard_value
+                    move_amount = -stored_roll
+                    
+                    # Fetch a fast snapshot of the data
+                    all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+                    caster_pos = -1
+                    targets = []
+                    actual_target_pos = -1
                     
                     for record in all_teams_data:
-                        opponent_team_name = record.get("Team")
-                        if opponent_team_name == team_name:
-                            continue
-                        
-                        opp_pos = int(record.get("Position", -1))
-                        
-                        # Target teams within 1 tile (ahead, behind, or same tile)
-                        if abs(opp_pos - caster_pos) <= 1:
-                            valid_targets_data.append((opponent_team_name, opp_pos))
-                            
-                    if valid_targets_data:
-                        # Randomly pick exactly ONE valid target
-                        chosen = random.choice(valid_targets_data)
-                        targets.append(chosen[0])
-                        actual_target_pos = chosen[1]
-                
-                if not targets:
-                    await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
-                    return 
-
-                embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
-                
-                for target_team in targets:
-                    victim_channel = self.get_team_channel(target_team)
+                        if record.get("Team") == team_name:
+                            caster_pos = int(record.get("Position", -1))
+                            break
                     
-                    # 1. Check Redemption
-                    if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
-                        embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
-                        if victim_channel:
-                            fizzle_embed = discord.Embed(
-                                title="<:redemption:1437979567900987493> Redemption Activated!", 
-                                description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
-                                color=discord.Color.blue()
-                            )
-                            await victim_channel.send(embed=fizzle_embed)
-                            await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
-                        continue  
+                    if caster_pos != -1:
+                        import random
+                        valid_targets_data = []
+                        
+                        for record in all_teams_data:
+                            opponent_team_name = record.get("Team")
+                            if opponent_team_name == team_name:
+                                continue
                             
-                    # 2. Check Vengeance
-                    if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
-                        elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
-                        final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                        maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                            opp_pos = int(record.get("Position", -1))
+                            
+                            # Target teams within 1 tile (ahead, behind, or same tile)
+                            if abs(opp_pos - caster_pos) <= 1:
+                                valid_targets_data.append((opponent_team_name, opp_pos))
+                                
+                        if valid_targets_data:
+                            # Randomly pick exactly ONE valid target
+                            chosen = random.choice(valid_targets_data)
+                            targets.append(chosen[0])
+                            actual_target_pos = chosen[1]
+                    
+                    if not targets:
+                        await interaction.followup.send("❌ Card effect failed: No other teams are within 1 tile of you.", ephemeral=True)
+                        return 
+    
+                    embed_description = f"**{team_name}** automatically targeted **{targets[0]}** (Tile {actual_target_pos}) with the **Dragon Spear**!\n"
+                    
+                    for target_team in targets:
+                        victim_channel = self.get_team_channel(target_team)
                         
-                        intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
-                        destination_tile_name = self.get_tile_name_for_display(new_pos)
-                        glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
-                        glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
-                        
-                        await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
-                        
-                        embed_description += (
-                            f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
-                            f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
-                            f"(stops at Go){maul_suffix}.\n"
-                        )
-                        embed_description += glider_note
-                        
-                        await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
-                        await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-                        
-                        skull_embed = discord.Embed(
-                            title="<:venge:1438084953559797884> Vengeance Activated!", 
-                            description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
-                            color=discord.Color.dark_red()
-                        )
-                        await interaction.channel.send(embed=skull_embed)
-                        await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
-                        
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:venge:1438084953559797884> Vengeance Activated!",
-                                description=(
-                                    f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
-                                    f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
-                                    + glider_note_victim
-                                ),
+                        # 1. Check Redemption
+                        if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+                            embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated. **Dragon Spear** fizzled.\n"
+                            if victim_channel:
+                                fizzle_embed = discord.Embed(
+                                    title="<:redemption:1437979567900987493> Redemption Activated!", 
+                                    description=f"**{team_name}** tried to use **Dragon Spear** on you, but your **Redemption** activated!", 
+                                    color=discord.Color.blue()
+                                )
+                                await victim_channel.send(embed=fizzle_embed)
+                                await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
+                            continue  
+                                
+                        # 2. Check Vengeance
+                        if await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
+                            elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
+                            final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                            maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                            
+                            intended_pos_after_rebound = max(0, caster_pos + final_move_amount)
+                            new_pos = self.resolve_nonroll_landing_tile(intended_pos_after_rebound)
+                            destination_tile_name = self.get_tile_name_for_display(new_pos)
+                            glider_note = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos)
+                            glider_note_victim = self.get_glider_redirect_note(intended_pos_after_rebound, new_pos, second_person=True, quoted=False)
+                            
+                            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
+                            
+                            embed_description += (
+                                f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved back "
+                                f"**{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) "
+                                f"(stops at Go){maul_suffix}.\n"
+                            )
+                            embed_description += glider_note
+                            
+                            await self.check_and_award_card_on_land(team_name, new_pos, "being rebounded by Dragon Spear to")
+                            await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
+                            
+                            skull_embed = discord.Embed(
+                                title="<:venge:1438084953559797884> Vengeance Activated!", 
+                                description=(f"You activated **{target_team}**'s Vengeance!\nYour team moved back **{abs(final_move_amount)}** spaces to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
                                 color=discord.Color.dark_red()
                             )
-                            await victim_channel.send(embed=victim_embed)
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-                        continue  
-                    
-                    # 3. Normal Hit
-                    else:
-                        elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
-                        final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
-                        maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                            await interaction.channel.send(embed=skull_embed)
+                            await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
+                            
+                            if victim_channel:
+                                victim_embed = discord.Embed(
+                                    title="<:venge:1438084953559797884> Vengeance Activated!",
+                                    description=(
+                                        f"**{team_name}** tried to use **Dragon Spear** on your team, but your **Vengeance** rebounded the effect!\n"
+                                        f"They were moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
+                                        + glider_note_victim
+                                    ),
+                                    color=discord.Color.dark_red()
+                                )
+                                await victim_channel.send(embed=victim_embed)
+                                await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                            continue  
                         
-                        target_pos = actual_target_pos 
-                        intended_target_pos = max(0, target_pos + final_move_amount)
-                        new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
-                        glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
-                        glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
-                        
-                        await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
-                        
-                        destination_tile_name = self.get_tile_name_for_display(new_pos)
-                        embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
-                        embed_description += glider_note
-                        
-                        await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
-                        await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
-                        
-                        if victim_channel:
-                            victim_embed = discord.Embed(
-                                title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
-                                description=(
-                                    f"**{team_name}** used **Dragon Spear** on your team.\n"
-                                    f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
-                                    + glider_note_victim
-                                ),
-                                color=discord.Color.dark_red()
-                            )
-                            await victim_channel.send(embed=victim_embed)
-                            await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                        # 3. Normal Hit
+                        else:
+                            elder_maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                            final_move_amount = -(stored_roll // 2) if elder_maul_active else move_amount
+                            maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
+                            
+                            target_pos = actual_target_pos 
+                            intended_target_pos = max(0, target_pos + final_move_amount)
+                            new_pos = self.resolve_nonroll_landing_tile(intended_target_pos)
+                            glider_note = self.get_glider_redirect_note(intended_target_pos, new_pos)
+                            glider_note_victim = self.get_glider_redirect_note(intended_target_pos, new_pos, second_person=True, quoted=False)
+                            
+                            await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
+                            
+                            destination_tile_name = self.get_tile_name_for_display(new_pos)
+                            embed_description += f"> **{target_team}** was moved back **{abs(final_move_amount)}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}.\n"
+                            embed_description += glider_note
+                            
+                            await self.check_and_award_card_on_land(target_team, new_pos, "being hit by Dragon Spear to")
+                            await self.auto_post_show_drops_if_boss_tile(target_team, new_pos)
+                            
+                            if victim_channel:
+                                victim_embed = discord.Embed(
+                                    title="<:dragonspear:1437980060567994399> You Were Hit by Dragon Spear!",
+                                    description=(
+                                        f"**{team_name}** used **Dragon Spear** on your team.\n"
+                                        f"You were moved back **{abs(final_move_amount)}** tiles to the **{self.get_tile_name_for_display(new_pos)}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
+                                        + glider_note_victim
+                                    ),
+                                    color=discord.Color.dark_red()
+                                )
+                                await victim_channel.send(embed=victim_embed)
+                                await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
-                final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
-                await interaction.followup.send(embed=final_embed)
-
-                await self.remove_card(team_name, card_name)
-                return
-                
-                except Exception as e:
-                    print(f"❌ Error in Dragon Spear block: {e}")
+                    final_embed = discord.Embed(title="🃏 Dragon Spear Used!", description=embed_description, color=discord.Color.red())
+                    await interaction.followup.send(embed=final_embed)
+    
+                    await self.remove_card(team_name, card_name)
                     return
+                
+        except Exception as e:
+            print(f"❌ Error in Dragon Spear block: {e}")
+            return
 
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
