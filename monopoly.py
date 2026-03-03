@@ -3560,6 +3560,44 @@ class MonopolyCog(commands.Cog):
                     await self.auto_post_show_drops_if_boss_tile(team_name, caster_final_pos)
                     await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
 
+            else:
+                embed_description = f"> {final_card_text}"
+            
+            if not is_status_activation:
+                if team_wildcard_value is not None:
+                    wildcard_data.pop(team_name, None) 
+                    card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+                    print(f"✅ Cleared wildcard for {team_name} from card {selected_card['name']}")
+                
+                cell_val = str(card_sheet.cell(card_row, 3).value or "")
+                teams = [t.strip() for t in cell_val.split(',') if t.strip()]
+                if team_name in teams:
+                    teams.remove(team_name)
+                card_sheet.update_cell(card_row, 3, ", ".join(teams))
+                
+                embed = discord.Embed(
+                    title=f"{card_emoji} {team_name} used {card_name}!",
+                    description=embed_description,
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=False)
+                await self.mirror_to_game_log(interaction.channel, embed=embed)
+
+            if is_status_activation:
+                embed = discord.Embed(
+                    title=f"{card_emoji} {team_name} activated {card_name}!",
+                    description=embed_description,
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=False)
+
+            self.set_used_card_flag(team_name, "yes")
+        
+        except Exception as e:
+            print(f"❌ Error in /use_card: {e}")
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ An error occurred while using the card: {e}", ephemeral=True)
+    
     async def execute_targeted_card_effect(self, interaction: discord.Interaction, team_name: str, target_team: str, card_name: str, action: str, extra_data: dict):        
         embed_description = ""
         victim_channel = self.get_team_channel(target_team)
