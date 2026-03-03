@@ -4025,7 +4025,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "ents":
                     col = headers.index("GP Halved") + 1 if "GP Halved" in headers else -1
                     if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! Their gear is damaged. **All GP earned is cut in half** until their next roll!"
+                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! **All GP earned is cut in half** until their next roll!"
 
                 elif chosen_nerf == "forester":
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
@@ -4057,7 +4057,7 @@ class MonopolyCog(commands.Cog):
                     embed_desc = f"🌀 **The Whirlpool!**\nA sudden whirlpool sucks **{chosen_team}** under! They wash up **{spaces_back}** spaces backwards on Tile **{new_pos}**!"
 
                 elif chosen_nerf == "sandwich":
-                    spaces_back = random.randint(1, 6)
+                    spaces_back = random.randint(2, 6)
                     new_pos = max(0, current_pos - spaces_back)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}** and receive **no tile rewards**!"
@@ -4068,9 +4068,9 @@ class MonopolyCog(commands.Cog):
                     embed_desc = f"📣 **The Demon Drill Sergeant!**\n*\"Drop and give me 50!\"* The Demon exhausts **{chosen_team}**. Their next dice roll is strictly **cut in half**!"
 
                 elif chosen_nerf == "beekeeper":
-                    new_pos = self.resolve_nonroll_landing_tile(max(0, current_pos - 3))
+                    new_pos = self.resolve_nonroll_landing_tile(max(0, current_pos - 2))
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
-                    embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **3 tiles** to Tile **{new_pos}**!"
+                    embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **2 tiles** to Tile **{new_pos}**!"
 
                 elif chosen_nerf == "plant":
                     col = headers.index("Poisoned Roll") + 1 if "Poisoned Roll" in headers else -1
@@ -4098,7 +4098,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "gravedigger":
                     col = headers.index("Roll Penalty") + 1 if "Roll Penalty" in headers else -1
                     if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "3")
-                    embed_desc = f"🪦 **The Gravedigger!**\nLeo forces **{chosen_team}** to organize heavy coffins. A heavy fatigue penalty is applied; their next dice roll will receive a strict **-3 penalty**!"
+                    embed_desc = f"🪦 **The Gravedigger!**\nLeo forces **{chosen_team}** to organize coffins. A heavy fatigue penalty is applied; their next dice roll will receive a strict **-3 penalty**!"
 
                 elif chosen_nerf == "maze":
                     spaces_back = random.randint(1, 12)
@@ -4141,7 +4141,7 @@ class MonopolyCog(commands.Cog):
                             await asyncio.to_thread(card_to_lose["sheet"].update_cell, card_to_lose["row"], 3, ", ".join(teams_holding))
                             embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin frames **{chosen_team}**! Their **{card_to_lose['data'].get('Name')}** card is confiscated by the authorities and destroyed!"
                     else:
-                        embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin attempts to frame **{chosen_team}**, but their pockets are completely empty!"
+                        embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin attempts to frame **{chosen_team}**, but they hold no cards!"
 
                 elif chosen_nerf == "pete":
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": 10})
@@ -4150,7 +4150,7 @@ class MonopolyCog(commands.Cog):
 
                 elif chosen_nerf == "bob":
                     if hasattr(self, "set_teleblock_status"): await asyncio.to_thread(self.set_teleblock_status, chosen_team, "yes")
-                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch uncerted fish! They are **Teleblocked** until their next roll!"
+                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch fish! They are **Teleblocked** until their next roll!"
 
                 elif chosen_nerf == "mime":
                     col = headers.index("Silenced") + 1 if "Silenced" in headers else -1
@@ -4168,7 +4168,7 @@ class MonopolyCog(commands.Cog):
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
-                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles uncert some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
+                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles unnote some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
 
                 elif chosen_buff == "arnav":
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
@@ -4298,7 +4298,7 @@ class MonopolyCog(commands.Cog):
             # ==========================================
             
             if event_type == "nerf":
-                event_title = "⚠️ A Disastrous Random Event Appears!"
+                event_title = "😈 A Disastrous Random Event Appears!"
                 nerf_pool = [
                     "dwarf", "whirlpool", "ents", "forester", "bob", "twin", 
                     "pete", "gravedigger", "sandwich", "jekyll", "demon", 
@@ -4314,7 +4314,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "ents":
                     col = headers.index("GP Halved") + 1 if "GP Halved" in headers else -1
                     if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! Their gear is damaged. **All GP earned is cut in half** until their next roll!"
+                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! **All GP earned is cut in half** until their next roll!"
 
                 elif chosen_nerf == "forester":
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
@@ -4338,7 +4338,7 @@ class MonopolyCog(commands.Cog):
                         embed_desc = f"🌽 **The Freaky Forester!**\n*\"You killed the wrong pheasant!\"* **{chosen_team}** had no cards to give, so they were fined **15%** of their wealth (**{fine:,} GP**)!"
 
                 elif chosen_nerf == "whirlpool":
-                    spaces_back = random.randint(1, 6)
+                    spaces_back = random.randint(2, 4)
                     new_pos = max(0, current_pos - spaces_back)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
@@ -4356,10 +4356,10 @@ class MonopolyCog(commands.Cog):
                     embed_desc = f"🏋️ **The Demon Drill Sergeant!**\n*\"Drop and give me 50!\"* The Demon exhausts **{chosen_team}**. Their next dice roll is strictly **cut in half**!"
 
                 elif chosen_nerf == "beekeeper":
-                    new_pos = max(0, current_pos - 3)
+                    new_pos = max(0, current_pos - 2)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
-                    embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **3 tiles** to Tile **{new_pos}**!"
+                    embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **2 tiles** to Tile **{new_pos}**!"
 
                 elif chosen_nerf == "plant":
                     col = headers.index("Poisoned Roll") + 1 if "Poisoned Roll" in headers else -1
@@ -4379,14 +4379,14 @@ class MonopolyCog(commands.Cog):
                         else:
                             await asyncio.to_thread(self.house_data_sheet.update_cell, prop_idx, 4, current_count - 1)
                         await asyncio.to_thread(self.sync_houses_owned, chosen_team)
-                        embed_desc = f"🧪 **Mr. Hyde's Rampage!**\n**{chosen_team}** refused to hand over a guam leaf... Mr. Hyde goes berserk! **1 House** on Tile **{target_prop.get('Tile')}** has been completely destroyed!"
+                        embed_desc = f"🧪 **Mr. Hyde's Rampage!**\n**{chosen_team}** couldn't hand over a guam leaf... Mr. Hyde goes berserk! **1 House** on Tile **{target_prop.get('Tile')}** has been completely destroyed!"
                     else:
                         embed_desc = f"🧪 **Mr. Hyde's Rampage!**\nMr. Hyde attacks **{chosen_team}**, but they don't own any houses to destroy! They narrowly escape."
 
                 elif chosen_nerf == "gravedigger":
                     col = headers.index("Roll Penalty") + 1 if "Roll Penalty" in headers else -1
                     if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "3")
-                    embed_desc = f"🪦 **The Gravedigger!**\nLeo forces **{chosen_team}** to organize heavy coffins. A heavy fatigue penalty is applied; their next dice roll will receive a strict **-3 penalty**!"
+                    embed_desc = f"🪦 **The Gravedigger!**\nLeo forces **{chosen_team}** to organize coffins. A heavy fatigue penalty is applied; their next dice roll will receive a strict **-3 penalty**!"
 
                 elif chosen_nerf == "maze":
                     spaces_back = random.randint(1, 12)
@@ -4420,7 +4420,7 @@ class MonopolyCog(commands.Cog):
                             await asyncio.to_thread(card_to_lose["sheet"].update_cell, card_to_lose["row"], 3, ", ".join(teams_holding))
                             embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin frames **{chosen_team}**! Their **{card_to_lose['data'].get('Name')}** card is confiscated by the authorities and destroyed!"
                     else:
-                        embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin attempts to frame **{chosen_team}**, but their pockets are completely empty!"
+                        embed_desc = f"👯 **The Evil Twin!**\nMolly's evil twin attempts to steal cards from **{chosen_team}**, but they have none!"
 
                 elif chosen_nerf == "pete":
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": 10})
@@ -4429,7 +4429,7 @@ class MonopolyCog(commands.Cog):
 
                 elif chosen_nerf == "bob":
                     if hasattr(self, "set_teleblock_status"): await asyncio.to_thread(self.set_teleblock_status, chosen_team, "yes")
-                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch uncerted fish! They are **Teleblocked** until their next roll!"
+                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch fish! They are **Teleblocked** until their next roll!"
 
                 elif chosen_nerf == "mime":
                     col = headers.index("Silenced") + 1 if "Silenced" in headers else -1
@@ -4446,7 +4446,7 @@ class MonopolyCog(commands.Cog):
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
-                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles uncert some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
+                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles unnote some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
 
                 elif chosen_buff == "arnav":
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
@@ -4753,6 +4753,46 @@ class MonopolyCog(commands.Cog):
         view = self.TeamSelectionView(self, interaction.guild)
         await interaction.followup.send(embed=embed, view=view)
 
+    @app_commands.command(name="team_request_refresh", description="Refresh the team request buttons on an existing message.")
+    @app_commands.describe(message_id="The ID of the team request message to update")
+    async def team_request_refresh(self, interaction: discord.Interaction, message_id: str):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+            
+        try:
+            msg_id_int = int(message_id.strip())
+            # Fetch the message from the channel the command was used in
+            msg = await interaction.channel.fetch_message(msg_id_int)
+            
+            # Rebuild the embed to match the original
+            embed = discord.Embed(
+                title="🤝 Join a Team",
+                description="Click a Captain below to send them a request to join their team. If their team is full, the bot will let you know!",
+                color=discord.Color.blurple()
+            )
+            
+            # Generate a fresh View. This re-hooks the buttons to the bot's memory 
+            # and pulls the most up-to-date Captain names for the button labels!
+            view = self.TeamSelectionView(self, interaction.guild)
+            
+            # Apply the fresh view and embed to the old message
+            await msg.edit(embed=embed, view=view)
+            
+            await interaction.followup.send("✅ Successfully refreshed the team request buttons!", ephemeral=True)
+            
+        except discord.NotFound:
+            await interaction.followup.send(
+                "❌ Message not found. You must run this command in the **exact same channel** as the target message.", 
+                ephemeral=True
+            )
+        except ValueError:
+            await interaction.followup.send("❌ Invalid message ID format. Please provide a valid numeric ID.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error refreshing message: {e}", ephemeral=True)
+    
     @app_commands.command(name="player_request", description="[Captains Only] Request a player to join your team.")
     @app_commands.describe(player="The player you want to invite to your team")
     async def player_request(self, interaction: discord.Interaction, player: discord.Member):
