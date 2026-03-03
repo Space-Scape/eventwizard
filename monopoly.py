@@ -1395,6 +1395,7 @@ class MonopolyCog(commands.Cog):
         team_record = all_records[team_row_index-2]
         is_poisoned = str(team_record.get("Poisoned Roll", "no")).strip().lower() == "yes"
         is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
+        is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
         try:
             roll_penalty = int(team_record.get("Roll Penalty", 0))
         except ValueError:
@@ -1410,6 +1411,8 @@ class MonopolyCog(commands.Cog):
         if roll_penalty > 0:
             result = max(1, result - roll_penalty)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Penalty"))
+        if is_gp_halved:
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
         await asyncio.to_thread(self.decrement_rolls_available, team_name)
 
@@ -1430,17 +1433,12 @@ class MonopolyCog(commands.Cog):
                 # --- ADDED: Ents GP Halved Check ---
                 is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
                 go_reward = 10_000_000 if is_gp_halved else 20_000_000
-                
-                if is_gp_halved:
-                    asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + go_reward)
-                
-                if is_gp_halved:
-                    go_message = f"🌳 **THE ENTS TOOK THEIR TOLL!** You passed **GO**, but your gear was damaged. You only received **10,000,000 GP**!"
-                else:
-                    go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
+           
+                go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
+           
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
 
