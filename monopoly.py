@@ -900,28 +900,43 @@ class MonopolyCog(commands.Cog):
 
                 try:
                     gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
-                    alchemy_bonus = ""
 
                     item_values_records = self.cog.item_values_sheet.get_all_records()
                     gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
                     final_gp_value = base_gp_value * gp_multiplier
+                    
+                    records = self.cog.team_data_sheet.get_all_records()
+                    team_record = next((r for r in records if r.get("Team") == team_name), None)
+                    
+                    is_gp_halved = False
+                    is_gp_doubled = False
+                    if team_record:
+                        is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
+                        is_gp_doubled = str(team_record.get("GP Doubled", "no")).strip().lower() == "yes"
+                        
+                    if is_gp_doubled:
+                        final_gp_value = final_gp_value * 2
+                    if is_gp_halved:
+                        final_gp_value = final_gp_value // 2
+                        
                     original_gp_value_pre_tax = final_gp_value
 
+                    bonus_parts = []
                     if gp_multiplier > 1 and consumed_card_name:
                         emoji = CARD_EMOJIS.get(consumed_card_name, "")
-                        alchemy_bonus = f" (x{gp_multiplier} from {emoji} **{consumed_card_name}**!)"
+                        bonus_parts.append(f"x{gp_multiplier} from {emoji} **{consumed_card_name}**")
+                    if is_gp_doubled:
+                        bonus_parts.append("Doubled by 🎯 **Pinball Troll**")
+                    if is_gp_halved:
+                        bonus_parts.append("Halved by 🌳 **The Ents**")
+                    
+                    alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
 
                     if final_gp_value > 0 and team_name != "*No team*":
-                        records = self.cog.team_data_sheet.get_all_records()
                         house_records = self.cog.house_data_sheet.get_all_records()
-
-                        current_tile = None
-                        for rec in records:
-                            if rec.get("Team") == team_name:
-                                current_tile = int(rec.get("Position", 0) or 0)
-                                break
+                        current_tile = int(team_record.get("Position", 0) or 0) if team_record else None
 
                         tax_amount = 0
                         owner_team = None
@@ -950,7 +965,7 @@ class MonopolyCog(commands.Cog):
 
                         for idx, record in enumerate(records, start=2):
                             if record.get("Team") == team_name:
-                                current_gp = int(record.get("GP", 0) or 0)
+                                current_gp = int(str(record.get("GP", 0)).replace(',', ''))
                                 new_gp = max(0, current_gp + final_gp_value)
                                 self.cog.team_data_sheet.update_cell(idx, gp_col_index, new_gp)
                                 print(f"✅ Awarded {final_gp_value:,} GP to {team_name}. New total: {new_gp}")
@@ -968,10 +983,9 @@ class MonopolyCog(commands.Cog):
                             owner_team_chan = self.cog.get_team_channel(owner_team)
                             for o_idx, orec in enumerate(records, start=2):
                                 if orec.get("Team") == owner_team:
-                                    owner_gp = int(orec.get("GP", 0) or 0)
+                                    owner_gp = int(str(orec.get("GP", 0)).replace(',', ''))
                                     new_owner_gp = owner_gp + tax_amount
                                     self.cog.team_data_sheet.update_cell(o_idx, gp_col_index, new_owner_gp)
-                                    print(f"<:houseicon:1438085020156821555> {owner_team} received {tax_amount:,} GP house tax from {team_name}.")
                                     break
                             
                             tax_message = (
@@ -985,6 +999,10 @@ class MonopolyCog(commands.Cog):
                             if owner_team_chan:
                                 await owner_team_chan.send(tax_message)
                                 await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
+
+                # 6. Cleanup Pinball Troll flag (Curse clears on approval, ensuring only one drop is doubled)
+                if is_gp_doubled:
+                    asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
 
                 except Exception as e:
                     print(f"❌ Error in GP/tax logic: {e}")
@@ -1391,17 +1409,24 @@ class MonopolyCog(commands.Cog):
         # 3. Dice Roll Execution
         raw_result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
         
-        # --- ADDED: Apply Pre-Roll Nerfs ---
+        # --- ADDED: Apply Pre-Roll Nerfs & Buffs ---
         team_record = all_records[team_row_index-2]
         is_poisoned = str(team_record.get("Poisoned Roll", "no")).strip().lower() == "yes"
         is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
         is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
+        
         try:
             roll_penalty = int(team_record.get("Roll Penalty", 0))
         except ValueError:
             roll_penalty = 0
 
+        try:
+            roll_bonus = int(team_record.get("Roll Bonus", 0))
+        except ValueError:
+            roll_bonus = 0
+
         result = raw_result
+        
         if is_poisoned:
             result = min(result, 3)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Poisoned Roll"))
@@ -1411,6 +1436,11 @@ class MonopolyCog(commands.Cog):
         if roll_penalty > 0:
             result = max(1, result - roll_penalty)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Penalty"))
+        
+        if roll_bonus > 0:
+            result += roll_bonus
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Bonus"))
+
         if is_gp_halved:
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
@@ -4823,7 +4853,7 @@ class MonopolyCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="💌 You've been drafted!",
+            title="🪖 You've been drafted!",
             description=f"**{interaction.user.mention}** wants you to join **{captain_team}**!\n\nDo you accept?",
             color=discord.Color.gold()
         )
