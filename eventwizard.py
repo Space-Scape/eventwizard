@@ -506,8 +506,8 @@ async def on_ready():
     
     if not check_sheet_for_updates.is_running():
         check_sheet_for_updates.start()
-    if not daily_schedule_post.is_running():
-        daily_schedule_post.start()
+    if not weekly_schedule_post.is_running():
+        weekly_schedule_post.start()
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
 
@@ -554,5 +554,6 @@ async def on_ready():
 
 
 bot.run(os.getenv("BOT_TOKEN"))
+
 
 
