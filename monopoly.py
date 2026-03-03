@@ -305,7 +305,6 @@ class MonopolyCog(commands.Cog):
         print(f"❌ Could not find channel for team: {team_name}")
         return None
 
-
     def get_team_name_from_channel(self, channel: Optional[discord.abc.GuildChannel]) -> Optional[str]:
         """Best-effort reverse lookup from a team channel object to its team name."""
         try:
@@ -473,6 +472,7 @@ class MonopolyCog(commands.Cog):
                 await game_log_channel.send(embed=log_embed)
         except Exception as e:
             print(f"❌ Error mirroring to game log: {e}")
+
     def has_event_captain_role(self, member: discord.Member) -> bool:
         return any(role.id == EVENT_CAPTAIN_ROLE_ID for role in member.roles)
 
@@ -707,7 +707,7 @@ class MonopolyCog(commands.Cog):
 
         async def on_submit(self, interaction: discord.Interaction):
             try:
-                log_chan = interaction.client.get_channel(int(LOG_CHANNEL)) # 🔹 FIXED: Cast to int
+                log_chan = interaction.client.get_channel(int(LOG_CHANNEL))
                 if log_chan:
                     await log_chan.send(
                         f"❌ Drop submission rejected for {self.submitter.mention} by {interaction.user.mention}.\n"
@@ -899,7 +899,7 @@ class MonopolyCog(commands.Cog):
                 )
 
                 try:
-                    gp_multiplier, consumed_card_name = self.cog.check_and_consume_alchemy(team_name)
+                    gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
                     alchemy_bonus = ""
 
                     item_values_records = self.cog.item_values_sheet.get_all_records()
@@ -1169,7 +1169,7 @@ class MonopolyCog(commands.Cog):
             embed.add_field(name="Submitted By", value=f"{self.submitting_user.mention} `({self.submitting_user.id})`", inline=False)
             embed.set_image(url=self.screenshot_url)
 
-            review_channel = self.cog.bot.get_channel(int(REVIEW_CHANNEL)) # 🔹 FIXED: Cast to int
+            review_channel = self.cog.bot.get_channel(int(REVIEW_CHANNEL))
             if not review_channel:
                 print(f"❌ Review channel {REVIEW_CHANNEL} not found")
                 await interaction.response.edit_message(content="❌ Review channel not found.", view=None, embed=None)
@@ -2259,101 +2259,98 @@ class MonopolyCog(commands.Cog):
         
     def check_and_consume_redemption(self, target_team_name: str) -> bool:
         """
-        Checks if a target team has Redemption active.
-        This is a CHANCE card.
+        Checks if a target team has Redemption active across both card sheets.
         If yes, consumes it (clears wildcard AND held by) and returns True.
         If no, returns False.
         """
         try:
-            chance_cards_data = self.chance_sheet.get_all_values()
-            if not chance_cards_data:
-                return False
-                
-            headers = chance_cards_data[0]
-            name_col = headers.index("Name")
-            held_by_col = headers.index("Held By Team")
-            wildcard_col = headers.index("Wildcard")
-            
-            redemption_row_index = -1
-            redemption_wildcard_data = {}
-            
-            for i, row in enumerate(chance_cards_data[1:], start=2):
-                if len(row) > name_col and row[name_col] == "Redemption":
-                    redemption_row_index = i
-                    try:
-                        wildcard_str = row[wildcard_col] or "{}"
-                        redemption_wildcard_data = json.loads(wildcard_str)
-                    except:
-                        redemption_wildcard_data = {}
-                    break
-            
-            if redemption_row_index == -1:
-                print("❗ Redemption card not found on chance sheet.")
-                return False
-
-            team_status = redemption_wildcard_data.get(target_team_name)
-            if team_status and isinstance(team_status, str) and team_status.strip() == "active":
-                del redemption_wildcard_data[target_team_name]
-                self.chance_sheet.update_cell(redemption_row_index, wildcard_col + 1, json.dumps(redemption_wildcard_data))
-                
-                held_by_str = str(self.chance_sheet.cell(redemption_row_index, held_by_col + 1).value or "")
-                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                if target_team_name in teams:
-                    teams.remove(target_team_name)
-                self.chance_sheet.update_cell(redemption_row_index, held_by_col + 1, ", ".join(teams))
-                
-                print(f"✅ Consumed Redemption for {target_team_name}")
-                return True
-                
-        except Exception as e:
-            print(f"❌ Error in check_and_consume_redemption: {e}")
-            
-        return False
-
-    def check_and_consume_elder_maul(self, target_team_name: str) -> bool:
-        """
-        Checks if a target team has Elder Maul active.
-        Consolidates API calls and handles removal in a single threaded flow.
-        """
-        try:
-            # 1. Single Fetch
-            chance_cards_data = self.chance_sheet.get_all_values()
-            if not chance_cards_data:
-                return False
-                
-            headers = chance_cards_data[0]
-            name_col = headers.index("Name")
-            held_by_col = headers.index("Held By Team")
-            wildcard_col = headers.index("Wildcard")
-            
-            # 2. Find the card and the team status in memory
-            for i, row in enumerate(chance_cards_data[1:], start=2):
-                if len(row) > name_col and row[name_col] == "Elder Maul":
+            for sheet_obj in (self.chest_sheet, self.chance_sheet):
+                cards_data = sheet_obj.get_all_values()
+                if not cards_data:
+                    continue
                     
-                    # Parse wildcard for team status
-                    try:
-                        wildcard_str = row[wildcard_col] or "{}"
-                        card_wildcard_data = json.loads(wildcard_str)
-                    except:
-                        card_wildcard_data = {}
+                headers = cards_data[0]
+                if "Name" not in headers or "Held By Team" not in headers or "Wildcard" not in headers:
+                    continue
 
-                    team_status = card_wildcard_data.get(target_team_name)
-                    
-                    if team_status and isinstance(team_status, str) and team_status.strip() == "active":
-                        # --- CONSUMPTION LOGIC ---
-                        # Remove from wildcard
-                        del card_wildcard_data[target_team_name]
-                        self.chance_sheet.update_cell(i, wildcard_col + 1, json.dumps(card_wildcard_data))
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+                
+                for i, row in enumerate(cards_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col):
+                        continue
+                    if str(row[name_col]).strip() != "Redemption":
+                        continue
                         
-                        # Remove from Held By Team (using the row data we already have)
-                        held_by_str = str(row[held_by_col] or "")
+                    try:
+                        wildcard_data = json.loads(row[wildcard_col] or "{}")
+                    except:
+                        wildcard_data = {}
+                        
+                    team_status = wildcard_data.get(target_team_name)
+                    if team_status and isinstance(team_status, str) and team_status.strip() == "active":
+                        del wildcard_data[target_team_name]
+                        sheet_obj.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data))
+                        
+                        held_by_str = str(sheet_obj.cell(i, held_by_col + 1).value or "")
                         teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
                         if target_team_name in teams:
                             teams.remove(target_team_name)
+                        sheet_obj.update_cell(i, held_by_col + 1, ", ".join(teams))
                         
-                        self.chance_sheet.update_cell(i, held_by_col + 1, ", ".join(teams))
+                        print(f"✅ Consumed Redemption for {target_team_name} from {sheet_obj.title}")
+                        return True
                         
-                        print(f"✅ Consumed Elder Maul for {target_team_name}")
+            return False
+                
+        except Exception as e:
+            print(f"❌ Error in check_and_consume_redemption: {e}")
+            return False
+
+    def check_and_consume_elder_maul(self, target_team_name: str) -> bool:
+        """
+        Checks if a target team has Elder Maul active across both card sheets.
+        Consolidates API calls and handles removal in a single threaded flow.
+        """
+        try:
+            for sheet_obj in (self.chest_sheet, self.chance_sheet):
+                cards_data = sheet_obj.get_all_values()
+                if not cards_data:
+                    continue
+                    
+                headers = cards_data[0]
+                if "Name" not in headers or "Held By Team" not in headers or "Wildcard" not in headers:
+                    continue
+
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
+                
+                for i, row in enumerate(cards_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col):
+                        continue
+                    if str(row[name_col]).strip() != "Elder Maul":
+                        continue
+                        
+                    try:
+                        wildcard_data = json.loads(row[wildcard_col] or "{}")
+                    except:
+                        wildcard_data = {}
+
+                    team_status = wildcard_data.get(target_team_name)
+                    
+                    if team_status and isinstance(team_status, str) and team_status.strip() == "active":
+                        del wildcard_data[target_team_name]
+                        sheet_obj.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data))
+                        
+                        held_by_str = str(sheet_obj.cell(i, held_by_col + 1).value or "")
+                        teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        if target_team_name in teams:
+                            teams.remove(target_team_name)
+                        sheet_obj.update_cell(i, held_by_col + 1, ", ".join(teams))
+                        
+                        print(f"✅ Consumed Elder Maul for {target_team_name} from {sheet_obj.title}")
                         return True
             
             return False
@@ -2362,71 +2359,70 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in check_and_consume_elder_maul: {e}")
             return False
 
-    def check_and_consume_alchemy(self, team_name: str) -> (int, str):
+    def check_and_consume_alchemy(self, team_name: str) -> tuple[int, str]:
         """
-        Checks if a team has an active Alchemy card.
+        Checks if a team has an active Alchemy card across both card sheets.
         If yes, consumes it and returns the multiplier (2 or 3) and card name.
         If no, returns 1 and None.
         """
         try:
-            chance_cards_data = self.chance_sheet.get_all_values()
-            if not chance_cards_data:
-                return 1, None
-                
-            headers = chance_cards_data[0]
-            name_col = headers.index("Name")
-            held_by_col = headers.index("Held By Team")
-            wildcard_col = headers.index("Wildcard")
-            
-            for i, row in enumerate(chance_cards_data[1:], start=2):
-                if len(row) <= max(name_col, held_by_col, wildcard_col):
+            for sheet_obj in (self.chance_sheet, self.chest_sheet):
+                cards_data = sheet_obj.get_all_values()
+                if not cards_data:
                     continue
                     
-                card_name = row[name_col]
-                if card_name not in ("Low Alchemy", "High Alchemy"):
-                    continue
-
-                try:
-                    wildcard_str = row[wildcard_col] or "{}"
-                    wildcard_data = json.loads(wildcard_str)
-                except:
-                    wildcard_data = {}
-
-                team_status = None
-                found_key = None
-                for key, value in wildcard_data.items():
-                    if key.strip() == team_name:
-                        team_status = value
-                        found_key = key
-                        break
+                headers = cards_data[0]
+                name_col = headers.index("Name")
+                held_by_col = headers.index("Held By Team")
+                wildcard_col = headers.index("Wildcard")
                 
-                if team_status and isinstance(team_status, str) and team_status.strip() == "active":
-                    multiplier = 3 if card_name == "High Alchemy" else 2
+                for i, row in enumerate(cards_data[1:], start=2):
+                    if len(row) <= max(name_col, held_by_col, wildcard_col):
+                        continue
+                        
+                    card_name = row[name_col]
+                    if card_name not in ("Low Alchemy", "High Alchemy"):
+                        continue
+
+                    try:
+                        wildcard_str = row[wildcard_col] or "{}"
+                        wildcard_data = json.loads(wildcard_str)
+                    except:
+                        wildcard_data = {}
+
+                    team_status = None
+                    found_key = None
+                    for key, value in wildcard_data.items():
+                        if key.strip() == team_name:
+                            team_status = value
+                            found_key = key
+                            break
                     
-                    del wildcard_data[found_key]
-                    self.chance_sheet.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data)) # +1 for 1-based index
-                    
-                    held_by_str = str(self.chance_sheet.cell(i, held_by_col + 1).value or "")
-                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if team_name in teams:
-                        teams.remove(team_name)
-                    self.chance_sheet.update_cell(i, held_by_col + 1, ", ".join(teams))
-                    
-                    print(f"✅ Consumed {card_name} for {team_name}, applying x{multiplier} GP multiplier.")
-                    return multiplier, card_name
+                    if team_status and isinstance(team_status, str) and team_status.strip() == "active":
+                        multiplier = 3 if card_name == "High Alchemy" else 2
+                        
+                        del wildcard_data[found_key]
+                        sheet_obj.update_cell(i, wildcard_col + 1, json.dumps(wildcard_data))
+                        
+                        held_by_str = str(sheet_obj.cell(i, held_by_col + 1).value or "")
+                        teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        if team_name in teams:
+                            teams.remove(team_name)
+                        sheet_obj.update_cell(i, held_by_col + 1, ", ".join(teams))
+                        
+                        print(f"✅ Consumed {card_name} for {team_name}, applying x{multiplier} GP multiplier.")
+                        return multiplier, card_name
+                        
+            return 1, None
                 
         except Exception as e:
             print(f"❌ Error in check_and_consume_alchemy: {e}")
-            
-        return 1, None
+            return 1, None
 
     def clear_all_active_statuses(self, team_name: str):
         """
         Finds and clears all "active" statuses for a given team
         from both card sheets. This is called at the start of a team's turn.
-        
-        🔹 FIXED: Will no longer clear Alchemy cards, as those are
-        consumed on use, not at the start of a turn.
         """
         print(f"❗ Clearing all active statuses for {team_name}...")
         sheets_to_check = [self.chance_sheet, self.chest_sheet]
@@ -2448,9 +2444,6 @@ class MonopolyCog(commands.Cog):
                         continue
                     
                     card_name = row[name_col]
-                    if card_name in ("Low Alchemy", "High Alchemy"):
-                        continue
-                    
                     wildcard_str = str(row[wildcard_col] or "{}")
                     if "active" not in wildcard_str:
                         continue
@@ -2469,7 +2462,6 @@ class MonopolyCog(commands.Cog):
                             break
                     
                     if team_status and isinstance(team_status, str) and team_status.strip() == "active":
-                        card_name = row[name_col]
                         print(f"        > Found active card: {card_name}. Consuming...")
                         
                         del wildcard_data[found_key]
@@ -2854,7 +2846,7 @@ class MonopolyCog(commands.Cog):
                 
                 victim_channel = self.get_team_channel(target_team)
 
-                if self.check_and_consume_redemption(target_team):
+                if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                     embed_description = f"<:fishing:1437980297017688114> **{team_name}** tried to use **Lure** on **{target_team}**...\n\n<:redemption:1437979567900987493> But **{target_team}**'s Redemption activated!"
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Lure** on you, but your **Redemption** activated!", color=discord.Color.blue())
@@ -2927,24 +2919,18 @@ class MonopolyCog(commands.Cog):
 
             elif card_name == "Tele Block":
                 all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                opponents_on_tile = []
+                valid_targets = []
 
                 for record in all_teams_data:
                     current_team_name = record.get("Team")
-                    current_pos = int(record.get("Position", -1))
-                    if current_team_name == team_name:
-                        caster_pos = current_pos
-                    elif current_team_name:
-                        opponents_on_tile.append((current_team_name, current_pos))
-
-                valid_targets = [team for team, pos in opponents_on_tile if pos == caster_pos]
+                    if current_team_name and current_team_name != team_name:
+                        valid_targets.append(current_team_name)
 
                 if not valid_targets:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are on your tile to Tele Block.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No opponents to Tele Block.", ephemeral=True)
                     return 
                 
-                embed = discord.Embed(title="🎯 Target Selection: Tele Block", description="Select a team on your tile to Teleblock!", color=discord.Color.dark_purple())
+                embed = discord.Embed(title="🎯 Target Selection: Tele Block", description="Select a team to Teleblock!", color=discord.Color.dark_purple())
                 extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value}
                 view = self.CardTargetView(self, team_name, valid_targets, "Tele Block", "tele_block", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
@@ -3040,28 +3026,13 @@ class MonopolyCog(commands.Cog):
 
             elif card_name == "Smite":
                 all_teams_data = self.team_data_sheet.get_all_records()
-                caster_pos = -1
-                
-                for record in all_teams_data:
-                    if record.get("Team") == team_name:
-                        caster_pos = int(record.get("Position", -1))
-                        break
-                
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return 
-
-                target_tiles = [caster_pos - 1, caster_pos, caster_pos + 1]
-                if caster_pos == 0: target_tiles = [0, 1, BOARD_SIZE - 1] 
-                elif caster_pos == BOARD_SIZE - 1: target_tiles = [BOARD_SIZE - 1, BOARD_SIZE - 2, 0] 
-
-                valid_targets = [r.get("Team") for r in all_teams_data if r.get("Team") and r.get("Team") != team_name and int(r.get("Position", -1)) in target_tiles]
+                valid_targets = [r.get("Team") for r in all_teams_data if r.get("Team") and r.get("Team") != team_name]
                 
                 if not valid_targets:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are within 1 tile of you.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No opponents to Smite.", ephemeral=True)
                     return 
 
-                embed = discord.Embed(title="🎯 Target Selection: Smite", description="Select an adjacent team to Smite!", color=discord.Color.red())
+                embed = discord.Embed(title="🎯 Target Selection: Smite", description="Select a team to Smite!", color=discord.Color.red())
                 extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value}
                 view = self.CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
@@ -3608,16 +3579,16 @@ class MonopolyCog(commands.Cog):
 
         if action == "tele_block":
             embed_color = discord.Color.dark_purple()
-            if self.check_and_consume_redemption(target_team):
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The effect fizzled."
                 if victim_channel:
                     fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Block** on you, but your **Redemption** activated!", color=discord.Color.blue())
                     await victim_channel.send(embed=fizzle_embed)
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            elif self.check_and_consume_vengeance(target_team):
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
                 embed_description += f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! The effect rebounded, and your team is now **Teleblocked**."
-                self.set_teleblock_status(team_name, "yes") 
+                await asyncio.to_thread(self.set_teleblock_status, team_name, "yes") 
                 skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{target_team}**'s Vengeance!\nYour team is now **Teleblocked**!", color=discord.Color.dark_red())
                 await interaction.channel.send(embed=skull_embed)
                 await self.mirror_to_game_log(interaction.channel, embed=skull_embed) 
@@ -3628,7 +3599,7 @@ class MonopolyCog(commands.Cog):
 
             else:
                 embed_description += f"> <:teleblock:1438088930816819271> **{target_team}** is now **Teleblocked** until after their next roll."
-                self.set_teleblock_status(target_team, "yes") 
+                await asyncio.to_thread(self.set_teleblock_status, target_team, "yes") 
                 if victim_channel:
                     tb_embed = discord.Embed(title="<:teleblock:1438088930816819271> You are Teleblocked!", description=f"**{team_name}** used **Tele Block** on your team! You cannot use teleport cards until after your next roll.", color=discord.Color.dark_purple())
                     await victim_channel.send(embed=tb_embed)
@@ -3644,7 +3615,7 @@ class MonopolyCog(commands.Cog):
             target_sheet = stolen_card["sheet"]
             target_row = stolen_card["row_index"]
 
-            if self.check_and_consume_redemption(victim_team):
+            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
                 embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
                 if victim_channel:
                     fizzle_embed = discord.Embed(
@@ -3655,7 +3626,7 @@ class MonopolyCog(commands.Cog):
                     await victim_channel.send(embed=fizzle_embed)
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            elif self.check_and_consume_vengeance(victim_team):
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
                 embed_description = (
                     f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
                     f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
@@ -3759,7 +3730,7 @@ class MonopolyCog(commands.Cog):
                     victim_wildcard = wildcard_data_json.pop(victim_team, None)
                     if victim_wildcard is not None:
                         wildcard_data_json[team_name] = victim_wildcard
-                        target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
+                    target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
                 except Exception as e:
                     print(f"❌ Error transferring wildcard data: {e}")
 
@@ -3790,16 +3761,16 @@ class MonopolyCog(commands.Cog):
             target_row_idx = all_teams_data.index(target_record) + 2
             caster_row_idx = all_teams_data.index(caster_record) + 2
 
-            if self.check_and_consume_redemption(target_team):
+            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
                 if victim_channel:
                     fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
                     await victim_channel.send(embed=fizzle_embed)
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
-            elif self.check_and_consume_vengeance(target_team):
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, target_team):
                 base_percent = 0.20
-                maul_active = self.check_and_consume_elder_maul(team_name)
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, team_name)
                 maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if maul_active else ""
                 
                 steal_amount = max(1, int(caster_gp * (0.10 if maul_active else base_percent)))
@@ -3818,7 +3789,7 @@ class MonopolyCog(commands.Cog):
 
             else:
                 base_percent = 0.20
-                maul_active = self.check_and_consume_elder_maul(target_team)
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
                 maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if maul_active else ""
                 
                 steal_amount = max(1, int(highest_gp * (0.10 if maul_active else base_percent)))
@@ -3849,14 +3820,14 @@ class MonopolyCog(commands.Cog):
             
             non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
 
-            if self.check_and_consume_redemption(victim_team):
+            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{victim_team}**'s Redemption activated!"
                 if victim_channel:
                     fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
                     await victim_channel.send(embed=fizzle_embed)
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
             
-            elif self.check_and_consume_vengeance(victim_team):
+            elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
                 embed_description += f"> <:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect rebounded.\n> "
                 
                 caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
