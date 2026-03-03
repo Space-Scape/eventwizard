@@ -2682,17 +2682,24 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send("❌ 🎭 **You are Silenced!** The Mime's aura prevents you from using any cards. You must roll the dice to break the silence.", ephemeral=True)
                 return
             
-            # 3. Check normal card limits (and allow Double Card bypass)
+           # 3. Check normal card limits (Double Card Logic)
             has_double_card = str(team_info.get("Double Card", "no")).strip().lower() == "yes"
             used_card_flag = str(team_info.get("Used Card This Turn", "no")).strip().lower()
             
+            double_card_note = ""
+            
             if used_card_flag == "yes":
                 if has_double_card:
-                    # They have the buff! Clear it so they can't use 3 cards, but let them pass.
+                    double_card_note = "\n\n🧛🏻‍♀️ **Count Check says:** You have no card uses remaining this turn (bleeeh bleeeh!)."
                     asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Double Card"))
                 else:
                     await interaction.followup.send("❌ You can only use one card per turn. Roll again to use another card.", ephemeral=True)
                     return
+        else:
+            # This is their FIRST card use. 
+            if has_double_card:
+                double_card_note = "\n\n🃏 **Double Cards Active!** You still have **1** more card use available this turn!"
+                # We DO NOT clear the flag yet; they still have one use left.
                 
         except Exception as e:
             print(f"❌ Error checking team status flags: {e}")
@@ -3954,7 +3961,7 @@ class MonopolyCog(commands.Cog):
 
         final_embed = discord.Embed(
             title=f"{card_emoji} {team_name} used {card_name}!",
-            description=embed_description,
+            description=f"{embed_description}{double_card_note}",
             color=embed_color
         )
         await interaction.channel.send(embed=final_embed)
