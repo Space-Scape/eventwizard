@@ -899,14 +899,17 @@ class MonopolyCog(commands.Cog):
                 )
 
                 try:
+                    # 1. Check for card-based Alchemy multipliers
                     gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
 
+                    # 2. Lookup base GP value from the sheet
                     item_values_records = self.cog.item_values_sheet.get_all_records()
                     gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
                     final_gp_value = base_gp_value * gp_multiplier
                     
+                    # 3. Check for Random Event modifiers (Ents / Pinball)
                     records = self.cog.team_data_sheet.get_all_records()
                     team_record = next((r for r in records if r.get("Team") == team_name), None)
                     
@@ -916,6 +919,7 @@ class MonopolyCog(commands.Cog):
                         is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
                         is_gp_doubled = str(team_record.get("GP Doubled", "no")).strip().lower() == "yes"
                         
+                    # Calculate modifiers (Order: Card -> Double -> Halve)
                     if is_gp_doubled:
                         final_gp_value = final_gp_value * 2
                     if is_gp_halved:
@@ -923,6 +927,7 @@ class MonopolyCog(commands.Cog):
                         
                     original_gp_value_pre_tax = final_gp_value
 
+                    # 4. Build the status message bonus/nerf string
                     bonus_parts = []
                     if gp_multiplier > 1 and consumed_card_name:
                         emoji = CARD_EMOJIS.get(consumed_card_name, "")
@@ -979,6 +984,7 @@ class MonopolyCog(commands.Cog):
                                     await self.cog.mirror_to_game_log(team_chan, content=gp_message, team_name=team_name)
                                 break
 
+                        # 5. Handle House Tax payments
                         if tax_amount > 0 and owner_team:
                             owner_team_chan = self.cog.get_team_channel(owner_team)
                             for o_idx, orec in enumerate(records, start=2):
@@ -1409,24 +1415,17 @@ class MonopolyCog(commands.Cog):
         # 3. Dice Roll Execution
         raw_result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
         
-        # --- ADDED: Apply Pre-Roll Nerfs & Buffs ---
+        # --- ADDED: Apply Pre-Roll Nerfs ---
         team_record = all_records[team_row_index-2]
         is_poisoned = str(team_record.get("Poisoned Roll", "no")).strip().lower() == "yes"
         is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
         is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
-        
         try:
             roll_penalty = int(team_record.get("Roll Penalty", 0))
         except ValueError:
             roll_penalty = 0
 
-        try:
-            roll_bonus = int(team_record.get("Roll Bonus", 0))
-        except ValueError:
-            roll_bonus = 0
-
         result = raw_result
-        
         if is_poisoned:
             result = min(result, 3)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Poisoned Roll"))
@@ -1436,11 +1435,6 @@ class MonopolyCog(commands.Cog):
         if roll_penalty > 0:
             result = max(1, result - roll_penalty)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Penalty"))
-        
-        if roll_bonus > 0:
-            result += roll_bonus
-            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Bonus"))
-
         if is_gp_halved:
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
@@ -4853,7 +4847,7 @@ class MonopolyCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="🪖 You've been drafted!",
+            title="💌 You've been drafted!",
             description=f"**{interaction.user.mention}** wants you to join **{captain_team}**!\n\nDo you accept?",
             color=discord.Color.gold()
         )
