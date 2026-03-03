@@ -879,16 +879,14 @@ class MonopolyCog(commands.Cog):
                 await self.message.delete()
 
                 log_chan = self.cog.bot.get_channel(int(LOG_CHANNEL))
-                team_chan = self.cog.get_team_channel(self.cog.get_team(self.submitted_user))
+                team_name = self.cog.get_team(self.submitted_user) or "*No team*"
+                team_chan = self.cog.get_team_channel(team_name)
 
                 if log_chan:
                     mention = self.team_mention or self.submitted_user.mention or self.submitting_user.mention
                     await log_chan.send(content=f"{mention} Drop submission approved by {interaction.user.mention}.", embed=embed)
                     print(f"✅ Sent approval to DropLog ({log_chan.name})")
-                else:
-                    print(f"❌ DropLog channel {LOG_CHANNEL} not found")
 
-                team_name = self.cog.get_team(self.submitted_user) or "*No team*"
                 self.cog.log_drop_to_sheet(
                     submitted_for=str(self.submitted_user),
                     team=team_name,
@@ -898,18 +896,17 @@ class MonopolyCog(commands.Cog):
                     screenshot=self.image_url
                 )
 
+                # --- GP CALCULATION LOGIC ---
                 try:
-                    # 1. Check for card-based Alchemy multipliers
                     gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
 
-                    # 2. Lookup base GP value from the sheet
                     item_values_records = self.cog.item_values_sheet.get_all_records()
                     gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
                     final_gp_value = base_gp_value * gp_multiplier
                     
-                    # 3. Check for Random Event modifiers (Ents / Pinball)
+                    # Fetch team data to check for Ents and Pinball Troll
                     records = self.cog.team_data_sheet.get_all_records()
                     team_record = next((r for r in records if r.get("Team") == team_name), None)
                     
@@ -927,7 +924,7 @@ class MonopolyCog(commands.Cog):
                         
                     original_gp_value_pre_tax = final_gp_value
 
-                    # 4. Build the status message bonus/nerf string
+                    # Build the status message footer
                     bonus_parts = []
                     if gp_multiplier > 1 and consumed_card_name:
                         emoji = CARD_EMOJIS.get(consumed_card_name, "")
@@ -936,7 +933,7 @@ class MonopolyCog(commands.Cog):
                         bonus_parts.append("Doubled by 🎯 **Pinball Troll**")
                     if is_gp_halved:
                         bonus_parts.append("Halved by 🌳 **The Ents**")
-                    
+                        
                     alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
 
                     if final_gp_value > 0 and team_name != "*No team*":
@@ -970,10 +967,10 @@ class MonopolyCog(commands.Cog):
 
                         for idx, record in enumerate(records, start=2):
                             if record.get("Team") == team_name:
-                                current_gp = int(str(record.get("GP", 0)).replace(',', ''))
+                                current_gp_raw = str(record.get("GP", 0)).replace(',', '')
+                                current_gp = int(current_gp_raw) if current_gp_raw.isdigit() else 0
                                 new_gp = max(0, current_gp + final_gp_value)
                                 self.cog.team_data_sheet.update_cell(idx, gp_col_index, new_gp)
-                                print(f"✅ Awarded {final_gp_value:,} GP to {team_name}. New total: {new_gp}")
                                 
                                 gp_message = (
                                     f"<:MaxCash:1347684049040183427> **{team_name}** earned **{final_gp_value:,} GP** "
@@ -984,12 +981,12 @@ class MonopolyCog(commands.Cog):
                                     await self.cog.mirror_to_game_log(team_chan, content=gp_message, team_name=team_name)
                                 break
 
-                        # 5. Handle House Tax payments
                         if tax_amount > 0 and owner_team:
                             owner_team_chan = self.cog.get_team_channel(owner_team)
                             for o_idx, orec in enumerate(records, start=2):
                                 if orec.get("Team") == owner_team:
-                                    owner_gp = int(str(orec.get("GP", 0)).replace(',', ''))
+                                    owner_gp_raw = str(orec.get("GP", 0)).replace(',', '')
+                                    owner_gp = int(owner_gp_raw) if owner_gp_raw.isdigit() else 0
                                     new_owner_gp = owner_gp + tax_amount
                                     self.cog.team_data_sheet.update_cell(o_idx, gp_col_index, new_owner_gp)
                                     break
@@ -1006,59 +1003,56 @@ class MonopolyCog(commands.Cog):
                                 await owner_team_chan.send(tax_message)
                                 await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
 
-                # 6. Cleanup Pinball Troll flag (Curse clears on approval, ensuring only one drop is doubled)
-                if is_gp_doubled:
-                    asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
+                    # Cleanup Pinball Troll flag (Last thing in the inner try)
+                    if is_gp_doubled:
+                        asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
 
-                except Exception as e:
-                    print(f"❌ Error in GP/tax logic: {e}")
-                
-                if team_name and team_name != "*No team*":
-                    try:
-                        records = self.cog.team_data_sheet.get_all_records()
-                        current_tile = None
-                        for record in records:
-                            if record.get("Team") == team_name:
-                                current_tile = int(record.get("Position", 0))
-                                break
-                        
-                        tile_boss_map = {
-                            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-                            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-                        }
+                except Exception as inner_e:
+                    print(f"❌ Error in GP calculation: {inner_e}")
+                    traceback.print_exc()
 
-                        bosses_for_tile = tile_boss_map.get(current_tile, [])
-                        if self.boss in bosses_for_tile:
-                            self.cog.increment_rolls_available(team_name)
-                            print(f"✅ Roll granted: Team {team_name} on tile {current_tile} ({self.boss})")
-                            
-                            if team_chan:
-                                roll_grant_embed = discord.Embed(
-                                    title="🎲 Roll Granted!",
-                                    description=(
-                                        f"Your team landed a drop at **{self.boss}**! "
-                                        "A free roll has been granted! Use `/roll` to use it."
-                                    ),
-                                    color=discord.Color.green()
-                                )
-                                await team_chan.send(embed=roll_grant_embed)
-                                await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
-                        else:
-                            print(f"❗ No roll granted: Team {team_name} on tile {current_tile}, drop boss {self.boss} not valid here.")
-                    except Exception as e:
-                        print(f"❌ Error checking tile before granting roll: {e}")
+                # --- ROLL GRANTING LOGIC ---
+                try:
+                    # Refresh records for roll check
+                    records = self.cog.team_data_sheet.get_all_records()
+                    current_tile = None
+                    for record in records:
+                        if record.get("Team") == team_name:
+                            current_tile = int(record.get("Position", 0))
+                            break
+                    
+                    tile_boss_map = {
+                        1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+                        4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+                        8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+                        13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+                        18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+                        21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+                        25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+                        31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+                        35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+                    }
+
+                    bosses_for_tile = tile_boss_map.get(current_tile, [])
+                    if self.boss in bosses_for_tile:
+                        self.cog.increment_rolls_available(team_name)
+                        if team_chan:
+                            roll_grant_embed = discord.Embed(
+                                title="🎲 Roll Granted!",
+                                description=f"Your team landed a drop at **{self.boss}**! A free roll has been granted!",
+                                color=discord.Color.green()
+                            )
+                            await team_chan.send(embed=roll_grant_embed)
+                            await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
+
+                except Exception as roll_e:
+                    print(f"❌ Error checking tile before granting roll: {roll_e}")
 
                 await interaction.followup.send("✅ Drop approved and logged.", ephemeral=True)
 
             except Exception as e:
-                print(f"❌ Error in approve_button: {e}")
+                print(f"❌ Error in overall approve_button: {e}")
+                traceback.print_exc()
                 await interaction.followup.send(f"❌ Error approving drop: {e}", ephemeral=True)
 
         @ui.button(label="Reject Drop", style=discord.ButtonStyle.danger, custom_id="reject_drop")
