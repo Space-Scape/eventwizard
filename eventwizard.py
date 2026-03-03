@@ -453,51 +453,48 @@ async def generate_schedule_embed():
 # 🔹 Scheduled Tasks
 # --------------------------------------------------
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def check_sheet_for_updates():
-    """Periodically checks the sheet for changes and updates the schedule if needed."""
+    """Periodically checks the sheet for changes and posts a NEW schedule if changed."""
     global last_known_sheet_data
     try:
         channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-        if not channel or not current_schedule_message_id:
+        if not channel:
             return
 
         current_data = get_all_event_records()
         
-        if current_data != last_known_sheet_data:
-            print("📝 Sheet change detected, updating schedule...")
-            await update_schedule_message(channel)
+        if last_known_sheet_data is None:
             last_known_sheet_data = current_data
-            print("✅ Schedule updated.")
+            return
+
+        if current_data != last_known_sheet_data:
+            print("📝 Sheet change detected, posting fresh schedule...")
+            await update_schedule_message(channel, force_new=True)
+            last_known_sheet_data = current_data
+            
+            await post_todays_event_links(channel)
 
     except Exception as e:
         print(f"Error in check_sheet_for_updates: {e}")
 
 @tasks.loop(time=time(hour=0, minute=0, tzinfo=CST))
-async def daily_schedule_post():
-    """Posts a fresh schedule embed every day at 12:00 AM CST."""
-    channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
-    if channel:
-        await update_schedule_message(channel, force_new=True)
+async def weekly_schedule_post():
+    """Posts a fresh schedule embed only on Mondays at 12:00 AM CST."""
+    if datetime.now(CST).weekday() == 0:
+        channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
+        if channel:
+            print("📅 It's Monday! Posting weekly schedule...")
+            await update_schedule_message(channel, force_new=True)
+    else:
+        print(f"ℹ️ Skipping daily post (Today is {datetime.now(CST).strftime('%A')})")
 
 @tasks.loop(time=time(hour=0, minute=1, tzinfo=CST))
 async def daily_event_link_post():
     """Posts links for the current day's events every day at 12:01 AM CST."""
-    print("🌅 Posting today's event links...")
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
     if channel:
         await post_todays_event_links(channel)
-        print("✅ Today's event links posted.")
-
-
-@daily_schedule_post.before_loop
-@check_sheet_for_updates.before_loop
-async def before_daily_schedule_post():
-    await bot.wait_until_ready()
-
-@daily_event_link_post.before_loop
-async def before_daily_event_link_post():
-    await bot.wait_until_ready()
     
 # --------------------------------------------------
 # 🔹 Bot Startup
@@ -557,4 +554,5 @@ async def on_ready():
 
 
 bot.run(os.getenv("BOT_TOKEN"))
+
 
