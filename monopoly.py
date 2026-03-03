@@ -3516,7 +3516,7 @@ class MonopolyCog(commands.Cog):
             await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             try:
-                import json
+                
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None)
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -3612,7 +3612,7 @@ class MonopolyCog(commands.Cog):
                 await self.auto_post_show_drops_if_boss_tile(target_team, target_final_pos)
 
             try:
-                import json
+                
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None)
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -3663,8 +3663,8 @@ class MonopolyCog(commands.Cog):
         """Catches the dropdown selection and applies the effects of the card."""
         
         # 1. Standardize imports to prevent 'local variable not associated with value' errors
-        import json
-        import random
+        
+        
 
         if action == "pickpocket":
             all_teams_data = extra_data.get("all_teams_data")
@@ -3734,7 +3734,7 @@ class MonopolyCog(commands.Cog):
             team_wildcard_value = extra_data.get("team_wildcard_value")
 
             try:
-                import json
+                
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -3790,7 +3790,7 @@ class MonopolyCog(commands.Cog):
 
             if card_sheet and card_row:
                 try:
-                    import json
+                    
                     if team_wildcard_value is not None:
                         wildcard_data.pop(team_name, None)
                         await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -3852,7 +3852,7 @@ class MonopolyCog(commands.Cog):
             team_wildcard_value = extra_data.get("team_wildcard_value")
 
             try:
-                import json
+                
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
@@ -3933,7 +3933,7 @@ class MonopolyCog(commands.Cog):
                     
                     wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
                     try:
-                        import json
+                        
                         wildcard_data = json.loads(wildcard_str)
                         wildcard_data.pop(team_name, None)
                         await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
@@ -3972,7 +3972,7 @@ class MonopolyCog(commands.Cog):
 
                 wildcard_str = str(await asyncio.to_thread(lambda: remove_sheet.cell(remove_row, 4).value) or "{}")
                 try:
-                    import json
+                    
                     wildcard_data = json.loads(wildcard_str)
                     wildcard_data.pop(victim_team, None)
                     await asyncio.to_thread(remove_sheet.update_cell, remove_row, 4, json.dumps(wildcard_data))
@@ -3998,7 +3998,7 @@ class MonopolyCog(commands.Cog):
             team_wildcard_value = extra_data.get("team_wildcard_value")
 
             try:
-                import json
+                
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
                     await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
