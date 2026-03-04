@@ -5074,8 +5074,9 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error calculating capacities: {e}")
             return {team: {"current": 0, "max": 17, "is_full": False} for team in ACTIVE_TEAMS}
 
-    @app_commands.command(name="undrafted_refresh", description="[Staff] Force the undrafted list to update.")
-    async def undrafted_refresh(self, interaction: discord.Interaction):
+    @app_commands.command(name="undrafted_refresh", description="[Staff] Refresh an undrafted list message by its ID.")
+    @app_commands.describe(message_id="The ID of the message you want to update with the undrafted list")
+    async def undrafted_refresh(self, interaction: discord.Interaction, message_id: str):
         if not self.has_event_staff_role(interaction.user):
             await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
             return
@@ -5083,24 +5084,46 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # 1. Update Discord Cache
+            # 1. Force cache update to see recent role changes
             if interaction.guild:
                 await interaction.guild.chunk()
 
-            # 2. Get the specific undrafted message
-            # Replace 1477919745176109220 with the channel ID where the message lives
-            target_chan = self.bot.get_channel(1477919745176109220) 
-            if not target_chan:
-                await interaction.followup.send("❌ Could not find the channel.")
+            # 2. Convert ID and find the message across all visible channels
+            msg_id = int(message_id.strip())
+            target_msg = None
+            
+            for channel in interaction.guild.text_channels:
+                try:
+                    target_msg = await channel.fetch_message(msg_id)
+                    if target_msg: break
+                except: continue
+
+            if not target_msg:
+                await interaction.followup.send(f"❌ Could not find message with ID `{message_id}` in any channel.")
                 return
 
-            un_msg = await target_chan.fetch_message(1478667033460604938)
-
-            # 3. Pull Google Sheet Data
+            # 3. Pull Signups from Sheet (Row 10+)
             values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-            signup_data = {str(row[1]).strip(): str(row[2]).strip() for row in values[9:] if len(row) >= 3}
+            if len(values) < 10:
+                await interaction.followup.send("📝 No one has signed up yet in the sheet.")
+                return
 
-            # 4. Identify Drafted IDs
+            # 4. Clean IDs (Handles Scientific Notation & Decimals)
+            signup_data = {}
+            for row in values[9:]:
+                if len(row) >= 3:
+                    raw_id = str(row[1]).strip()
+                    # Fix scientific notation (e.g. 3.05E+17)
+                    if 'E+' in raw_id:
+                        clean_id = str(int(float(raw_id)))
+                    else:
+                        clean_id = raw_id.split('.')[0]
+                    
+                    rsn = str(row[2]).strip()
+                    if clean_id and rsn:
+                        signup_data[clean_id] = rsn
+
+            # 5. Identify Drafted IDs from Discord
             drafted_ids = set()
             for team_name in TEAM_ROLES:
                 role = discord.utils.get(interaction.guild.roles, name=team_name)
@@ -5108,22 +5131,24 @@ class MonopolyCog(commands.Cog):
                     for member in role.members:
                         drafted_ids.add(str(member.id))
 
-            # 5. Build Final List
+            # 6. Filter and Build Embed
             undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
             desc = "\n".join([f"• {rsn}" for rsn in undrafted_rsns]) if undrafted_rsns else "✅ All signed-up players drafted!"
 
             embed = discord.Embed(
                 title=f"📋 Undrafted Players ({len(undrafted_rsns)})",
-                description=desc,
+                description=desc[:4000], # Discord length safety
                 color=discord.Color.orange()
             )
             
-            await un_msg.edit(embed=embed)
-            await interaction.followup.send("✅ Undrafted list refreshed successfully.")
+            await target_msg.edit(embed=embed)
+            await interaction.followup.send(f"✅ Successfully refreshed undrafted list on message `{message_id}`.")
 
+        except ValueError:
+            await interaction.followup.send("❌ Invalid Message ID. Please provide a numeric ID.")
         except Exception as e:
             print(f"❌ Error in undrafted_refresh: {e}")
-            await interaction.followup.send(f"❌ Error refreshing message: {e}")
+            await interaction.followup.send(f"❌ An error occurred: {e}")
     
     @app_commands.command(name="team_lock", description="Toggle between locking capacity at current size or automatic scaling.")
     async def team_lock(self, interaction: discord.Interaction):
