@@ -1062,64 +1062,28 @@ class MonopolyCog(commands.Cog):
                 return
             await interaction.response.send_modal(self.cog.RejectModal(self.message, self.submitted_user))
 
-    class BossSelectView(ui.View):
-        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str):
+    class RestrictedBossSelectView(ui.View):
+        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, valid_bosses: list):
             super().__init__(timeout=180)
             self.cog = cog
             self.submitting_user = submitting_user
             self.submitted_for = submitted_for
             self.screenshot_url = screenshot_url
 
-            self.bosses = list(boss_drops.keys())
-            self.page_size = 25
-            self.current_page = 0
-
+            options = [discord.SelectOption(label=boss) for boss in valid_bosses]
             self.boss_dropdown = ui.Select(
                 placeholder="Select the boss",
-                options=self.get_boss_options(),
+                options=options,
                 min_values=1,
                 max_values=1,
             )
             self.boss_dropdown.callback = self.boss_selected
             self.add_item(self.boss_dropdown)
 
-            self.prev_button = ui.Button(label="Previous", style=discord.ButtonStyle.secondary)
-            self.next_button = ui.Button(label="Next", style=discord.ButtonStyle.secondary)
-            self.prev_button.callback = self.prev_page
-            self.next_button.callback = self.next_page
-            self.add_item(self.prev_button)
-            self.add_item(self.next_button)
-
-            self.update_nav_buttons()
-
-        def get_boss_options(self):
-            start = self.current_page * self.page_size
-            end = start + self.page_size
-            return [discord.SelectOption(label=boss) for boss in sorted(self.bosses)[start:end]]
-
-        def update_nav_buttons(self):
-            self.prev_button.disabled = self.current_page == 0
-            self.next_button.disabled = (self.current_page + 1) * self.page_size >= len(self.bosses)
-
-        async def prev_page(self, interaction: discord.Interaction):
-            if self.current_page > 0:
-                self.current_page -= 1
-                self.boss_dropdown.options = self.get_boss_options()
-                self.update_nav_buttons()
-                await interaction.response.edit_message(view=self)
-
-        async def next_page(self, interaction: discord.Interaction):
-            if (self.current_page + 1) * self.page_size < len(self.bosses):
-                self.current_page += 1
-                self.boss_dropdown.options = self.get_boss_options()
-                self.update_nav_buttons()
-                await interaction.response.edit_message(view=self)
-
         async def boss_selected(self, interaction: discord.Interaction):
             selected_boss = self.boss_dropdown.values[0]
             await interaction.response.edit_message(
                 content=f"Selected boss: **{selected_boss}**. Now select the drop:",
-                embed=None,
                 view=self.cog.DropSelectView(
                     cog=self.cog,
                     submitting_user=self.submitting_user,
@@ -1128,7 +1092,6 @@ class MonopolyCog(commands.Cog):
                     boss=selected_boss,
                 ),
             )
-
 
     class DropSelect(ui.Select):
         def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, boss: str):
@@ -1146,38 +1109,6 @@ class MonopolyCog(commands.Cog):
             team_name = self.cog.get_team(self.submitted_for) or "*No team*"
             if team_name == "*No team*":
                 await interaction.response.edit_message(content=f"❌ **{self.submitted_for.display_name}** is not on a team.", view=None, embed=None)
-                return
-
-            current_tile = None
-            records = self.cog.team_data_sheet.get_all_records()
-            for record in records:
-                if record.get("Team") == team_name:
-                    current_tile = int(record.get("Position", 0))
-                    break
-
-            if current_tile is None:
-                await interaction.response.edit_message(content=f"❌ Could not find data for **{team_name}**.", view=None, embed=None)
-                return
-                
-            tile_boss_map = {
-                1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
-                13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-            }
-
-            bosses_for_tile = tile_boss_map.get(current_tile, [])
-            if self.boss not in bosses_for_tile:
-                await interaction.response.edit_message(
-                    content=f"❌ Invalid drop: Your team is on tile **{current_tile}**, which does not include **{self.boss}**.",
-                    embed=None,
-                    view=None
-                )
                 return
 
             embed = discord.Embed(title=f"Drop Submission: {self.boss}", colour=discord.Colour.blurple())
@@ -2098,11 +2029,70 @@ class MonopolyCog(commands.Cog):
         if submitted_for is None:
             submitted_for = interaction.user
 
-        await interaction.followup.send(
-            content=f"Submitting drop for {submitted_for.display_name}. Select the boss you received the drop from:",
-            view=self.BossSelectView(cog=self, submitting_user=interaction.user, submitted_for=submitted_for, screenshot_url=screenshot.url),
-            ephemeral=True
-        )
+        team_name = self.get_team(submitted_for) or "*No team*"
+        if team_name == "*No team*":
+            await interaction.followup.send(content=f"❌ **{submitted_for.display_name}** is not on a team.", ephemeral=True)
+            return
+
+        # 1. Fetch current tile
+        current_tile = None
+        records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        for record in records:
+            if record.get("Team") == team_name:
+                current_tile = int(record.get("Position", 0))
+                break
+
+        if current_tile is None:
+            await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
+            return
+
+        # 2. Boss Map
+        tile_boss_map = {
+            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Barrows"],
+            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+        }
+
+        bosses_for_tile = tile_boss_map.get(current_tile, [])
+
+        if not bosses_for_tile:
+            await interaction.followup.send(content=f"❌ Your team is on Tile **{current_tile}**, which does not have any boss drops.", ephemeral=True)
+            return
+
+        # 3. Route to the correct UI
+        if len(bosses_for_tile) == 1:
+            # Skip Boss Selection! Go straight to your Drop Select View
+            selected_boss = bosses_for_tile[0]
+            await interaction.followup.send(
+                content=f"Detected **{selected_boss}** (Tile {current_tile}). Select the drop:",
+                view=self.DropSelectView(
+                    cog=self,
+                    submitting_user=interaction.user,
+                    submitted_for=submitted_for,
+                    screenshot_url=screenshot.url,
+                    boss=selected_boss,
+                ),
+                ephemeral=True
+            )
+        else:
+            # Show a specific mini-menu just for this tile's bosses
+            await interaction.followup.send(
+                content=f"Multiple bosses found on Tile {current_tile}. Select the boss:",
+                view=self.RestrictedBossSelectView(
+                    cog=self,
+                    submitting_user=interaction.user,
+                    submitted_for=submitted_for,
+                    screenshot_url=screenshot.url,
+                    valid_bosses=bosses_for_tile
+                ),
+                ephemeral=True
+            )
 
     async def team_receives_card(self, team_name: str, card_type: str, team_channel: discord.TextChannel):
         card_sheet = self.chance_sheet if card_type == "Chance" else self.chest_sheet
