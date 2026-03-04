@@ -4868,6 +4868,61 @@ class MonopolyCog(commands.Cog):
         
         await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
 
+    @app_commands.command(name="lock_team", description="Toggle your team's lock status to prevent or allow new drafts.")
+    async def lock_team(self, interaction: discord.Interaction):
+        # 1. Verify the user is actually a captain
+        if not self.has_event_captain_role(interaction.user):
+            await interaction.response.send_message("❌ Only Team Captains can use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # 2. Determine which team the captain is leading
+        team_name = self.get_team(interaction.user)
+        if not team_name:
+            await interaction.followup.send("❌ You do not appear to be assigned to a team.", ephemeral=True)
+            return
+
+        # 3. Fetch the sheet data to locate the team's row and check current status
+        try:
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            headers = list(records[0].keys()) if records else []
+            
+            if "Locked" not in headers:
+                await interaction.followup.send("❌ The 'Locked' column is missing from the Team Data sheet.", ephemeral=True)
+                return
+                
+            lock_col_idx = headers.index("Locked") + 1
+            team_row_idx = -1
+            current_status = "no"
+
+            # Enumerate starts at 2 because row 1 contains the headers in Google Sheets
+            for idx, record in enumerate(records, start=2):
+                if str(record.get("Team", "")).strip().lower() == team_name.strip().lower():
+                    team_row_idx = idx
+                    current_status = str(record.get("Locked", "no")).strip().lower()
+                    break
+
+            if team_row_idx == -1:
+                await interaction.followup.send(f"❌ Could not find **{team_name}** in the Team Data sheet.", ephemeral=True)
+                return
+
+            # 4. Toggle the lock status
+            new_status = "yes" if current_status == "no" else "no"
+            
+            # 5. Push the update back to the Google Sheet
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
+            
+            # 6. Confirm the action to the captain
+            if new_status == "yes":
+                await interaction.followup.send(f"🔒 **{team_name}** is now **LOCKED**. The `/team_list` will display the lock icon on its next update.", ephemeral=True)
+            else:
+                await interaction.followup.send(f"🔓 **{team_name}** is now **UNLOCKED**. You can draft new players again.", ephemeral=True)
+            
+        except Exception as e:
+            print(f"❌ Error toggling lock status: {e}")
+            await interaction.followup.send("❌ An error occurred while communicating with the database.", ephemeral=True)
+    
     @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
     @app_commands.describe(message_id="The ID of the message to update")
     async def team_list_set_id(self, interaction: discord.Interaction, message_id: str):
@@ -4973,61 +5028,6 @@ class MonopolyCog(commands.Cog):
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
-
-    @app_commands.command(name="lock_team", description="Toggle your team's lock status to prevent or allow new drafts.")
-    async def lock_team(self, interaction: discord.Interaction):
-        # 1. Verify the user is actually a captain
-        if not self.has_event_captain_role(interaction.user):
-            await interaction.response.send_message("❌ Only Team Captains can use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # 2. Determine which team the captain is leading
-        team_name = self.get_team(interaction.user)
-        if not team_name:
-            await interaction.followup.send("❌ You do not appear to be assigned to a team.", ephemeral=True)
-            return
-
-        # 3. Fetch the sheet data to locate the team's row and check current status
-        try:
-            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            headers = list(records[0].keys()) if records else []
-            
-            if "Locked" not in headers:
-                await interaction.followup.send("❌ The 'Locked' column is missing from the Team Data sheet.", ephemeral=True)
-                return
-                
-            lock_col_idx = headers.index("Locked") + 1
-            team_row_idx = -1
-            current_status = "no"
-
-            # Enumerate starts at 2 because row 1 contains the headers in Google Sheets
-            for idx, record in enumerate(records, start=2):
-                if str(record.get("Team", "")).strip().lower() == team_name.strip().lower():
-                    team_row_idx = idx
-                    current_status = str(record.get("Locked", "no")).strip().lower()
-                    break
-
-            if team_row_idx == -1:
-                await interaction.followup.send(f"❌ Could not find **{team_name}** in the Team Data sheet.", ephemeral=True)
-                return
-
-            # 4. Toggle the lock status
-            new_status = "yes" if current_status == "no" else "no"
-            
-            # 5. Push the update back to the Google Sheet
-            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
-            
-            # 6. Confirm the action to the captain
-            if new_status == "yes":
-                await interaction.followup.send(f"🔒 **{team_name}** is now **LOCKED**. The `/team_list` will display the lock icon on its next update.", ephemeral=True)
-            else:
-                await interaction.followup.send(f"🔓 **{team_name}** is now **UNLOCKED**. You can draft new players again.", ephemeral=True)
-            
-        except Exception as e:
-            print(f"❌ Error toggling lock status: {e}")
-            await interaction.followup.send("❌ An error occurred while communicating with the database.", ephemeral=True)
     
     @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
     @app_commands.describe(
