@@ -1485,7 +1485,7 @@ class MonopolyCog(commands.Cog):
         await interaction.followup.send(embed=roll_embed)
         await self.mirror_to_game_log(interaction.channel, embed=roll_embed)
 
-        if go_message:
+if go_message:
             await interaction.channel.send(go_message)
 
         # --- PASSIVE RANDOM EVENT ENGINE ---
@@ -4686,7 +4686,7 @@ class MonopolyCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="🪖 You've been drafted!",
+            title="💌 You've been drafted!",
             description=f"**{interaction.user.mention}** wants you to join **{captain_team}**!\n\nDo you accept?",
             color=discord.Color.gold()
         )
@@ -4768,33 +4768,21 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error saving signup list config: {e}")
 
     async def build_signup_list_embed(self) -> discord.Embed:
-        """Constructs the signup list excluding players already on a team."""
-        signup_values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-        
-        # 1. Fetch all team records to see who is already picked
-        team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        
-        # 2. Compile a set of all RSNs already assigned to a team
-        picked_rsns = set()
-        for record in team_records:
-            # Assuming team members are listed in a "Members" column (comma-separated)
-            members_str = str(record.get("Members", ""))
-            names = [n.strip().lower() for n in members_str.split(",") if n.strip()]
-            picked_rsns.update(names)
-
+        """Fetches the Google Sheet and constructs the signup list embed."""
+        values = await asyncio.to_thread(self.signup_sheet.get_all_values)
         rsn_list = []
-        if len(signup_values) >= 10:
-            for row in signup_values[9:]:
+        
+        if len(values) >= 10:
+            for row in values[9:]:
                 if len(row) > 2:
                     rsn = str(row[2]).strip()
-                    # 3. Only add if the player is NOT in the picked_rsns set
-                    if rsn and rsn.lower() not in picked_rsns:
+                    if rsn:
                         rsn_list.append(rsn)
                         
         if not rsn_list:
             return discord.Embed(
-                title="📝 Available Signups",
-                description="All signed-up players have been picked! Use `/signup` to join the list.",
+                title="📝 Current Signups",
+                description="No one has signed up yet! Use `/signup` to be the first.",
                 color=discord.Color.blue()
             )
 
@@ -4802,16 +4790,16 @@ class MonopolyCog(commands.Cog):
         for i, rsn in enumerate(rsn_list, 1):
             line = f"**{i}.** {rsn}\n"
             if len(description) + len(line) > 4000:
-                description += "\n*...and more!*"
+                description += "\n*...and more! (List too long for Discord)*"
                 break
             description += line
             
         embed = discord.Embed(
-            title=f"📝 Available Signups ({len(rsn_list)} Total)",
+            title=f"📝 Current Signups ({len(rsn_list)} Total)",
             description=description,
             color=discord.Color.blue()
         )
-        embed.set_footer(text="Updates automatically as players are drafted!")
+        embed.set_footer(text="List updates automatically as players sign up!")
         return embed
 
     async def update_live_signup_list(self, guild: discord.Guild):
@@ -4835,59 +4823,22 @@ class MonopolyCog(commands.Cog):
             print("❌ Live signup list message was deleted.")
         except Exception as e:
             print(f"❌ Failed to update live signup list: {e}")
-
-    @app_commands.command(name="lock_team", description="Toggle your team's lock status (prevents/allows new members).")
-    async def lock_team(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        team_name = self.get_team(interaction.user)
-        if not team_name:
-            await interaction.followup.send("❌ You are not on a team.")
-            return
-
-        # Fetch all records to find the team row
-        all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        headers = list(all_records[0].keys()) if all_records else []
-        
-        team_row_idx = -1
-        current_lock_status = "no"
-        
-        for idx, record in enumerate(all_records, start=2):
-            if record.get("Team") == team_name:
-                team_row_idx = idx
-                current_lock_status = str(record.get("Locked", "no")).lower()
-                break
-
-        if team_row_idx == -1:
-            await interaction.followup.send("❌ Team data not found.")
-            return
-
-        # Toggle the status
-        new_status = "yes" if current_lock_status == "no" else "no"
-        lock_col_idx = headers.index("Locked") + 1
-        
-        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
-        
-        status_text = "LOCKED 🔒" if new_status == "yes" else "UNLOCKED 🔓"
-        await interaction.followup.send(f"✅ Your team is now **{status_text}**.")
-
+    
     @app_commands.command(name="team_list", description="Post a live-updating roster of all teams.")
     async def team_list(self, interaction: discord.Interaction):
         if not self.has_event_staff_role(interaction.user):
             await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
             return
-    
+
         await interaction.response.defer(ephemeral=False)
         
         capacities = await self.get_team_capacity_limits(interaction.guild)
-        
-        # FIX: Added 'await' here
-        embed = await self.build_team_list_embed(interaction.guild, capacities)
+        embed = self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
         self.save_team_list_config(interaction.channel_id, msg.id)
         
-        await interaction.followup.send("✅ Live roster posted and linked.", ephemeral=True)
+        await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
 
     @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
     @app_commands.describe(message_id="The ID of the message to update")
@@ -4936,35 +4887,22 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    async def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, keeping captains at the top and showing lock status."""
+    def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
+        """Constructs the roster embed showing all teams, keeping captains at the top."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
-        # 1. Fetch all team records once to check for lock status
-        try:
-            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        except Exception as e:
-            print(f"❌ Error fetching team records for roster: {e}")
-            team_records = []
-
         description = ""
 
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
-            # 2. Check if this specific team is locked in the Google Sheet
-            team_record = next((r for r in team_records if str(r.get("Team", "")).strip().lower() == team_name.lower()), {})
-            is_locked = str(team_record.get("Locked", "no")).strip().lower() == "yes"
-            lock_icon = " 🔒" if is_locked else ""
-            
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
                 
-                # 3. Update the Size line to include the lock icon
-                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){lock_icon}{cap_status}**\n"
+                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
                 
                 if actual_members:
                     captains_list = []
@@ -4984,7 +4922,7 @@ class MonopolyCog(commands.Cog):
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']}){lock_icon}**\n*Role '{team_name}' not found!*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
                 
             description += "\n"
                 
