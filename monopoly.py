@@ -4860,7 +4860,6 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         
         capacities = await self.get_team_capacity_limits(interaction.guild)
-        # ✅ Added 'await' here to properly call the async function
         embed = await self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
@@ -4868,61 +4867,6 @@ class MonopolyCog(commands.Cog):
         
         await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
 
-    @app_commands.command(name="lock_team", description="Toggle your team's lock status to prevent or allow new drafts.")
-    async def lock_team(self, interaction: discord.Interaction):
-        # 1. Verify the user is actually a captain
-        if not self.has_event_captain_role(interaction.user):
-            await interaction.response.send_message("❌ Only Team Captains can use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # 2. Determine which team the captain is leading
-        team_name = self.get_team(interaction.user)
-        if not team_name:
-            await interaction.followup.send("❌ You do not appear to be assigned to a team.", ephemeral=True)
-            return
-
-        # 3. Fetch the sheet data to locate the team's row and check current status
-        try:
-            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            headers = list(records[0].keys()) if records else []
-            
-            if "Locked" not in headers:
-                await interaction.followup.send("❌ The 'Locked' column is missing from the Team Data sheet.", ephemeral=True)
-                return
-                
-            lock_col_idx = headers.index("Locked") + 1
-            team_row_idx = -1
-            current_status = "no"
-
-            # Enumerate starts at 2 because row 1 contains the headers in Google Sheets
-            for idx, record in enumerate(records, start=2):
-                if str(record.get("Team", "")).strip().lower() == team_name.strip().lower():
-                    team_row_idx = idx
-                    current_status = str(record.get("Locked", "no")).strip().lower()
-                    break
-
-            if team_row_idx == -1:
-                await interaction.followup.send(f"❌ Could not find **{team_name}** in the Team Data sheet.", ephemeral=True)
-                return
-
-            # 4. Toggle the lock status
-            new_status = "yes" if current_status == "no" else "no"
-            
-            # 5. Push the update back to the Google Sheet
-            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
-            
-            # 6. Confirm the action to the captain
-            if new_status == "yes":
-                await interaction.followup.send(f"🔒 **{team_name}** is now **LOCKED**. The `/team_list` will display the lock icon on its next update.", ephemeral=True)
-            else:
-                await interaction.followup.send(f"🔓 **{team_name}** is now **UNLOCKED**. You can draft new players again.", ephemeral=True)
-            
-        except Exception as e:
-            print(f"❌ Error toggling lock status: {e}")
-            await interaction.followup.send("❌ An error occurred while communicating with the database.", ephemeral=True)
-    
     @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
     @app_commands.describe(message_id="The ID of the message to update")
     async def team_list_set_id(self, interaction: discord.Interaction, message_id: str):
@@ -4939,7 +4883,6 @@ class MonopolyCog(commands.Cog):
             self.save_team_list_config(interaction.channel_id, msg.id)
             
             capacities = await self.get_team_capacity_limits(interaction.guild)
-            # ✅ Added 'await' here as well
             embed = await self.build_team_list_embed(interaction.guild, capacities)
             await msg.edit(embed=embed)
             
@@ -4956,7 +4899,7 @@ class MonopolyCog(commands.Cog):
         import os
         import json
         try:
-            if os.path.exists("team_list_config.json"):
+            if os.path.exists("team_list_config.json"):  # Or TEAM_LIST_CONFIG_FILE if you have it as a global var
                 with open("team_list_config.json", "r") as f:
                     return json.load(f)
         except Exception as e:
@@ -4967,17 +4910,16 @@ class MonopolyCog(commands.Cog):
         """Saves the team list message ID so it survives bot resets."""
         import json
         try:
-            with open(TEAM_LIST_CONFIG_FILE, "w") as f:
+            with open("team_list_config.json", "w") as f: # Or TEAM_LIST_CONFIG_FILE
                 json.dump({"channel_id": channel_id, "message_id": message_id}, f)
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    # ✅ Changed to 'async def' so it can fetch the lock status from Google Sheets
     async def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, lock statuses, and keeping captains at the top."""
+        """Constructs the roster embed showing all teams, keeping captains at the top, and showing lock status."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
-        # Fetch the team records from the sheet to check who is locked
+        # 1. Fetch team records to check lock status
         try:
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
         except Exception as e:
@@ -4990,7 +4932,7 @@ class MonopolyCog(commands.Cog):
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
-            # Find the specific team's record and check if it's locked
+            # 2. Find specific team's record and check if locked
             team_record = next((r for r in team_records if str(r.get("Team", "")).strip().lower() == team_name.lower()), {})
             is_locked = str(team_record.get("Locked", "no")).strip().lower() == "yes"
             lock_icon = " 🔒" if is_locked else ""
@@ -5000,7 +4942,7 @@ class MonopolyCog(commands.Cog):
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
                 
-                # Added lock_icon to the header line
+                # Appends the lock icon right next to the capacity limit
                 description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){lock_icon}{cap_status}**\n"
                 
                 if actual_members:
