@@ -5179,6 +5179,50 @@ class MonopolyCog(commands.Cog):
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
 
+    @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
+    @app_commands.describe(
+        player="The player who wants to join the team", 
+        captain="The captain of the destination team"
+    )
+    async def team_request_fix(self, interaction: discord.Interaction, player: discord.Member, captain: discord.Member):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # 1. Figure out the Captain's team
+        captain_team = self.get_team(captain)
+        if not captain_team:
+            await interaction.followup.send(f"❌ **{captain.display_name}** is not assigned to a team. Please assign them a team role first.", ephemeral=True)
+            return
+
+        # 2. Check if the player is already on a team to prevent messy overlaps
+        player_team = self.get_team(player)
+        if player_team:
+            await interaction.followup.send(f"❌ **{player.display_name}** is already on **{player_team}**. Remove their team role first before sending a new request.", ephemeral=True)
+            return
+
+        # 3. Get the request channel
+        request_channel = self.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
+        if not request_channel:
+            await interaction.followup.send("❌ Team request channel not found.", ephemeral=True)
+            return
+
+        # 4. Generate the "Fake" Request Embed
+        embed = discord.Embed(
+            title="📥 New Team Request (Manual Override)",
+            description=f"**{player.mention}** has requested to join **{captain_team}**!",
+            color=discord.Color.blue()
+        )
+        
+        # 5. Wire up the buttons using your existing view
+        view = self.CaptainApprovalView(self, player, captain_team)
+        
+        await request_channel.send(content=captain.mention, embed=embed, view=view)
+        
+        await interaction.followup.send(f"✅ Manual team request for **{player.display_name}** sent to **{captain.display_name}**!", ephemeral=True)
+    
     async def update_live_team_list(self, guild: discord.Guild):
         """Fetches and edits the linked team list message with fresh data."""
         config = self.load_team_list_config()
