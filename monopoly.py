@@ -1485,7 +1485,7 @@ class MonopolyCog(commands.Cog):
         await interaction.followup.send(embed=roll_embed)
         await self.mirror_to_game_log(interaction.channel, embed=roll_embed)
 
-if go_message:
+        if go_message:
             await interaction.channel.send(go_message)
 
         # --- PASSIVE RANDOM EVENT ENGINE ---
