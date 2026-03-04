@@ -4686,7 +4686,7 @@ class MonopolyCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="💌 You've been drafted!",
+            title="🪖 You've been drafted!",
             description=f"**{interaction.user.mention}** wants you to join **{captain_team}**!\n\nDo you accept?",
             color=discord.Color.gold()
         )
@@ -4876,16 +4876,18 @@ class MonopolyCog(commands.Cog):
         if not self.has_event_staff_role(interaction.user):
             await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
             return
-
+    
         await interaction.response.defer(ephemeral=False)
         
         capacities = await self.get_team_capacity_limits(interaction.guild)
-        embed = self.build_team_list_embed(interaction.guild, capacities)
+        
+        # FIX: Added 'await' here
+        embed = await self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
         self.save_team_list_config(interaction.channel_id, msg.id)
         
-        await interaction.followup.send("✅ Live roster posted and linked. It will update automatically when players join.", ephemeral=True)
+        await interaction.followup.send("✅ Live roster posted and linked.", ephemeral=True)
 
     @app_commands.command(name="team_list_set_id", description="Link the bot to an existing team list message.")
     @app_commands.describe(message_id="The ID of the message to update")
