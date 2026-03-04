@@ -4768,21 +4768,33 @@ if go_message:
             print(f"❌ Error saving signup list config: {e}")
 
     async def build_signup_list_embed(self) -> discord.Embed:
-        """Fetches the Google Sheet and constructs the signup list embed."""
-        values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-        rsn_list = []
+        """Constructs the signup list excluding players already on a team."""
+        signup_values = await asyncio.to_thread(self.signup_sheet.get_all_values)
         
-        if len(values) >= 10:
-            for row in values[9:]:
+        # 1. Fetch all team records to see who is already picked
+        team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        
+        # 2. Compile a set of all RSNs already assigned to a team
+        picked_rsns = set()
+        for record in team_records:
+            # Assuming team members are listed in a "Members" column (comma-separated)
+            members_str = str(record.get("Members", ""))
+            names = [n.strip().lower() for n in members_str.split(",") if n.strip()]
+            picked_rsns.update(names)
+
+        rsn_list = []
+        if len(signup_values) >= 10:
+            for row in signup_values[9:]:
                 if len(row) > 2:
                     rsn = str(row[2]).strip()
-                    if rsn:
+                    # 3. Only add if the player is NOT in the picked_rsns set
+                    if rsn and rsn.lower() not in picked_rsns:
                         rsn_list.append(rsn)
                         
         if not rsn_list:
             return discord.Embed(
-                title="📝 Current Signups",
-                description="No one has signed up yet! Use `/signup` to be the first.",
+                title="📝 Available Signups",
+                description="All signed-up players have been picked! Use `/signup` to join the list.",
                 color=discord.Color.blue()
             )
 
@@ -4790,16 +4802,16 @@ if go_message:
         for i, rsn in enumerate(rsn_list, 1):
             line = f"**{i}.** {rsn}\n"
             if len(description) + len(line) > 4000:
-                description += "\n*...and more! (List too long for Discord)*"
+                description += "\n*...and more!*"
                 break
             description += line
             
         embed = discord.Embed(
-            title=f"📝 Current Signups ({len(rsn_list)} Total)",
+            title=f"📝 Available Signups ({len(rsn_list)} Total)",
             description=description,
             color=discord.Color.blue()
         )
-        embed.set_footer(text="List updates automatically as players sign up!")
+        embed.set_footer(text="Updates automatically as players are drafted!")
         return embed
 
     async def update_live_signup_list(self, guild: discord.Guild):
@@ -4823,7 +4835,42 @@ if go_message:
             print("❌ Live signup list message was deleted.")
         except Exception as e:
             print(f"❌ Failed to update live signup list: {e}")
-    
+
+    @app_commands.command(name="lock_team", description="Toggle your team's lock status (prevents/allows new members).")
+    async def lock_team(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        team_name = self.get_team(interaction.user)
+        if not team_name:
+            await interaction.followup.send("❌ You are not on a team.")
+            return
+
+        # Fetch all records to find the team row
+        all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        headers = list(all_records[0].keys()) if all_records else []
+        
+        team_row_idx = -1
+        current_lock_status = "no"
+        
+        for idx, record in enumerate(all_records, start=2):
+            if record.get("Team") == team_name:
+                team_row_idx = idx
+                current_lock_status = str(record.get("Locked", "no")).lower()
+                break
+
+        if team_row_idx == -1:
+            await interaction.followup.send("❌ Team data not found.")
+            return
+
+        # Toggle the status
+        new_status = "yes" if current_lock_status == "no" else "no"
+        lock_col_idx = headers.index("Locked") + 1
+        
+        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
+        
+        status_text = "LOCKED 🔒" if new_status == "yes" else "UNLOCKED 🔓"
+        await interaction.followup.send(f"✅ Your team is now **{status_text}**.")
+
     @app_commands.command(name="team_list", description="Post a live-updating roster of all teams.")
     async def team_list(self, interaction: discord.Interaction):
         if not self.has_event_staff_role(interaction.user):
