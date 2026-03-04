@@ -4999,5 +4999,59 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Failed to update live team list: {e}")
 
+    @app_commands.command(name="undrafted", description="Show a list of signed-up players who haven't been picked for a team yet.")
+    async def undrafted(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            # 1. Get all signups from the Google Sheet (Row 10 and below)
+            # We specifically want the Discord ID column (Column B / Index 1)
+            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            if len(values) < 10:
+                await interaction.followup.send("📝 No one has signed up yet!")
+                return
+
+            # 2. Map IDs to RSNs from the sheet
+            # row[1] is Discord ID, row[2] is RSN
+            signup_data = {}
+            for row in values[9:]:
+                if len(row) >= 3:
+                    d_id = str(row[1]).strip()
+                    rsn = str(row[2]).strip()
+                    if d_id and rsn:
+                        signup_data[d_id] = rsn
+
+            # 3. Identify who is already on a team
+            # We look at every member in the server who has a team role
+            drafted_ids = set()
+            for team_name in TEAM_ROLES:
+                role = discord.utils.get(interaction.guild.roles, name=team_name)
+                if role:
+                    for member in role.members:
+                        drafted_ids.add(str(member.id))
+
+            # 4. Filter the list
+            undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
+
+            if not undrafted_rsns:
+                await interaction.followup.send("✅ **All signed-up players have been drafted!**")
+                return
+
+            # 5. Build the Embed
+            description = "\n".join([f"• {rsn}" for rsn in undrafted_rsns])
+            
+            embed = discord.Embed(
+                title=f"📋 Undrafted Players ({len(undrafted_rsns)})",
+                description=description if len(description) < 4000 else description[:3900] + "\n*...list truncated*",
+                color=discord.Color.orange()
+            )
+            embed.set_footer(text="These players are signed up but don't have a Team role yet.")
+            
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print(f"❌ Error in /undrafted: {e}")
+            await interaction.followup.send("❌ Failed to retrieve the undrafted list.")
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
