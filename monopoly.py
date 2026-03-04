@@ -4014,11 +4014,14 @@ class MonopolyCog(commands.Cog):
                 await interaction.followup.send(f"🎲 **{chosen_team}** landed safely. (Rolled {rng_roll} vs {spawn_chance}% chance). No event spawned.")
                 return
 
-            # 3. Determine Nerf vs Buff
-            nerf_weight = victim_mult
-            buff_weight = (max_mult - victim_mult) + 1.0
+            # 3. Determine Nerf vs Buff (Baseline 50% at 3.0x, +/- 5% per point)
+            nerf_chance = 50.0 + ((victim_mult - 3.0) * 5.0)
             
-            event_type = random.choices(["nerf", "buff"], weights=[nerf_weight, buff_weight], k=1)[0]
+            # Keep it within sane bounds (minimum 5%, maximum 95%) just in case
+            nerf_chance = max(5.0, min(95.0, nerf_chance))
+            buff_chance = 100.0 - nerf_chance
+            
+            event_type = random.choices(["nerf", "buff"], weights=[nerf_chance, buff_chance], k=1)[0]
             
             headers = list(records[0].keys())
             gp_col = headers.index("GP") + 1 if "GP" in headers else -1
