@@ -5004,15 +5004,20 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
 
         try:
+            # --- CACHE REFRESH ---
+            # This downloads the latest member list to ensure roles like "Team 2" are accurate
+            if interaction.guild:
+                await interaction.guild.chunk()
+            # ---------------------
+
             # 1. Get all signups from the Google Sheet (Row 10 and below)
-            # We specifically want the Discord ID column (Column B / Index 1)
+            # row[1] is Discord ID, row[2] is RSN
             values = await asyncio.to_thread(self.signup_sheet.get_all_values)
             if len(values) < 10:
                 await interaction.followup.send("📝 No one has signed up yet!")
                 return
 
             # 2. Map IDs to RSNs from the sheet
-            # row[1] is Discord ID, row[2] is RSN
             signup_data = {}
             for row in values[9:]:
                 if len(row) >= 3:
@@ -5022,15 +5027,16 @@ class MonopolyCog(commands.Cog):
                         signup_data[d_id] = rsn
 
             # 3. Identify who is already on a team
-            # We look at every member in the server who has a team role
             drafted_ids = set()
             for team_name in TEAM_ROLES:
                 role = discord.utils.get(interaction.guild.roles, name=team_name)
                 if role:
+                    # After guild.chunk(), role.members will include recently added players
                     for member in role.members:
                         drafted_ids.add(str(member.id))
 
             # 4. Filter the list
+            # We check the Discord ID from the sheet against IDs that have team roles
             undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
 
             if not undrafted_rsns:
