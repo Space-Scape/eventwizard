@@ -4888,8 +4888,16 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error saving team list config: {e}")
 
     def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, keeping captains at the top."""
-        embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
+        """Constructs the roster embed and adds a Lock icon if manual limits are active."""
+        # Check lock status from config
+        config = self.load_team_list_config()
+        is_locked = "manual_max_size" in config
+        
+        title_text = "🏆 Official Team Roster"
+        if is_locked:
+            title_text += f" 🔒 (Locked)"
+        
+        embed = discord.Embed(title=title_text, color=discord.Color.gold())
         
         description = ""
 
@@ -4901,28 +4909,20 @@ class MonopolyCog(commands.Cog):
             
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
-                
                 description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
                 
                 if actual_members:
-                    captains_list = []
-                    players_list = []
+                    captains_list = [m for m in actual_members if self.has_event_captain_role(m)]
+                    players_list = [m for m in actual_members if m not in captains_list]
                     
-                    for member in actual_members:
-                        if self.has_event_captain_role(member):
-                            captains_list.append(member)
-                        else:
-                            players_list.append(member)
-                            
                     for cap in captains_list:
                         description += f"👑 {cap.mention} • **Captain**\n"
-                        
                     for player in players_list:
                         description += f"👤 {player.mention}\n"
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role not found!*\n"
                 
             description += "\n"
                 
@@ -5058,6 +5058,104 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in /undrafted: {e}")
             await interaction.followup.send("❌ Failed to retrieve the undrafted list.")
+
+    async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
+        try:
+            config = self.load_team_list_config()
+            manual_limit = config.get("manual_max_size")
+
+            if manual_limit:
+                # If a lock exists, use that frozen number
+                max_team_size = int(manual_limit)
+            else:
+                # If no lock exists, run your standard math (Signups / Captains)
+                values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+                total_draftable = sum(1 for row in values[9:] if any(str(cell).strip() for cell in row))
+                active_captains = len(ACTIVE_TEAMS) or 1
+                max_team_size = math.ceil(total_draftable / active_captains) + 2
+
+            # Build the capacity map for Discord roles
+            capacity_data = {}
+            for team_name in ACTIVE_TEAMS:
+                role = discord.utils.get(guild.roles, name=team_name)
+                current_size = len(role.members) if role else 0
+                capacity_data[team_name] = {
+                    "current": current_size,
+                    "max": max_team_size,
+                    "is_full": current_size >= max_team_size
+                }
+            return capacity_data
+        except Exception as e:
+            print(f"❌ Error calculating capacities: {e}")
+            return {team: {"current": 0, "max": 17, "is_full": False} for team in ACTIVE_TEAMS}
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Triggers the refresh sequence once the bot is connected."""
+        print(f"✅ {self.bot.user} is connected. Initializing startup refresh...")
+        # A small delay ensures the internal cache (roles/members) is fully loaded
+        await asyncio.sleep(5)
+        await self.run_startup_refreshes()
+
+    async def run_startup_refreshes(self):
+        """Performs the automated message updates using your provided IDs."""
+        guild = self.bot.guilds[0] if self.bot.guilds else None
+        if not guild:
+            return
+
+        # 1. Update Team List (Message: 1478643352902570125)
+        try:
+            # We use the team channel map to find the correct channel for this message
+            team_list_channel_id = 1436460767145754845 # Team 1 channel used as anchor
+            self.save_team_list_config(team_list_channel_id, 1478643352902570125)
+            await self.update_live_team_list(guild)
+            print("Successfully refreshed Team List.")
+        except Exception as e:
+            print(f"Error refreshing Team List: {e}")
+
+        # 2. Update Undrafted List (Message: 1478667033460604938)
+        try:
+            request_chan = self.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
+            if request_chan:
+                un_msg = await request_chan.fetch_message(1478667033460604938)
+                await self._refresh_undrafted_embed(un_msg)
+                print("Successfully refreshed Undrafted List.")
+        except Exception as e:
+            print(f"Error refreshing Undrafted List: {e}")
+
+        # 3. Refresh Team Request Buttons (Message: 1478667142923812996)
+        try:
+            if request_chan:
+                req_msg = await request_chan.fetch_message(1478667142923812996)
+                view = self.TeamSelectionView(self, guild)
+                await req_msg.edit(view=view)
+                print("Successfully refreshed Team Request buttons.")
+        except Exception as e:
+            print(f"Error refreshing Team Request message: {e}")
+
+    async def _refresh_undrafted_embed(self, message: discord.Message):
+        """Internal helper to build the undrafted embed for startup refresh."""
+        # This matches your hardened ID comparison logic
+        await message.guild.chunk()
+        values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+        signup_data = {str(row[1]).strip(): str(row[2]).strip() for row in values[9:] if len(row) >= 3}
+        
+        drafted_ids = set()
+        for team_name in TEAM_ROLES:
+            role = discord.utils.get(message.guild.roles, name=team_name)
+            if role:
+                for member in role.members:
+                    drafted_ids.add(str(member.id))
+
+        undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
+        desc = "\n".join([f"• {rsn}" for rsn in undrafted_rsns]) if undrafted_rsns else "✅ All signed-up players drafted!"
+        
+        embed = discord.Embed(
+            title=f"📋 Undrafted Players ({len(undrafted_rsns)})", 
+            description=desc, 
+            color=discord.Color.orange()
+        )
+        await message.edit(embed=embed)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
