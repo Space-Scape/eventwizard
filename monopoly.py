@@ -5004,20 +5004,13 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
 
         try:
-            # --- CACHE REFRESH ---
-            # This downloads the latest member list to ensure roles like "Team 2" are accurate
             if interaction.guild:
                 await interaction.guild.chunk()
-            # ---------------------
-
-            # 1. Get all signups from the Google Sheet (Row 10 and below)
-            # row[1] is Discord ID, row[2] is RSN
             values = await asyncio.to_thread(self.signup_sheet.get_all_values)
             if len(values) < 10:
                 await interaction.followup.send("📝 No one has signed up yet!")
                 return
 
-            # 2. Map IDs to RSNs from the sheet
             signup_data = {}
             for row in values[9:]:
                 if len(row) >= 3:
@@ -5026,24 +5019,19 @@ class MonopolyCog(commands.Cog):
                     if d_id and rsn:
                         signup_data[d_id] = rsn
 
-            # 3. Identify who is already on a team
             drafted_ids = set()
             for team_name in TEAM_ROLES:
                 role = discord.utils.get(interaction.guild.roles, name=team_name)
                 if role:
-                    # After guild.chunk(), role.members will include recently added players
                     for member in role.members:
                         drafted_ids.add(str(member.id))
 
-            # 4. Filter the list
-            # We check the Discord ID from the sheet against IDs that have team roles
             undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
 
             if not undrafted_rsns:
                 await interaction.followup.send("✅ **All signed-up players have been drafted!**")
                 return
 
-            # 5. Build the Embed
             description = "\n".join([f"• {rsn}" for rsn in undrafted_rsns])
             
             embed = discord.Embed(
@@ -5065,16 +5053,13 @@ class MonopolyCog(commands.Cog):
             manual_limit = config.get("manual_max_size")
 
             if manual_limit:
-                # If a lock exists, use that frozen number
                 max_team_size = int(manual_limit)
             else:
-                # If no lock exists, run your standard math (Signups / Captains)
                 values = await asyncio.to_thread(self.signup_sheet.get_all_values)
                 total_draftable = sum(1 for row in values[9:] if any(str(cell).strip() for cell in row))
                 active_captains = len(ACTIVE_TEAMS) or 1
                 max_team_size = math.ceil(total_draftable / active_captains) + 2
 
-            # Build the capacity map for Discord roles
             capacity_data = {}
             for team_name in ACTIVE_TEAMS:
                 role = discord.utils.get(guild.roles, name=team_name)
@@ -5089,6 +5074,57 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error calculating capacities: {e}")
             return {team: {"current": 0, "max": 17, "is_full": False} for team in ACTIVE_TEAMS}
 
+    @app_commands.command(name="undrafted_refresh", description="[Staff] Force the undrafted list to update.")
+    async def undrafted_refresh(self, interaction: discord.Interaction):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # 1. Update Discord Cache
+            if interaction.guild:
+                await interaction.guild.chunk()
+
+            # 2. Get the specific undrafted message
+            # Replace 1477919745176109220 with the channel ID where the message lives
+            target_chan = self.bot.get_channel(1477919745176109220) 
+            if not target_chan:
+                await interaction.followup.send("❌ Could not find the channel.")
+                return
+
+            un_msg = await target_chan.fetch_message(1478667033460604938)
+
+            # 3. Pull Google Sheet Data
+            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            signup_data = {str(row[1]).strip(): str(row[2]).strip() for row in values[9:] if len(row) >= 3}
+
+            # 4. Identify Drafted IDs
+            drafted_ids = set()
+            for team_name in TEAM_ROLES:
+                role = discord.utils.get(interaction.guild.roles, name=team_name)
+                if role:
+                    for member in role.members:
+                        drafted_ids.add(str(member.id))
+
+            # 5. Build Final List
+            undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
+            desc = "\n".join([f"• {rsn}" for rsn in undrafted_rsns]) if undrafted_rsns else "✅ All signed-up players drafted!"
+
+            embed = discord.Embed(
+                title=f"📋 Undrafted Players ({len(undrafted_rsns)})",
+                description=desc,
+                color=discord.Color.orange()
+            )
+            
+            await un_msg.edit(embed=embed)
+            await interaction.followup.send("✅ Undrafted list refreshed successfully.")
+
+        except Exception as e:
+            print(f"❌ Error in undrafted_refresh: {e}")
+            await interaction.followup.send(f"❌ Error refreshing message: {e}")
+    
     @app_commands.command(name="team_lock", description="Toggle between locking capacity at current size or automatic scaling.")
     async def team_lock(self, interaction: discord.Interaction):
         if not self.has_event_captain_role(interaction.user):
@@ -5097,31 +5133,25 @@ class MonopolyCog(commands.Cog):
 
         config = self.load_team_list_config()
         
-        # Check if a lock already exists in the config
         if "manual_max_size" in config:
-            # UNLOCK LOGIC: Remove the entry from config
             del config["manual_max_size"]
             status_msg = "🔓 **Teams Unlocked!** Capacity will now scale automatically based on the signup sheet."
         else:
-            # LOCK LOGIC: Calculate current max and freeze it
             capacities = await self.get_team_capacity_limits(interaction.guild)
             current_max = 0
             for team in capacities.values():
                 if team["current"] > current_max:
                     current_max = team["current"]
             
-            # Default to 10 if teams are empty, otherwise use the current highest count
             lock_size = max(current_max, 10)
             config["manual_max_size"] = lock_size
             status_msg = f"🔒 **Teams Locked!** Maximum capacity is now frozen at **{lock_size}** players."
 
-        # Save changes to the JSON file
         try:
             with open(TEAM_LIST_CONFIG_FILE, "w") as f:
                 json.dump(config, f)
             
             await interaction.response.send_message(status_msg, ephemeral=False)
-            # Refresh the visual roster board
             await self.update_live_team_list(interaction.guild)
         except Exception as e:
             await interaction.response.send_message(f"❌ Error updating lock status: {e}", ephemeral=True)
