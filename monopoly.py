@@ -2695,11 +2695,11 @@ class MonopolyCog(commands.Cog):
                 else:
                     await interaction.followup.send("❌ You can only use one card per turn. Roll again to use another card.", ephemeral=True)
                     return
-        else:
-            # This is their FIRST card use. 
-            if has_double_card:
-                double_card_note = "\n\n🃏 **Double Cards Active!** You still have **1** more card use available this turn!"
-                # We DO NOT clear the flag yet; they still have one use left.
+            else:
+                # This is their FIRST card use. 
+                if has_double_card:
+                    double_card_note = "\n\n🃏 **Double Cards Active!** You still have **1** more card use available this turn!"
+                    # We DO NOT clear the flag yet; they still have one use left.
                 
         except Exception as e:
             print(f"❌ Error checking team status flags: {e}")
