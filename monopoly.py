@@ -4768,26 +4768,53 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error saving signup list config: {e}")
 
     async def build_signup_list_embed(self) -> discord.Embed:
-        """Fetches the Google Sheet and constructs the signup list embed."""
+        """Fetches the Google Sheet and constructs the signup list embed, filtering out picked players."""
         values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-        rsn_list = []
         
+        # 1. Fetch team records to find out who is already picked
+        try:
+            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            picked_rsns = set()
+            for record in team_records:
+                # Assuming "Members" is the column where you store drafted players (comma-separated)
+                members_str = str(record.get("Members", ""))
+                names = [n.strip().lower() for n in members_str.split(",") if n.strip()]
+                picked_rsns.update(names)
+        except Exception as e:
+            print(f"❌ Error fetching team records for signup list: {e}")
+            picked_rsns = set()
+
+        available_rsns = []
+        picked_count = 0
+        
+        # 2. Iterate through signups and separate them
         if len(values) >= 10:
             for row in values[9:]:
                 if len(row) > 2:
                     rsn = str(row[2]).strip()
                     if rsn:
-                        rsn_list.append(rsn)
+                        if rsn.lower() in picked_rsns:
+                            picked_count += 1
+                        else:
+                            available_rsns.append(rsn)
                         
-        if not rsn_list:
+        # 3. Handle empty states
+        if not available_rsns and picked_count == 0:
             return discord.Embed(
                 title="📝 Current Signups",
                 description="No one has signed up yet! Use `/signup` to be the first.",
                 color=discord.Color.blue()
             )
+        elif not available_rsns and picked_count > 0:
+            return discord.Embed(
+                title="📝 Available Signups",
+                description=f"All **{picked_count}** signed-up players have been drafted!\nCheck the `/team_list` to see the full rosters.",
+                color=discord.Color.green()
+            )
 
-        description = ""
-        for i, rsn in enumerate(rsn_list, 1):
+        # 4. Build the list of available players
+        description = f"*Note: **{picked_count}** players have already been drafted and moved to the roster.*\n\n**🟢 Available Players:**\n"
+        for i, rsn in enumerate(available_rsns, 1):
             line = f"**{i}.** {rsn}\n"
             if len(description) + len(line) > 4000:
                 description += "\n*...and more! (List too long for Discord)*"
@@ -4795,11 +4822,11 @@ class MonopolyCog(commands.Cog):
             description += line
             
         embed = discord.Embed(
-            title=f"📝 Current Signups ({len(rsn_list)} Total)",
+            title=f"📝 Available Signups ({len(available_rsns)} Unpicked)",
             description=description,
             color=discord.Color.blue()
         )
-        embed.set_footer(text="List updates automatically as players sign up!")
+        embed.set_footer(text="List updates automatically as players sign up or get drafted!")
         return embed
 
     async def update_live_signup_list(self, guild: discord.Guild):
@@ -4833,7 +4860,8 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         
         capacities = await self.get_team_capacity_limits(interaction.guild)
-        embed = self.build_team_list_embed(interaction.guild, capacities)
+        # ✅ Added 'await' here to properly call the async function
+        embed = await self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
         self.save_team_list_config(interaction.channel_id, msg.id)
@@ -4856,7 +4884,8 @@ class MonopolyCog(commands.Cog):
             self.save_team_list_config(interaction.channel_id, msg.id)
             
             capacities = await self.get_team_capacity_limits(interaction.guild)
-            embed = self.build_team_list_embed(interaction.guild, capacities)
+            # ✅ Added 'await' here as well
+            embed = await self.build_team_list_embed(interaction.guild, capacities)
             await msg.edit(embed=embed)
             
             await interaction.followup.send("✅ Successfully linked and updated the team list message!", ephemeral=True)
@@ -4881,28 +4910,43 @@ class MonopolyCog(commands.Cog):
 
     def save_team_list_config(self, channel_id: int, message_id: int):
         """Saves the team list message ID so it survives bot resets."""
+        import json
         try:
             with open(TEAM_LIST_CONFIG_FILE, "w") as f:
                 json.dump({"channel_id": channel_id, "message_id": message_id}, f)
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, keeping captains at the top."""
+    # ✅ Changed to 'async def' so it can fetch the lock status from Google Sheets
+    async def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
+        """Constructs the roster embed showing all teams, lock statuses, and keeping captains at the top."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
+        # Fetch the team records from the sheet to check who is locked
+        try:
+            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        except Exception as e:
+            print(f"❌ Error fetching team records for roster: {e}")
+            team_records = []
+            
         description = ""
 
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
+            # Find the specific team's record and check if it's locked
+            team_record = next((r for r in team_records if str(r.get("Team", "")).strip().lower() == team_name.lower()), {})
+            is_locked = str(team_record.get("Locked", "no")).strip().lower() == "yes"
+            lock_icon = " 🔒" if is_locked else ""
+            
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
                 
-                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
+                # Added lock_icon to the header line
+                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){lock_icon}{cap_status}**\n"
                 
                 if actual_members:
                     captains_list = []
@@ -4922,14 +4966,14 @@ class MonopolyCog(commands.Cog):
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']}){lock_icon}**\n*Role '{team_name}' not found!*\n"
                 
             description += "\n"
                 
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
-
+    
     @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
     @app_commands.describe(
         player="The player who wants to join the team", 
