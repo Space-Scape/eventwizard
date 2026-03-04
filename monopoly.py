@@ -3582,7 +3582,7 @@ class MonopolyCog(commands.Cog):
             if is_status_activation:
                 embed = discord.Embed(
                     title=f"{card_emoji} {team_name} activated {card_name}!",
-                    f"{embed_description}{double_card_note}",
+                    description=f"{embed_description}{double_card_note}",
                     color=discord.Color.green()
                 )
                 await interaction.followup.send(embed=embed, ephemeral=False)
