@@ -1502,7 +1502,7 @@ class MonopolyCog(commands.Cog):
         except ValueError:
             team_mult = 1.0
 
-        spawn_chance = int(team_mult * 5)
+        spawn_chance = int(team_mult * 15)
         if random.randint(1, 100) <= spawn_chance:
             asyncio.create_task(self.trigger_passive_random_event(interaction.channel, team_name))
 
