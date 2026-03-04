@@ -7,7 +7,6 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
 import asyncio
-import re
 import math
 import random
 import traceback
@@ -4601,61 +4600,6 @@ class MonopolyCog(commands.Cog):
                     await interaction.response.send_message("❌ Team request channel not found.", ephemeral=True)
             return callback
 
-    @app_commands.command(name="lock_team", description="Toggle your team's lock status to prevent or allow new drafts.")
-    async def lock_team(self, interaction: discord.Interaction):
-        # 1. Verify the user is actually a captain
-        if not self.has_event_captain_role(interaction.user):
-            await interaction.response.send_message("❌ Only Team Captains can use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # 2. Determine which team the captain is leading
-        team_name = self.get_team(interaction.user)
-        if not team_name:
-            await interaction.followup.send("❌ You do not appear to be assigned to a team.", ephemeral=True)
-            return
-
-        # 3. Fetch the sheet data to locate the team's row and check current status
-        try:
-            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            headers = list(records[0].keys()) if records else []
-            
-            if "Locked" not in headers:
-                await interaction.followup.send("❌ The 'Locked' column is missing from the Team Data sheet.", ephemeral=True)
-                return
-                
-            lock_col_idx = headers.index("Locked") + 1
-            team_row_idx = -1
-            current_status = "no"
-
-            # Enumerate starts at 2 because row 1 contains the headers in Google Sheets
-            for idx, record in enumerate(records, start=2):
-                if str(record.get("Team", "")).strip().lower() == team_name.strip().lower():
-                    team_row_idx = idx
-                    current_status = str(record.get("Locked", "no")).strip().lower()
-                    break
-
-            if team_row_idx == -1:
-                await interaction.followup.send(f"❌ Could not find **{team_name}** in the Team Data sheet.", ephemeral=True)
-                return
-
-            # 4. Toggle the lock status
-            new_status = "yes" if current_status == "no" else "no"
-            
-            # 5. Push the update back to the Google Sheet
-            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, lock_col_idx, new_status)
-            
-            # 6. Confirm the action to the captain
-            if new_status == "yes":
-                await interaction.followup.send(f"🔒 **{team_name}** is now **LOCKED**. The `/team_list` will display the lock icon on its next update.", ephemeral=True)
-            else:
-                await interaction.followup.send(f"🔓 **{team_name}** is now **UNLOCKED**. You can draft new players again.", ephemeral=True)
-            
-        except Exception as e:
-            print(f"❌ Error toggling lock status: {e}")
-            await interaction.followup.send("❌ An error occurred while communicating with the database.", ephemeral=True)
-    
     @app_commands.command(name="team_request", description="Post a public team request board.")
     async def team_request(self, interaction: discord.Interaction):
         # Make the panel public so everyone can see and click the buttons
@@ -4764,8 +4708,8 @@ class MonopolyCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=False)
         
-        embed = await self.build_signup_list_embed(interaction.guild)
-        await msg.edit(embed=embed)
+        embed = await self.build_signup_list_embed()
+        msg = await interaction.followup.send(embed=embed)
         
         self.save_signup_list_config(interaction.channel_id, msg.id)
         
@@ -4823,71 +4767,27 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error saving signup list config: {e}")
 
-    # ✅ Make sure you add interaction.guild here
-    async def build_signup_list_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Fetches the Google Sheet and filters against players who have a Team Role in Discord."""
-        import re
+    async def build_signup_list_embed(self) -> discord.Embed:
+        """Fetches the Google Sheet and constructs the signup list embed."""
         values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+        rsn_list = []
         
-        # 1. Grab all players who currently have an active Team role in the Discord server
-        drafted_names = []
-        for team_name in ACTIVE_TEAMS:
-            role = discord.utils.get(guild.roles, name=team_name)
-            if role:
-                for m in guild.members:
-                    if role in m.roles:
-                        drafted_names.append(m.display_name.lower())
-                        
-        available_rsns = []
-        picked_count = 0
-        
-        # 2. Iterate through signups and match them to Discord display names
         if len(values) >= 10:
             for row in values[9:]:
                 if len(row) > 2:
-                    rsn_entry = str(row[2]).strip()
-                    if not rsn_entry:
-                        continue
+                    rsn = str(row[2]).strip()
+                    if rsn:
+                        rsn_list.append(rsn)
                         
-                    # Split by |, /, or , to handle multi-account signups like "ironjosh171 | josh171"
-                    sub_names = [n.strip().lower() for n in re.split(r'\||/|,', rsn_entry) if len(n.strip()) > 1]
-                    
-                    is_picked = False
-                    for d_name in drafted_names:
-                        # Strip out prefix symbols your clan uses like *, ^, #, !
-                        clean_d_name = re.sub(r'^[*^#!]+', '', d_name).strip()
-                        
-                        for sub in sub_names:
-                            # Fuzzy match: If their signup RSN is anywhere in their Discord nickname
-                            if sub in clean_d_name or clean_d_name in sub:
-                                is_picked = True
-                                break
-                        
-                        if is_picked:
-                            break
-                            
-                    if is_picked:
-                        picked_count += 1
-                    else:
-                        available_rsns.append(rsn_entry)
-
-        # 3. Handle empty states
-        if not available_rsns and picked_count == 0:
+        if not rsn_list:
             return discord.Embed(
                 title="📝 Current Signups",
                 description="No one has signed up yet! Use `/signup` to be the first.",
                 color=discord.Color.blue()
             )
-        elif not available_rsns and picked_count > 0:
-            return discord.Embed(
-                title="📝 Available Signups",
-                description=f"All **{picked_count}** signed-up players have been drafted!\nCheck the `/team_list` to see the full rosters.",
-                color=discord.Color.green()
-            )
 
-        # 4. Build the list of available players
-        description = f"*Note: **{picked_count}** players have already been drafted and moved to the roster.*\n\n**🟢 Available Players:**\n"
-        for i, rsn in enumerate(available_rsns, 1):
+        description = ""
+        for i, rsn in enumerate(rsn_list, 1):
             line = f"**{i}.** {rsn}\n"
             if len(description) + len(line) > 4000:
                 description += "\n*...and more! (List too long for Discord)*"
@@ -4895,11 +4795,11 @@ class MonopolyCog(commands.Cog):
             description += line
             
         embed = discord.Embed(
-            title=f"📝 Available Signups ({len(available_rsns)} Unpicked)",
+            title=f"📝 Current Signups ({len(rsn_list)} Total)",
             description=description,
             color=discord.Color.blue()
         )
-        embed.set_footer(text="List updates automatically as players sign up or get drafted!")
+        embed.set_footer(text="List updates automatically as players sign up!")
         return embed
 
     async def update_live_signup_list(self, guild: discord.Guild):
@@ -4933,7 +4833,7 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         
         capacities = await self.get_team_capacity_limits(interaction.guild)
-        embed = await self.build_team_list_embed(interaction.guild, capacities)
+        embed = self.build_team_list_embed(interaction.guild, capacities)
         
         msg = await interaction.followup.send(embed=embed)
         self.save_team_list_config(interaction.channel_id, msg.id)
@@ -4956,7 +4856,7 @@ class MonopolyCog(commands.Cog):
             self.save_team_list_config(interaction.channel_id, msg.id)
             
             capacities = await self.get_team_capacity_limits(interaction.guild)
-            embed = await self.build_team_list_embed(interaction.guild, capacities)
+            embed = self.build_team_list_embed(interaction.guild, capacities)
             await msg.edit(embed=embed)
             
             await interaction.followup.send("✅ Successfully linked and updated the team list message!", ephemeral=True)
@@ -4972,7 +4872,7 @@ class MonopolyCog(commands.Cog):
         import os
         import json
         try:
-            if os.path.exists("team_list_config.json"):  # Or TEAM_LIST_CONFIG_FILE if you have it as a global var
+            if os.path.exists("team_list_config.json"):
                 with open("team_list_config.json", "r") as f:
                     return json.load(f)
         except Exception as e:
@@ -4981,42 +4881,28 @@ class MonopolyCog(commands.Cog):
 
     def save_team_list_config(self, channel_id: int, message_id: int):
         """Saves the team list message ID so it survives bot resets."""
-        import json
         try:
-            with open("team_list_config.json", "w") as f: # Or TEAM_LIST_CONFIG_FILE
+            with open(TEAM_LIST_CONFIG_FILE, "w") as f:
                 json.dump({"channel_id": channel_id, "message_id": message_id}, f)
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    async def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, keeping captains at the top, and showing lock status."""
+    def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
+        """Constructs the roster embed showing all teams, keeping captains at the top."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
-        # 1. Fetch team records to check lock status
-        try:
-            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-        except Exception as e:
-            print(f"❌ Error fetching team records for roster: {e}")
-            team_records = []
-            
         description = ""
 
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
-            # 2. Find specific team's record and check if locked
-            team_record = next((r for r in team_records if str(r.get("Team", "")).strip().lower() == team_name.lower()), {})
-            is_locked = str(team_record.get("Locked", "no")).strip().lower() == "yes"
-            lock_icon = " 🔒" if is_locked else ""
-            
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
                 
-                # Appends the lock icon right next to the capacity limit
-                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){lock_icon}{cap_status}**\n"
+                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
                 
                 if actual_members:
                     captains_list = []
@@ -5036,14 +4922,14 @@ class MonopolyCog(commands.Cog):
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']}){lock_icon}**\n*Role '{team_name}' not found!*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
                 
             description += "\n"
                 
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
-    
+
     @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
     @app_commands.describe(
         player="The player who wants to join the team", 
