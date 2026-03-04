@@ -5089,10 +5089,10 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error calculating capacities: {e}")
             return {team: {"current": 0, "max": 17, "is_full": False} for team in ACTIVE_TEAMS}
 
-    @app_commands.command(name="team_lock", description="[Staff] Toggle between locking capacity at current size or automatic scaling.")
+    @app_commands.command(name="team_lock", description="Toggle between locking capacity at current size or automatic scaling.")
     async def team_lock(self, interaction: discord.Interaction):
-        if not self.has_event_staff_role(interaction.user):
-            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+        if not self.has_event_captain_role(interaction.user):
+            await interaction.response.send_message("❌", ephemeral=True)
             return
 
         config = self.load_team_list_config()
@@ -5125,89 +5125,6 @@ class MonopolyCog(commands.Cog):
             await self.update_live_team_list(interaction.guild)
         except Exception as e:
             await interaction.response.send_message(f"❌ Error updating lock status: {e}", ephemeral=True)
-
-    async def cog_load(self):
-        """Runs automatically when the Cog is loaded into the bot."""
-        # Creates a background task so it doesn't hang the bot's startup process
-        self.bot.loop.create_task(self.initial_startup_refresh())
-
-    async def initial_startup_refresh(self):
-        """Wait for connection then run refreshes using specific message IDs."""
-        await self.bot.wait_until_ready()
-        print(f"🤖 Cog Loaded: Starting automated board refreshes for {self.bot.user}...")
-        
-        # A 5-second delay ensures the Discord cache is fully ready
-        await asyncio.sleep(5)
-        
-        guild = self.bot.guilds[0] if self.bot.guilds else None
-        if not guild:
-            print("❌ Startup Refresh: No guild found.")
-            return
-
-        # 1. Refresh Team List (Message ID: 1478643352902570125)
-        try:
-            # Anchor to Team 1 channel to save the config
-            self.save_team_list_config(1436460767145754845, 1478643352902570125)
-            await self.update_live_team_list(guild)
-            print("✅ Startup: Team List refreshed.")
-        except Exception as e:
-            print(f"❌ Startup: Team List refresh failed: {e}")
-
-        # 2. Refresh Undrafted List (Message ID: 1478667033460604938)
-        try:
-            # We assume the undrafted list is in the Request Channel
-            request_chan = self.bot.get_channel(TEAM_REQUEST_CHANNEL_ID)
-            if request_chan:
-                un_msg = await request_chan.fetch_message(1478667033460604938)
-                await self._refresh_undrafted_embed(un_msg)
-                print("✅ Startup: Undrafted List refreshed.")
-        except Exception as e:
-            print(f"❌ Startup: Undrafted List refresh failed: {e}")
-
-        # 3. Refresh Team Request Buttons (Message ID: 1478667142923812996)
-        try:
-            if request_chan:
-                req_msg = await request_chan.fetch_message(1478667142923812996)
-                view = self.TeamSelectionView(self, guild)
-                await req_msg.edit(view=view)
-                print("✅ Startup: Team Request buttons refreshed.")
-        except Exception as e:
-            print(f"❌ Startup: Team Request refresh failed: {e}")
-
-    async def _refresh_undrafted_embed(self, message: discord.Message):
-        """Builds the undrafted embed for startup refresh using hardened ID comparison."""
-        if message.guild:
-            await message.guild.chunk()
-            
-        values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-        signup_data = {str(row[1]).strip(): str(row[2]).strip() for row in values[9:] if len(row) >= 3}
-        
-        drafted_ids = set()
-        for team_name in TEAM_ROLES:
-            role = discord.utils.get(message.guild.roles, name=team_name)
-            if role:
-                for member in role.members:
-                    drafted_ids.add(str(member.id))
-
-        undrafted_rsns = [rsn for d_id, rsn in signup_data.items() if d_id not in drafted_ids]
-        desc = "\n".join([f"• {rsn}" for rsn in undrafted_rsns]) if undrafted_rsns else "✅ All signed-up players drafted!"
-        
-        embed = discord.Embed(
-            title=f"📋 Undrafted Players ({len(undrafted_rsns)})", 
-            description=desc, 
-            color=discord.Color.orange()
-        )
-        await message.edit(embed=embed)
-    
-    @app_commands.command(name="force_refresh", description="[Staff] Manually force a refresh of all event boards.")
-    async def force_refresh(self, interaction: discord.Interaction):
-        if not self.has_event_staff_role(interaction.user):
-            await interaction.response.send_message("❌ No permission.", ephemeral=True)
-            return
-            
-        await interaction.response.defer(ephemeral=True)
-        await self.run_startup_refreshes()
-        await interaction.followup.send("✅ All boards (Team List, Undrafted, Requests) have been manually refreshed.")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MonopolyCog(bot))
