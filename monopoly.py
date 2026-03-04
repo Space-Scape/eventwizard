@@ -4934,22 +4934,35 @@ if go_message:
         except Exception as e:
             print(f"❌ Error saving team list config: {e}")
 
-    def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed showing all teams, keeping captains at the top."""
+    async def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
+        """Constructs the roster embed showing all teams, keeping captains at the top and showing lock status."""
         embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         
+        # 1. Fetch all team records once to check for lock status
+        try:
+            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        except Exception as e:
+            print(f"❌ Error fetching team records for roster: {e}")
+            team_records = []
+
         description = ""
 
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
             cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
             
+            # 2. Check if this specific team is locked in the Google Sheet
+            team_record = next((r for r in team_records if str(r.get("Team", "")).strip().lower() == team_name.lower()), {})
+            is_locked = str(team_record.get("Locked", "no")).strip().lower() == "yes"
+            lock_icon = " 🔒" if is_locked else ""
+            
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
             if role:
                 actual_members = [m for m in guild.members if role in m.roles]
                 
-                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){cap_status}**\n"
+                # 3. Update the Size line to include the lock icon
+                description += f"**{team_name} (Size: {len(actual_members)}/{cap_data['max']}){lock_icon}{cap_status}**\n"
                 
                 if actual_members:
                     captains_list = []
@@ -4969,7 +4982,7 @@ if go_message:
                 else:
                     description += "*No members drafted yet.*\n"
             else:
-                description += f"**{team_name} (Size: 0/{cap_data['max']})**\n*Role '{team_name}' not found!*\n"
+                description += f"**{team_name} (Size: 0/{cap_data['max']}){lock_icon}**\n*Role '{team_name}' not found!*\n"
                 
             description += "\n"
                 
