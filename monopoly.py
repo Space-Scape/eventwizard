@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import json
 import asyncio
+import re
 import math
 import random
 import traceback
@@ -4822,37 +4823,54 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error saving signup list config: {e}")
 
-    async def build_signup_list_embed(self) -> discord.Embed:
-        """Fetches the Google Sheet and constructs the signup list embed, filtering out picked players."""
+    # ✅ Make sure you add interaction.guild here
+    async def build_signup_list_embed(self, guild: discord.Guild) -> discord.Embed:
+        """Fetches the Google Sheet and filters against players who have a Team Role in Discord."""
+        import re
         values = await asyncio.to_thread(self.signup_sheet.get_all_values)
         
-        # 1. Fetch team records to find out who is already picked
-        try:
-            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-            picked_rsns = set()
-            for record in team_records:
-                # Assuming "Members" is the column where you store drafted players (comma-separated)
-                members_str = str(record.get("Members", ""))
-                names = [n.strip().lower() for n in members_str.split(",") if n.strip()]
-                picked_rsns.update(names)
-        except Exception as e:
-            print(f"❌ Error fetching team records for signup list: {e}")
-            picked_rsns = set()
-
+        # 1. Grab all players who currently have an active Team role in the Discord server
+        drafted_names = []
+        for team_name in ACTIVE_TEAMS:
+            role = discord.utils.get(guild.roles, name=team_name)
+            if role:
+                for m in guild.members:
+                    if role in m.roles:
+                        drafted_names.append(m.display_name.lower())
+                        
         available_rsns = []
         picked_count = 0
         
-        # 2. Iterate through signups and separate them
+        # 2. Iterate through signups and match them to Discord display names
         if len(values) >= 10:
             for row in values[9:]:
                 if len(row) > 2:
-                    rsn = str(row[2]).strip()
-                    if rsn:
-                        if rsn.lower() in picked_rsns:
-                            picked_count += 1
-                        else:
-                            available_rsns.append(rsn)
+                    rsn_entry = str(row[2]).strip()
+                    if not rsn_entry:
+                        continue
                         
+                    # Split by |, /, or , to handle multi-account signups like "ironjosh171 | josh171"
+                    sub_names = [n.strip().lower() for n in re.split(r'\||/|,', rsn_entry) if len(n.strip()) > 1]
+                    
+                    is_picked = False
+                    for d_name in drafted_names:
+                        # Strip out prefix symbols your clan uses like *, ^, #, !
+                        clean_d_name = re.sub(r'^[*^#!]+', '', d_name).strip()
+                        
+                        for sub in sub_names:
+                            # Fuzzy match: If their signup RSN is anywhere in their Discord nickname
+                            if sub in clean_d_name or clean_d_name in sub:
+                                is_picked = True
+                                break
+                        
+                        if is_picked:
+                            break
+                            
+                    if is_picked:
+                        picked_count += 1
+                    else:
+                        available_rsns.append(rsn_entry)
+
         # 3. Handle empty states
         if not available_rsns and picked_count == 0:
             return discord.Embed(
