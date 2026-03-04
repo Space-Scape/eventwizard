@@ -1504,25 +1504,29 @@ class MonopolyCog(commands.Cog):
         
         tile_name = self.get_tile_name_for_display(new_pos)
         
-        # Check if they were sent to jail THIS turn
         just_sent_to_jail = (new_pos == 10 and "GO TO JAIL" in go_message)
         
         if new_pos == 10 and not just_sent_to_jail:
             tile_name = "Jail (Just Visiting) - Nex, Gauntlet"
         elif new_pos == 10 and just_sent_to_jail:
             tile_name = "Jail"
-        
-        # --- ADDED: Dynamic Roll Description ---
-        roll_desc = f"**{interaction.user.display_name}** rolled a **{raw_result}**!"
+        roll_status_details = []
         if is_poisoned:
-            roll_desc += f"\n🥀 *Your poison capped your roll at **{result}**!*"
-        elif is_halved:
-            roll_desc += f"\n🏋️ *The Demon's exhaustion cut your roll to **{result}**!*"
-        elif roll_penalty > 0:
-            roll_desc += f"\n🪦 *The Gravedigger's fatigue reduced your roll to **{result}**!*"
+            roll_status_details.append(f"🥀 *Your poison capped your roll at **{result}**!*")
             
-        roll_desc += f"\nMoving to the **{tile_name}** tile."
-        
+        roll_status_details.append(f"**{interaction.user.display_name}** rolled a **{raw_result}**!")
+        if is_halved:
+            roll_status_details.append(f"🏋️ *The Demon's exhaustion cut your roll to **{result}**!*")
+        elif roll_penalty > 0:
+            roll_status_details.append(f"🪦 *The Gravedigger's fatigue reduced your roll to **{result}**!*")
+        try:
+            roll_bonus = int(team_record.get("Roll Bonus", 0))
+        except:
+            roll_bonus = 0
+        if roll_bonus > 0:
+            roll_status_details.append(f"🥪 *The Sandwich Lady's snack boosted your roll to **{result}**!*")
+        roll_status_details.append(f"\nMoving to the **{tile_name}** tile.")
+        roll_desc = "\n".join(roll_status_details)
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=roll_desc,
@@ -1537,11 +1541,9 @@ class MonopolyCog(commands.Cog):
         # 7. POST-MOVE TRIGGERS
         tile_boss_map = self._get_tile_boss_map()
         if new_pos in tile_boss_map:
-            # Only block the drop embed if they were actively arrested and sent to jail
             if not just_sent_to_jail:
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
-        # Final checks (Cards & Free Rolls)
         await self.check_and_award_card_on_land(team_name, new_pos, "rolling")
 
         # --- PASSIVE RANDOM EVENT ENGINE ---
@@ -2954,7 +2956,7 @@ class MonopolyCog(commands.Cog):
                     return 
                 
                 embed = discord.Embed(title="🎯 Target Selection: Tele Block", description="Select a team to Teleblock!", color=discord.Color.dark_purple())
-                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value}
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "double_card_note": double_card_note}
                 view = self.CardTargetView(self, team_name, valid_targets, "Tele Block", "tele_block", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
                 return
@@ -3007,7 +3009,7 @@ class MonopolyCog(commands.Cog):
                     team_card_counts[c["victim_team"]] = team_card_counts.get(c["victim_team"], 0) + 1
 
                 embed = discord.Embed(title="🎯 Target Selection: Rogue's Gloves", description="Select a team to steal from!", color=discord.Color.dark_gray())
-                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "stealable_cards": stealable_cards}
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "stealable_cards": stealable_cards, "double_card_note": double_card_note}
                 view = self.CardTargetView(self, team_name, list(team_card_counts.keys()), "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
                 return
@@ -3042,7 +3044,7 @@ class MonopolyCog(commands.Cog):
                 embed = discord.Embed(title="🎯 Target Selection: Pickpocket", description="Select a team to pickpocket! Here is the current GP of all eligible targets:\n", color=discord.Color.dark_gold())
                 for t in valid_targets: embed.description += f"\n• **{t}**: {target_gp_data[t]:,} GP"
 
-                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "all_teams_data": all_teams_data, "caster_record": caster_record, "target_gp_data": target_gp_data}
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "all_teams_data": all_teams_data, "caster_record": caster_record, "target_gp_data": target_gp_data, "double_card_note": double_card_note}
                 view = self.CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
                 return
@@ -3056,7 +3058,7 @@ class MonopolyCog(commands.Cog):
                     return 
 
                 embed = discord.Embed(title="🎯 Target Selection: Smite", description="Select a team to Smite!", color=discord.Color.red())
-                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value}
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "double_card_note": double_card_note}
                 view = self.CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
                 return
@@ -3580,7 +3582,7 @@ class MonopolyCog(commands.Cog):
             if is_status_activation:
                 embed = discord.Embed(
                     title=f"{card_emoji} {team_name} activated {card_name}!",
-                    description=embed_description,
+                    f"{embed_description}{double_card_note}",
                     color=discord.Color.green()
                 )
                 await interaction.followup.send(embed=embed, ephemeral=False)
@@ -3717,7 +3719,7 @@ class MonopolyCog(commands.Cog):
                     except Exception as e:
                         print(f"❌ Error transferring wildcard data for Rogue's Gloves on Vengeance rebound: {e}")
 
-                    embed_description += f"🧤 The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
+                    embed_description += f"<:rogue_gloves:1437980096790134914> The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
 
                 skull_embed = discord.Embed(
                     title="<:venge:1438084953559797884> Vengeance Activated!",
