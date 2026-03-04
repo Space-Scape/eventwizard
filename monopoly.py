@@ -1414,10 +1414,19 @@ class MonopolyCog(commands.Cog):
         is_poisoned = str(team_record.get("Poisoned Roll", "no")).strip().lower() == "yes"
         is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
         is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
+
+        # Hardened integer extraction that automatically translates "yes" to 3
         try:
-            roll_penalty = int(team_record.get("Roll Penalty", 0))
-        except ValueError:
+            rp_raw = str(team_record.get("Roll Penalty", "0")).strip().lower()
+            roll_penalty = 3 if rp_raw == "yes" else (int(rp_raw) if rp_raw.isdigit() else 0)
+        except Exception:
             roll_penalty = 0
+
+        try:
+            rb_raw = str(team_record.get("Roll Bonus", "0")).strip().lower()
+            roll_bonus = 3 if rb_raw == "yes" else (int(rb_raw) if rb_raw.isdigit() else 0)
+        except Exception:
+            roll_bonus = 0
 
         result = raw_result
         if is_poisoned:
@@ -1429,6 +1438,9 @@ class MonopolyCog(commands.Cog):
         if roll_penalty > 0:
             result = max(1, result - roll_penalty)
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Penalty"))
+        if roll_bonus > 0:
+            result += roll_bonus
+            asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "Roll Bonus"))
         if is_gp_halved:
             asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
@@ -1454,9 +1466,9 @@ class MonopolyCog(commands.Cog):
 
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + go_reward)
-           
+            
                 go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
-           
+            
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
 
@@ -1510,23 +1522,25 @@ class MonopolyCog(commands.Cog):
             tile_name = "Jail (Just Visiting) - Nex, Gauntlet"
         elif new_pos == 10 and just_sent_to_jail:
             tile_name = "Jail"
+            
         roll_status_details = []
         if is_poisoned:
-            roll_status_details.append(f"🥀 *Your poison capped your roll at **{result}**!*")
+            roll_status_details.append(f"🥀 *The Strange Plant's poison caps your roll at **3**!*")
             
         roll_status_details.append(f"**{interaction.user.display_name}** rolled a **{raw_result}**!")
+        
         if is_halved:
             roll_status_details.append(f"🏋️ *The Demon's exhaustion cut your roll to **{result}**!*")
-        elif roll_penalty > 0:
+        
+        if roll_penalty > 0:
             roll_status_details.append(f"🪦 *The Gravedigger's fatigue reduced your roll to **{result}**!*")
-        try:
-            roll_bonus = int(team_record.get("Roll Bonus", 0))
-        except:
-            roll_bonus = 0
+            
         if roll_bonus > 0:
             roll_status_details.append(f"🥪 *The Sandwich Lady's snack boosted your roll to **{result}**!*")
+            
         roll_status_details.append(f"\nMoving to the **{tile_name}** tile.")
         roll_desc = "\n".join(roll_status_details)
+        
         roll_embed = discord.Embed(
             title=f"🎲 {team_name} Rolled!",
             description=roll_desc,
