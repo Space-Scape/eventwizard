@@ -4764,8 +4764,8 @@ class MonopolyCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=False)
         
-        embed = await self.build_signup_list_embed()
-        msg = await interaction.followup.send(embed=embed)
+        embed = await self.build_signup_list_embed(interaction.guild)
+        await msg.edit(embed=embed)
         
         self.save_signup_list_config(interaction.channel_id, msg.id)
         
