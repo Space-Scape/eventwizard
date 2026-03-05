@@ -3907,7 +3907,7 @@ class MonopolyCog(commands.Cog):
                 embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to pick **{victim_team}**'s pocket, but they have no removable items left!"
                 if victim_channel:
                     fail_embed = discord.Embed(
-                        title="🕵️ Rogue's Gloves Failed",
+                        title="<:rogue_gloves:1437980096790134914> Rogue's Gloves Failed",
                         description=f"**{team_name}** tried to steal from you, but you have no cards left to take!",
                         color=discord.Color.blue()
                     )
@@ -3924,6 +3924,15 @@ class MonopolyCog(commands.Cog):
             if has_protect:
                 await self.consume_protect_item(victim_team)
                 embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:inventory:1437979836881703074> But **{victim_team}**'s Protect Item prayer activated! The steal was blocked."
+                
+                protect_caster_embed = discord.Embed(
+                    title="<:inventory:1437979836881703074> Attack Blocked!", 
+                    description=f"You tried to use Rogue's Gloves on **{victim_team}**, but their **Protect Item** prayer was active!\nYour attack failed and your card was wasted.", 
+                    color=discord.Color.red()
+                )
+                await interaction.channel.send(embed=protect_caster_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=protect_caster_embed)
+
                 if victim_channel:
                     protect_embed = discord.Embed(
                         title="<:inventory:1437979836881703074> Protect Item Activated!",
@@ -4079,6 +4088,14 @@ class MonopolyCog(commands.Cog):
 
                     embed_description += f"> 💍 **Recoil Triggered!** **{team_name}** tried to steal, but the ring forced a swap! **{team_name}** got **{stolen_from_victim['card_name']}**, and **{victim_team}** got **{stolen_from_caster['name']}**!"
                     
+                    recoil_caster_embed = discord.Embed(
+                        title="💍 Recoil Activated!", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nInstead of a clean steal, the ring forced a mutual swap! You received **{stolen_from_victim['card_name']}** but lost your **{stolen_from_caster['name']}**.", 
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=recoil_caster_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=recoil_caster_embed)
+
                     if victim_channel:
                         victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to steal from you, but your **Ring of Recoil** forced a swap!\nYou received **{stolen_from_caster['name']}** and lost **{stolen_from_victim['card_name']}**.", color=discord.Color.green())
                         await victim_channel.send(embed=victim_embed)
@@ -4136,6 +4153,15 @@ class MonopolyCog(commands.Cog):
             if has_protect:
                 await self.consume_protect_item(target_team)
                 embed_description += f"> <:inventory:1437979836881703074> **{target_team}**'s Protect Item prayer activated! The Pickpocket was blocked."
+                
+                protect_caster_embed = discord.Embed(
+                    title="<:inventory:1437979836881703074> Attack Blocked!", 
+                    description=f"You tried to Pickpocket **{target_team}**, but their **Protect Item** prayer was active!\nYour attack failed and your card was wasted.", 
+                    color=discord.Color.red()
+                )
+                await interaction.channel.send(embed=protect_caster_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=protect_caster_embed)
+
                 if victim_channel:
                     protect_embed = discord.Embed(
                         title="<:inventory:1437979836881703074> Protect Item Activated!", 
@@ -4195,6 +4221,14 @@ class MonopolyCog(commands.Cog):
 
                     embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{target_team}** lost **{steal_amount:,} GP**!{maul_note}"
 
+                    recoil_caster_embed = discord.Embed(
+                        title="💍 Recoil Activated!", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nBoth your team and **{target_team}** lost **{steal_amount:,} GP**!{maul_note}", 
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=recoil_caster_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=recoil_caster_embed)
+
                     if victim_channel:
                         victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Ring of Recoil** triggered! Both teams lost **{steal_amount:,} GP**!{maul_note}", color=discord.Color.green())
                         await victim_channel.send(embed=victim_embed)
@@ -4242,6 +4276,15 @@ class MonopolyCog(commands.Cog):
             if has_protect:
                 await self.consume_protect_item(victim_team)
                 embed_description += f"> <:inventory:1437979836881703074> **{victim_team}**'s Protect Item prayer activated! The Smite was blocked."
+                
+                protect_caster_embed = discord.Embed(
+                    title="<:inventory:1437979836881703074> Attack Blocked!", 
+                    description=f"You tried to Smite **{victim_team}**, but their **Protect Item** prayer was active!\nYour attack failed and your card was wasted.", 
+                    color=discord.Color.red()
+                )
+                await interaction.channel.send(embed=protect_caster_embed)
+                await self.mirror_to_game_log(interaction.channel, embed=protect_caster_embed)
+
                 if victim_channel:
                     protect_embed = discord.Embed(
                         title="<:inventory:1437979836881703074> Protect Item Activated!", 
@@ -4359,6 +4402,14 @@ class MonopolyCog(commands.Cog):
 
                     embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{victim_team}** lost a card! (**{target_card['name']}** and **{caster_card['name']}**)"
                     
+                    recoil_caster_embed = discord.Embed(
+                        title="💍 Recoil Activated!", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nBoth your team and **{victim_team}** lost a card! You lost your **{caster_card['name']}**.", 
+                        color=discord.Color.dark_red()
+                    )
+                    await interaction.channel.send(embed=recoil_caster_embed)
+                    await self.mirror_to_game_log(interaction.channel, embed=recoil_caster_embed)
+
                     if victim_channel:
                         victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Ring of Recoil** triggered! Both teams lost a card!", color=discord.Color.green())
                         await victim_channel.send(embed=victim_embed)
@@ -4398,6 +4449,7 @@ class MonopolyCog(commands.Cog):
                         victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                        
         card_sheet = extra_data.get("card_sheet")
         card_row = extra_data.get("card_row")
         wildcard_data = extra_data.get("wildcard_data", {})
