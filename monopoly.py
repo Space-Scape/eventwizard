@@ -2860,12 +2860,13 @@ class MonopolyCog(commands.Cog):
             has_recoil = str(team_record.get("Ring of Recoil", "no")).strip().lower() == "yes"
             has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
             has_charos = str(team_record.get("Ring of Charos", "no")).strip().lower() == "yes"
+            has_stone = str(team_record.get("Ring of Stone", "no")).strip().lower() == "yes"
         except Exception as e:
             print(f"❌ Error fetching passives status: {e}")
-            is_protected, has_recoil, has_phoenix, has_charos = False, False, False, False
+            is_protected, has_recoil, has_phoenix, has_charos, has_stone = False, False, False, False, False
 
         # 2. Check if the inventory is completely empty
-        if not chest_cards and not chance_cards and not is_protected and not has_recoil and not has_phoenix and not has_charos:
+        if not chest_cards and not chance_cards and not is_protected and not has_recoil and not has_phoenix and not has_charos and not has_stone:
             await interaction.followup.send("❌ Your team holds no cards and has no active passives.", ephemeral=True)
             return
 
@@ -2885,6 +2886,8 @@ class MonopolyCog(commands.Cog):
             passives_text += "<:pneck:1469359523989819392> **Phoenix Necklace**\n*This necklace will completely absorb the next rent payment you owe to another team before shattering.*\n\n"
         if has_charos:
             passives_text += "💕 **Ring of Charos (a)**\n*This ring will automatically charm the real estate agent into giving you a 50% discount on your next house purchase.*\n\n"
+        if has_stone:
+            passives_text += "🪨 **Ring of Stone**\n*This ring turns you into a heavy rock, preventing the next card effect that attempts to forcefully move or teleport you.*\n\n"
 
         if passives_text:
             embed.add_field(
