@@ -5015,33 +5015,6 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error in /undrafted: {e}")
             await interaction.followup.send("❌ Failed to retrieve the undrafted list.")
 
-    async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
-        try:
-            config = self.load_team_list_config()
-            manual_limit = config.get("manual_max_size")
-
-            if manual_limit:
-                max_team_size = int(manual_limit)
-            else:
-                values = await asyncio.to_thread(self.signup_sheet.get_all_values)
-                total_draftable = sum(1 for row in values[9:] if any(str(cell).strip() for cell in row))
-                active_captains = len(ACTIVE_TEAMS) or 1
-                max_team_size = math.ceil(total_draftable / active_captains) + 2
-
-            capacity_data = {}
-            for team_name in ACTIVE_TEAMS:
-                role = discord.utils.get(guild.roles, name=team_name)
-                current_size = len(role.members) if role else 0
-                capacity_data[team_name] = {
-                    "current": current_size,
-                    "max": max_team_size,
-                    "is_full": current_size >= max_team_size
-                }
-            return capacity_data
-        except Exception as e:
-            print(f"❌ Error calculating capacities: {e}")
-            return {team: {"current": 0, "max": 17, "is_full": False} for team in ACTIVE_TEAMS}
-
     @app_commands.command(name="undrafted_refresh", description="[Staff] Refresh an undrafted list message by its ID.")
     @app_commands.describe(message_id="The ID of the message you want to update with the undrafted list")
     async def undrafted_refresh(self, interaction: discord.Interaction, message_id: str):
