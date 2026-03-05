@@ -1086,7 +1086,7 @@ class MonopolyCog(commands.Cog):
                 # --- 💎 RARE DROP TABLE LOGIC ---
                 try:
                     rdt_chance = random.randint(1, 100)
-                    if rdt_chance <= 10 and team_name != "*No team*":
+                    if rdt_chance <= 25 and team_name != "*No team*":
                         all_recs = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                         t_info = next((r for r in all_recs if r.get("Team") == team_name), {})
                         
@@ -1632,7 +1632,7 @@ class MonopolyCog(commands.Cog):
             if position == BANK_STANDING_TILE:
                 return "Bank Standing"
             if position in GLIDER_TILES:
-                return "Glider"
+                return "Next Glider"
             if position in tile_boss_map:
                 return ", ".join(tile_boss_map[position])
 
