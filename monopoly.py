@@ -1578,10 +1578,14 @@ class MonopolyCog(commands.Cog):
         spawn_chance = int(team_mult * 10)
         final_pos = new_pos
         event_triggered = False
+        triggered_event = None
 
         if random.randint(1, 100) <= spawn_chance:
             event_triggered = True
-            await self.trigger_passive_random_event(interaction.channel, team_name)
+            triggered_event = await self.trigger_passive_random_event(interaction.channel, team_name)
+            
+            # ---> SLEEP TO LET GOOGLE SHEETS SAVE THE NEW POSITION <---
+            await asyncio.sleep(3.0)
             
             try:
                 updated_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
@@ -1594,14 +1598,15 @@ class MonopolyCog(commands.Cog):
         # 7. POST-MOVE TRIGGERS (Treats event movement just like card movement!)
         tile_boss_map = self._get_tile_boss_map()
         
+        pete_jailed = (event_triggered and final_pos == 10 and new_pos != 10)
+        
         if final_pos in tile_boss_map:
-            # Ensure they don't get drops if Tile 30 OR Prison Pete sent them to Tile 10 (Jail)
-            pete_jailed = (event_triggered and final_pos == 10 and new_pos != 10)
+            # If they got sent to jail, NO boss drops!
             if not just_sent_to_jail and not pete_jailed:
                 await self.auto_post_show_drops_if_boss_tile(team_name, final_pos)
 
+        # Always process tile rewards (Chest/Chance/GO) on the final landing spot
         await self.check_and_award_card_on_land(team_name, final_pos, "rolling")
-
 
     def _get_tile_boss_map(self) -> dict[int, list[str]]:
         return {
@@ -4703,7 +4708,7 @@ class MonopolyCog(commands.Cog):
                     new_pos = max(0, current_pos - spaces_back)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
-                    embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}** and receive **no tile rewards**!"
+                    embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}**!"
                     if new_pos == 0: embed_desc += "\n\n🎯 **BULLSEYE!** Landing perfectly on GO via baguette whack grants a **Free Roll**!"
 
                 elif chosen_nerf == "demon":
