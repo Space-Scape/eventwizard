@@ -4139,7 +4139,7 @@ class MonopolyCog(commands.Cog):
                 card_sheet = extra_data.get("card_sheet")
                 card_row = extra_data.get("card_row")
                 
-                # Filter out the Rogue's Gloves card they just used so it can't be swapped
+                # Filter out the Rogue's Gloves card they just used so it can't be given away
                 other_caster_cards = [
                     c for c in all_caster
                     if not ( (c in caster_chest and card_sheet == self.chest_sheet and c["row_index"] == card_row) or 
@@ -4148,33 +4148,15 @@ class MonopolyCog(commands.Cog):
                 
                 # 🛑 Caster Guard - Must have ANOTHER card besides Rogue's Gloves!
                 if not other_caster_cards:
-                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Steal failed because **{team_name}** has no other cards to swap."
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Steal failed because **{team_name}** has no other cards to lose to the recoil."
                     if victim_channel:
-                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to steal from you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to steal from you, but the attack failed due to a lack of cards for the **Ring of Recoil** penalty.", color=discord.Color.blue())
                         await victim_channel.send(embed=fail_embed)
                         await self.mirror_to_game_log(victim_channel, embed=fail_embed)
                 else:
                     await self.consume_recoil(victim_team)
                     
-                    # Victim gives to Caster
-                    stolen_from_victim = random.choice(target_cards)
-                    v_sheet = stolen_from_victim["sheet"]
-                    v_row = stolen_from_victim["row_index"]
-                    
-                    v_holders = str(v_sheet.cell(v_row, 3).value or "").split(",")
-                    v_holders = [h.strip() for h in v_holders if h.strip() and h.strip() != victim_team]
-                    v_holders.append(team_name)
-                    v_sheet.update_cell(v_row, 3, ", ".join(v_holders))
-                    
-                    try:
-                        v_wild_str = str(v_sheet.cell(v_row, 4).value or "{}")
-                        v_wild_data = json.loads(v_wild_str)
-                        vw = v_wild_data.pop(victim_team, None)
-                        if vw is not None: v_wild_data[team_name] = vw
-                        v_sheet.update_cell(v_row, 4, json.dumps(v_wild_data))
-                    except: pass
-
-                    # Caster gives to Victim
+                    # Caster gives to Victim (One-Way Transfer)
                     stolen_from_caster = random.choice(other_caster_cards)
                     c_sheet = self.chest_sheet if stolen_from_caster in caster_chest else self.chance_sheet
                     c_row = stolen_from_caster["row_index"]
@@ -4192,11 +4174,11 @@ class MonopolyCog(commands.Cog):
                         c_sheet.update_cell(c_row, 4, json.dumps(c_wild_data))
                     except: pass
 
-                    embed_description += f"> 💍 **Recoil Triggered!** **{team_name}** tried to steal, but the ring forced a swap! **{team_name}** got **{stolen_from_victim['card_name']}**, and **{victim_team}** got **{stolen_from_caster['name']}**!"
+                    embed_description += f"> 💍 **Recoil Triggered!** **{team_name}** tried to steal, but the ring blocked it and forced them to give up a card! **{victim_team}** got **{stolen_from_caster['name']}**!"
                     
                     recoil_caster_embed = discord.Embed(
                         title="💍 Recoil Activated!", 
-                        description=f"You attacked a team wearing a **Ring of Recoil**!\nInstead of a clean steal, the ring forced a mutual swap!\n\n🟢 You received **{stolen_from_victim['card_name']}**.\n🔴 You lost **{stolen_from_caster['name']}**.", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nYour steal was blocked, and the recoil forced you to give them a card!\n\n🔴 You lost **{stolen_from_caster['name']}**.", 
                         color=discord.Color.dark_red()
                     )
                     await interaction.channel.send(embed=recoil_caster_embed)
@@ -4205,7 +4187,7 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="💍 Recoil Shattered!", 
-                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Ring of Recoil** triggered! It forced a swap instead of a steal!\n\n🟢 You received **{stolen_from_caster['name']}**.\n🔴 You lost **{stolen_from_victim['card_name']}**.", 
+                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Ring of Recoil** triggered! It blocked the steal and forced them to surrender a card!\n\n🟢 You received **{stolen_from_caster['name']}**.", 
                             color=discord.Color.green()
                         )
                         await victim_channel.send(embed=victim_embed)
