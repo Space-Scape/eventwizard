@@ -1582,20 +1582,15 @@ class MonopolyCog(commands.Cog):
 
         if random.randint(1, 100) <= spawn_chance:
             event_triggered = True
-            triggered_event = await self.trigger_passive_random_event(interaction.channel, team_name)
             
-            # ---> SLEEP TO LET GOOGLE SHEETS SAVE THE NEW POSITION <---
-            await asyncio.sleep(3.0)
-            
-            try:
-                updated_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
-                team_info = next((r for r in updated_records if str(r.get("Team", "")) == team_name), None)
-                if team_info:
-                    final_pos = int(team_info.get("Position", 0))
-            except Exception as e:
-                print(f"❌ Error fetching post-event position: {e}")
+            # Instantly fetch the event name AND the precise final tile from memory!
+            event_result = await self.trigger_passive_random_event(interaction.channel, team_name, current_pos=new_pos)
+            if event_result:
+                triggered_event, event_final_pos = event_result
+                if event_final_pos is not None:
+                    final_pos = event_final_pos
 
-        # 7. POST-MOVE TRIGGERS (Treats event movement just like card movement!)
+        # 7. POST-MOVE TRIGGERS
         tile_boss_map = self._get_tile_boss_map()
         
         pete_jailed = (event_triggered and final_pos == 10 and new_pos != 10)
@@ -4586,13 +4581,13 @@ class MonopolyCog(commands.Cog):
         await interaction.channel.send(embed=final_embed)
         await self.mirror_to_game_log(interaction.channel, embed=final_embed)
 
-    async def trigger_passive_random_event(self, channel: discord.TextChannel, team_name: str, forced_event: str = None):
+    async def trigger_passive_random_event(self, channel: discord.TextChannel, team_name: str, forced_event: str = None, current_pos: int = None):
         """Silently handles a random event if the 5% spawn chance is met, or forces one if requested."""
         try:
             records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
             team_info = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), None)
-            if not team_info: return
+            if not team_info: return None, None
 
             chosen_team = str(team_info.get("Team")).strip()
             team_row_idx = records.index(team_info) + 2
@@ -4600,7 +4595,11 @@ class MonopolyCog(commands.Cog):
             headers = list(records[0].keys())
             gp_col = headers.index("GP") + 1 if "GP" in headers else -1
             current_gp = int(str(team_info.get("GP", 0)).replace(',', ''))
-            current_pos = int(team_info.get("Position", 0))
+            
+            if current_pos is None:
+                current_pos = int(team_info.get("Position", 0))
+
+            event_final_pos = current_pos
 
             embed_desc = ""
             event_title = ""
@@ -4617,9 +4616,8 @@ class MonopolyCog(commands.Cog):
                     chosen_buff = forced_event
                 else:
                     print(f"❌ Invalid forced event: {forced_event}")
-                    return
+                    return None, None
             else:
-                # Normal Random Logic
                 try:
                     victim_mult = float(team_info.get("Multiplier", 1))
                 except ValueError:
@@ -4640,12 +4638,8 @@ class MonopolyCog(commands.Cog):
             # ==========================================
             # 🔴 NERF MECHANICS
             # ==========================================
-
             if event_type == "nerf":
                 event_title = "😈 A Disastrous Random Event Appears!"
-                nerf_pool = ["dwarf", "whirlpool", "ents", "gravedigger", "sandwich", "jekyll", "demon", "plant", "beekeeper", "mime", "maze", "pete", "bob", "twin"]
-                chosen_nerf = random.choice(nerf_pool)
-
                 if chosen_nerf == "dwarf":
                     has_protect = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
                     if has_protect:
@@ -4698,6 +4692,7 @@ class MonopolyCog(commands.Cog):
                     spaces_back = random.randint(2, 4)
                     new_pos = max(0, current_pos - spaces_back)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    event_final_pos = new_pos
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🌀 **The Whirlpool!**\nA sudden whirlpool sucks **{chosen_team}** under! They wash up **{spaces_back}** spaces backwards on Tile **{new_pos}**!"
@@ -4706,6 +4701,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "sandwich":
                     spaces_back = random.randint(1, 6)
                     new_pos = max(0, current_pos - spaces_back)
+                    event_final_pos = new_pos
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}**!"
@@ -4719,6 +4715,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "beekeeper":
                     new_pos = max(0, current_pos - 2)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    event_final_pos = new_pos
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **2 tiles** to Tile **{new_pos}**!"
@@ -4728,6 +4725,7 @@ class MonopolyCog(commands.Cog):
                     spaces_back = random.randint(1, 3)
                     new_pos = max(0, current_pos - spaces_back)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
+                    event_final_pos = new_pos
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🧭 **The Mysterious Old Man's Maze!**\n**{chosen_team}** is dragged into the maze and completely loses their sense of direction! They eventually stumble out **{spaces_back}** spaces backwards, ending up on Tile **{new_pos}**!"
@@ -4735,6 +4733,7 @@ class MonopolyCog(commands.Cog):
 
                 elif chosen_nerf == "pete":
                     new_pos = 10
+                    event_final_pos = new_pos
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     if hasattr(self, "set_jail_status"): await asyncio.to_thread(self.set_jail_status, chosen_team, "yes")
@@ -4774,14 +4773,8 @@ class MonopolyCog(commands.Cog):
             # ==========================================
             else:
                 event_title = "😇 A Blessing Appears!"
-                
-                buff_pool = [
-                    "certers", "arnav", "oldman", "frog", "countcheck", "exam", 
-                    "genie", "postie", "pinball", "sandwich_good", "turpentine", "quiz"
-                ]
                 chosen_buff = random.choice(buff_pool)
                 
-                # --- PASSIVE CHECKS ---
                 has_protect = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
                 has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
                 has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
@@ -4841,14 +4834,13 @@ class MonopolyCog(commands.Cog):
                         await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 15_000_000)
                         embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them **15,000,000 GP**!"
                     
-                    else:  # Reward is a Chance card
+                    else:  
                         all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
                         available_cards = [
                             {"type": "physical", "data": r, "index": all_chance.index(r) + 2} 
                             for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                         ]
                         
-                        # ---> INJECT VIRTUAL PASSIVES <---
                         if not has_any_passive:
                             available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                             available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
@@ -4893,7 +4885,6 @@ class MonopolyCog(commands.Cog):
                         for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
                     
-                    # ---> INJECT VIRTUAL PASSIVES <---
                     if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
@@ -4938,7 +4929,6 @@ class MonopolyCog(commands.Cog):
                         for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
                     
-                    # ---> INJECT VIRTUAL PASSIVES <---
                     if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
@@ -4997,7 +4987,6 @@ class MonopolyCog(commands.Cog):
                         for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
                     
-                    # ---> INJECT VIRTUAL PASSIVES <---
                     if not has_any_passive:
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
@@ -5043,8 +5032,12 @@ class MonopolyCog(commands.Cog):
             await channel.send(embed=embed)
             await self.mirror_to_game_log(channel, embed=embed)
 
+            event_name = chosen_nerf if event_type == "nerf" else chosen_buff
+            return event_name, event_final_pos
+
         except Exception as e:
             print(f"❌ Error in trigger_passive_random_event: {e}")
+            return None, None
 
     @app_commands.command(name="force_event", description="[Staff] Force a specific random event for testing.")
     @app_commands.describe(team_role="The team to trigger the event for", event_id="The event to test (Start typing to see list)")
