@@ -1072,6 +1072,50 @@ class MonopolyCog(commands.Cog):
                     print(f"❌ Error checking tile before granting roll: {roll_e}")
 
                 await interaction.followup.send("✅ Drop approved and logged.", ephemeral=True)
+                
+                # --- 💎 RARE DROP TABLE LOGIC ---
+                try:
+                    rdt_chance = random.randint(1, 100)
+                    if rdt_chance <= 10 and team_name != "*No team*":
+                        all_recs = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
+                        t_info = next((r for r in all_recs if r.get("Team") == team_name), {})
+                        
+                        hp = str(t_info.get("Protect Item", "no")).strip().lower() == "yes"
+                        hr = str(t_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
+                        hpn = str(t_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+                        hc = str(t_info.get("Ring of Charos", "no")).strip().lower() == "yes"
+
+                        # Only grant if their passive slot is completely empty
+                        if not (hp or hr or hpn or hc):
+                            passive_choices = ["Protect Item", "Ring of Recoil", "Phoenix Necklace", "Ring of Charos"]
+                            chosen_passive = random.choice(passive_choices)
+                            
+                            headers = list(all_recs[0].keys())
+                            if chosen_passive in headers:
+                                t_idx = all_recs.index(t_info) + 2
+                                c_idx = headers.index(chosen_passive) + 1
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, t_idx, c_idx, "yes")
+                                
+                                emoji_map = {
+                                    "Protect Item": "<:inventory:1437979836881703074>", 
+                                    "Ring of Recoil": "💍", 
+                                    "Phoenix Necklace": "<:pneck:1469359523989819392>", 
+                                    "Ring of Charos": "💕"
+                                }
+                                p_emoji = emoji_map.get(chosen_passive, "💎")
+
+                                display_name = "Protect Item Scroll" if chosen_passive == "Protect Item" else chosen_passive
+                                
+                                rdt_embed = discord.Embed(
+                                    title="💎 Rare Drop Table Hit!",
+                                    description=f"**{team_name}** got lucky on the RDT!\nAlong with your boss drop, you found a **{chosen_passive}**!\n\n{p_emoji} The passive is now **ACTIVE** in your inventory.",
+                                    color=discord.Color.magenta()
+                                )
+                                if team_chan:
+                                    await team_chan.send(embed=rdt_embed)
+                                    await self.cog.mirror_to_game_log(team_chan, embed=rdt_embed, team_name=team_name)
+                except Exception as rdt_err:
+                    print(f"❌ Error during RDT roll: {rdt_err}")
 
             except Exception as e:
                 print(f"❌ Error in overall approve_button: {e}")
@@ -2024,6 +2068,12 @@ class MonopolyCog(commands.Cog):
                 return
 
             cost = COST_MAP.get(house_count, 999_999_999)
+
+            # --- 💕 RING OF CHAROS CHECK ---
+            has_charos = str(team_info.get("Ring of Charos", "no")).strip().lower() == "yes"
+            if has_charos:
+                cost = cost // 2  # Apply 50% discount
+
             if current_gp < cost:
                 await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
                 await interaction.followup.send(f"❌ Not enough GP. Need **{cost:,}**, but you have **{current_gp:,}**.", ephemeral=True)
@@ -2042,8 +2092,12 @@ class MonopolyCog(commands.Cog):
             # --> NEW: Sync the Houses Owned column (Column M) <--
             await asyncio.to_thread(self.sync_houses_owned, team_name)
 
-            # Output message with your custom emoji
-            buy_msg = f"<:houseicon:1438085020156821555> **{team_name}** bought a house on tile **{current_pos}** for **{cost:,} GP**!"
+            charos_msg = ""
+            if has_charos:
+                await self.consume_charos(team_name)
+                charos_msg = f"\n\n💕 *Your **Ring of Charos** charmed the real estate agent, securing a 50% discount! The ring shatters!*"
+
+            buy_msg = f"<:houseicon:1438085020156821555> **{team_name}** bought a house on tile **{current_pos}** for **{cost:,} GP**!{charos_msg}"
             await interaction.followup.send(buy_msg)
             await self.mirror_to_game_log(interaction.channel, content=buy_msg)
 
@@ -2146,9 +2200,11 @@ class MonopolyCog(commands.Cog):
             team_info = next((r for r in team_records if r.get("Team") == team_name), {})
             has_protect_item = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
             has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
+            has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+            has_charos = str(team_info.get("Ring of Charos", "no")).strip().lower() == "yes"
             
             # ---> THE 1-PASSIVE LIMIT <---
-            has_any_passive = has_protect_item or has_recoil
+            has_any_passive = has_protect_item or has_recoil or has_phoenix or has_charos
 
             # 2. Build the Deck
             eligible_cards = []
@@ -2171,6 +2227,7 @@ class MonopolyCog(commands.Cog):
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Protect Item", "Card Text": "Passive - Can't be used. Saves a player from item losses until one occurs."}})
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil", "Card Text": "Passive - Dealing with you has a price. Attacking this team causes the effect to trigger on both teams."}})
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace", "Card Text": "Passive - Can't be used. Automatically shatters to absorb your next rent payment."}})
+                eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos", "Card Text": "Passive - Can't be used. Automatically halves the cost of your next house purchase."}})
 
             if not eligible_cards:
                 await team_channel.send(f"❗ **{team_name}** tried to draw a {card_type} card, but they already hold every available card in the deck!")
@@ -2182,10 +2239,17 @@ class MonopolyCog(commands.Cog):
             card_name = card_data.get("Name", "Unknown Card")
             card_text = card_data.get("Card Text", "")
             
+            # Custom display name for flavor
+            display_name = "Protect Item Scroll" if card_name == "Protect Item" else ("Ring of Charos (a)" if card_name == "Ring of Charos" else card_name)
+            
             if card_name == "Ring of Recoil":
                 card_emoji = "💍"
             elif card_name == "Protect Item":
                 card_emoji = "<:inventory:1437979836881703074>"
+            elif card_name == "Phoenix Necklace":
+                card_emoji = "<:pneck:1469359523989819392>"
+            elif card_name == "Ring of Charos":
+                card_emoji = "💕"
             else:
                 card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type, "🃏"))
             
@@ -2202,16 +2266,20 @@ class MonopolyCog(commands.Cog):
                     
                 embed = discord.Embed(
                     title=f"{card_emoji} {card_type} Card Drawn!",
-                    description=f"**{team_name}** drew **{card_name}**!\n\n> {card_text}",
+                    description=f"**{team_name}** drew **{display_name}**!\n\n> {card_text}",
                     color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
                 )
                 await team_channel.send(embed=embed)
                 
                 # Send specific confirmation messages
                 if card_name == "Protect Item":
-                    await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew **Protect Item**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
-                else:
+                    await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew a **Protect Item Scroll**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
+                elif card_name == "Ring of Recoil":
                     await team_channel.send(f"💍 **{team_name}** drew a **Ring of Recoil**!\nThe ring is now **ACTIVE** in your inventory and will force the next team that attacks you to suffer the same fate!")
+                elif card_name == "Phoenix Necklace":
+                    await team_channel.send(f"<:pneck:1469359523989819392> **{team_name}** drew a **Phoenix Necklace**!\nThe necklace is now **ACTIVE** in your inventory and will absorb the next rent payment you owe!")
+                elif card_name == "Ring of Charos":
+                    await team_channel.send(f"💕 **{team_name}** drew a **Ring of Charos (a)**!\nThe ring is now **ACTIVE** in your inventory and will halve the cost of your next house purchase!")
 
             else:
                 # --- PHYSICAL CARD LOGIC ---
@@ -2245,7 +2313,7 @@ class MonopolyCog(commands.Cog):
 
                 embed = discord.Embed(
                     title=f"{card_emoji} {card_type} Card Drawn!",
-                    description=f"**{team_name}** drew **{card_name}**!\n\n> {card_text_display}",
+                    description=f"**{team_name}** drew **{display_name}**!\n\n> {card_text_display}",
                     color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
                 )
                 await team_channel.send(embed=embed) 
@@ -2253,7 +2321,7 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in team_receives_card: {e}")
             traceback.print_exc()
-
+            
     def get_held_cards(self, sheet_obj, team_name: str):
         cards = []
         try:
@@ -2763,12 +2831,13 @@ class MonopolyCog(commands.Cog):
             is_protected = str(team_record.get("Protect Item", "no")).strip().lower() == "yes"
             has_recoil = str(team_record.get("Ring of Recoil", "no")).strip().lower() == "yes"
             has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+            has_charos = str(team_record.get("Ring of Charos", "no")).strip().lower() == "yes"
         except Exception as e:
             print(f"❌ Error fetching passives status: {e}")
-            is_protected, has_recoil, has_phoenix = False, False, False
+            is_protected, has_recoil, has_phoenix, has_charos = False, False, False, False
 
         # 2. Check if the inventory is completely empty
-        if not chest_cards and not chance_cards and not is_protected and not has_recoil and not has_phoenix:
+        if not chest_cards and not chance_cards and not is_protected and not has_recoil and not has_phoenix and not has_charos:
             await interaction.followup.send("❌ Your team holds no cards and has no active passives.", ephemeral=True)
             return
 
@@ -2786,6 +2855,8 @@ class MonopolyCog(commands.Cog):
             passives_text += "💍 **Ring of Recoil**\n*Speak of mutually assured destruction... Affects triggered on you are also triggered to the attacker.*\n\n"
         if has_phoenix:
             passives_text += "<:pneck:1469359523989819392> **Phoenix Necklace**\n*This necklace will completely absorb the next rent payment you owe to another team before shattering.*\n\n"
+        if has_charos:
+            passives_text += "💕 **Ring of Charos (a)**\n*This ring will automatically charm the real estate agent into giving you a 50% discount on your next house purchase.*\n\n"
 
         if passives_text:
             embed.add_field(
@@ -4498,7 +4569,7 @@ class MonopolyCog(commands.Cog):
                 
                 elif chosen_nerf == "bob":
                     if hasattr(self, "set_teleblock_status"): await asyncio.to_thread(self.set_teleblock_status, chosen_team, "yes")
-                    embed_desc = f"🐈‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch fish! They are **Teleblocked** until their next roll!"
+                    embed_desc = f"💕‍⬛ **Evil Bob!**\n**{chosen_team}** is kidnapped to ScapeRune to catch fish! They are **Teleblocked** until their next roll!"
 
                 elif chosen_nerf == "jekyll":
                     try:
@@ -4541,8 +4612,9 @@ class MonopolyCog(commands.Cog):
                 has_protect = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
                 has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
                 has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+                has_charos = str(team_info.get("Ring of Charos", "no")).strip().lower() == "yes"
             
-                has_any_passive = has_protect or has_recoil or has_phoenix
+                has_any_passive = has_protect or has_recoil or has_phoenix or has_charos
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
@@ -4606,20 +4678,28 @@ class MonopolyCog(commands.Cog):
                         if not has_any_passive:
                             available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                             available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
+                            available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
+                            available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
                             
                         if available_cards:
                             drawn_card = random.choice(available_cards)
                             drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
-                            embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them a free **{drawn_card_name}** Chance card!"
+                            display_name = "Protect Item Scroll" if drawn_card_name == "Protect Item" else ("Ring of Charos (a)" if drawn_card_name == "Ring of Charos" else drawn_card_name)
+                            
+                            embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them a free **{display_name}**!"
                             
                             if drawn_card["type"] == "virtual":
                                 col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                                 if col != -1:
                                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                     if drawn_card_name == "Protect Item":
-                                        embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
-                                    else:
+                                        embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item Scroll** is now **ACTIVE** in your inventory!"
+                                    elif drawn_card_name == "Ring of Recoil":
                                         embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
+                                    elif drawn_card_name == "Phoenix Necklace":
+                                        embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
+                                    elif drawn_card_name == "Ring of Charos":
+                                        embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
                             else:
                                 card_idx = drawn_card["index"]
                                 current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4640,20 +4720,28 @@ class MonopolyCog(commands.Cog):
                     if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
                         drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
-                        embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** successfully cracked the combination! They have been granted a free **{drawn_card_name}** Chest card!"
+                        display_name = "Protect Item Scroll" if drawn_card_name == "Protect Item" else ("Ring of Charos (a)" if drawn_card_name == "Ring of Charos" else drawn_card_name)
+
+                        embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** successfully cracked the combination! They have been granted a free **{display_name}**!"
                         
                         if drawn_card["type"] == "virtual":
                             col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                 if drawn_card_name == "Protect Item":
-                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
-                                else:
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item Scroll** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Recoil":
                                     embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Phoenix Necklace":
+                                    embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Charos":
+                                    embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4674,20 +4762,28 @@ class MonopolyCog(commands.Cog):
                     if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
                         drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
-                        embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** successfully solved the Strange Box! They have been granted a free **{drawn_card_name}** Chance card!"
+                        display_name = "Protect Item Scroll" if drawn_card_name == "Protect Item" else ("Ring of Charos (a)" if drawn_card_name == "Ring of Charos" else drawn_card_name)
+
+                        embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** successfully solved the Strange Box! They have been granted a free **{display_name}**!"
                         
                         if drawn_card["type"] == "virtual":
                             col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                 if drawn_card_name == "Protect Item":
-                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
-                                else:
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item Scroll** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Recoil":
                                     embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Phoenix Necklace":
+                                    embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Charos":
+                                    embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4722,6 +4818,8 @@ class MonopolyCog(commands.Cog):
                     if not has_any_passive:
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
+                        unowned_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
+                        unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
                     
                     if not unowned_cards:
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
@@ -4729,16 +4827,22 @@ class MonopolyCog(commands.Cog):
                     else:
                         drawn_card = random.choice(unowned_cards)
                         drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
-                        embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card_name}** card!"
+                        display_name = "Protect Item Scroll" if drawn_card_name == "Protect Item" else ("Ring of Charos (a)" if drawn_card_name == "Ring of Charos" else drawn_card_name)
+                        
+                        embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{display_name}**!"
                         
                         if drawn_card["type"] == "virtual":
                             col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                 if drawn_card_name == "Protect Item":
-                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
-                                else:
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item Scroll** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Recoil":
                                     embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Phoenix Necklace":
+                                    embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Charos":
+                                    embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
                         else:
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
                             current_holders.append(chosen_team)
