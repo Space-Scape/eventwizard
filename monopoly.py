@@ -1084,10 +1084,12 @@ class MonopolyCog(commands.Cog):
                         hr = str(t_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
                         hpn = str(t_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
                         hc = str(t_info.get("Ring of Charos", "no")).strip().lower() == "yes"
+                        hs = str(t_info.get("Ring of Stone", "no")).strip().lower() == "yes"
 
                         # Only grant if their passive slot is completely empty
-                        if not (hp or hr or hpn or hc):
-                            passive_choices = ["Protect Item", "Ring of Recoil", "Phoenix Necklace", "Ring of Charos"]
+                        if not (hp or hr or hpn or hc or hs):
+                            # Keep exact sheet header names here!
+                            passive_choices = ["Protect Item", "Ring of Recoil", "Phoenix Necklace", "Ring of Charos", "Ring of Stone"]
                             chosen_passive = random.choice(passive_choices)
                             
                             headers = list(all_recs[0].keys())
@@ -1100,15 +1102,17 @@ class MonopolyCog(commands.Cog):
                                     "Protect Item": "<:inventory:1437979836881703074>", 
                                     "Ring of Recoil": "💍", 
                                     "Phoenix Necklace": "<:pneck:1469359523989819392>", 
-                                    "Ring of Charos": "💕"
+                                    "Ring of Charos": "🐈",
+                                    "Ring of Stone": "🪨"
                                 }
                                 p_emoji = emoji_map.get(chosen_passive, "💎")
-
-                                display_name = "Protect Item Scroll" if chosen_passive == "Protect Item" else chosen_passive
+                                
+                                # Custom display name for flavor
+                                display_name = "Protect Item Scroll" if chosen_passive == "Protect Item" else ("Ring of Charos (a)" if chosen_passive == "Ring of Charos" else chosen_passive)
                                 
                                 rdt_embed = discord.Embed(
                                     title="💎 Rare Drop Table Hit!",
-                                    description=f"**{team_name}** got lucky on the RDT!\nAlong with your boss drop, you found a **{chosen_passive}**!\n\n{p_emoji} The passive is now **ACTIVE** in your inventory.",
+                                    description=f"**{team_name}** got lucky on the RDT!\nAlong with your boss drop, you found a **{display_name}**!\n\n{p_emoji} The passive is now **ACTIVE** in your inventory.",
                                     color=discord.Color.magenta()
                                 )
                                 if team_chan:
@@ -2202,9 +2206,10 @@ class MonopolyCog(commands.Cog):
             has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
             has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
             has_charos = str(team_info.get("Ring of Charos", "no")).strip().lower() == "yes"
+            has_stone = str(team_info.get("Ring of Stone", "no")).strip().lower() == "yes"
             
             # ---> THE 1-PASSIVE LIMIT <---
-            has_any_passive = has_protect_item or has_recoil or has_phoenix or has_charos
+            has_any_passive = has_protect_item or has_recoil or has_phoenix or has_charos or has_stone
 
             # 2. Build the Deck
             eligible_cards = []
@@ -2228,6 +2233,7 @@ class MonopolyCog(commands.Cog):
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil", "Card Text": "Passive - Dealing with you has a price. Attacking this team causes the effect to trigger on both teams."}})
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace", "Card Text": "Passive - Can't be used. Automatically shatters to absorb your next rent payment."}})
                 eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos", "Card Text": "Passive - Can't be used. Automatically halves the cost of your next house purchase."}})
+                eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Stone", "Card Text": "Passive - Can't be used. Automatically shatters to block forced movement or teleports."}})
 
             if not eligible_cards:
                 await team_channel.send(f"❗ **{team_name}** tried to draw a {card_type} card, but they already hold every available card in the deck!")
@@ -2249,7 +2255,9 @@ class MonopolyCog(commands.Cog):
             elif card_name == "Phoenix Necklace":
                 card_emoji = "<:pneck:1469359523989819392>"
             elif card_name == "Ring of Charos":
-                card_emoji = "💕"
+                card_emoji = "🐈"
+            elif card_name == "Ring of Stone":
+                card_emoji = "🪨"
             else:
                 card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type, "🃏"))
             
@@ -2279,7 +2287,9 @@ class MonopolyCog(commands.Cog):
                 elif card_name == "Phoenix Necklace":
                     await team_channel.send(f"<:pneck:1469359523989819392> **{team_name}** drew a **Phoenix Necklace**!\nThe necklace is now **ACTIVE** in your inventory and will absorb the next rent payment you owe!")
                 elif card_name == "Ring of Charos":
-                    await team_channel.send(f"💕 **{team_name}** drew a **Ring of Charos (a)**!\nThe ring is now **ACTIVE** in your inventory and will halve the cost of your next house purchase!")
+                    await team_channel.send(f"🐈 **{team_name}** drew a **Ring of Charos (a)**!\nThe ring is now **ACTIVE** in your inventory and will halve the cost of your next house purchase!")
+                elif card_name == "Ring of Stone":
+                    await team_channel.send(f"🪨 **{team_name}** drew a **Ring of Stone**!\nThe ring is now **ACTIVE** in your inventory and will prevent the next card effect that tries to move or teleport you!")
 
             else:
                 # --- PHYSICAL CARD LOGIC ---
