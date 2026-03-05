@@ -2119,28 +2119,34 @@ class MonopolyCog(commands.Cog):
             rows = await asyncio.to_thread(card_sheet.get_all_records)
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
-            if not rows:
-                print(f"⚠️ No cards found in {card_type} sheet.")
-                return
-
             # Check if they already have the Protect Item prayer active
             team_info = next((r for r in team_records if r.get("Team") == team_name), {})
             has_protect_item = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
 
-            # 2. Find eligible cards
+            # 2. Build the Deck
             eligible_cards = []
-            for i, row in enumerate(rows, start=2):
-                card_name = str(row.get("Name", "")).strip()
-                held_by = str(row.get("Held By Team", ""))
-                teams_holding = [t.strip() for t in held_by.split(',') if t.strip()]
-                
-                if team_name not in teams_holding:
-                    # ---> THE CROSS-DECK FIX <---
-                    # If the card is Protect Item and they already have it from the other deck, skip it!
-                    if card_name.lower() == "protect item" and has_protect_item:
-                        continue
-                        
-                    eligible_cards.append({"index": i, "data": row, "teams_holding": teams_holding})
+            if rows:
+                for i, row in enumerate(rows, start=2):
+                    card_name = str(row.get("Name", "")).strip()
+                    held_by = str(row.get("Held By Team", ""))
+                    teams_holding = [t.strip() for t in held_by.split(',') if t.strip()]
+                    
+                    if team_name not in teams_holding:
+                        eligible_cards.append({
+                            "type": "physical", 
+                            "index": i, 
+                            "data": row, 
+                            "teams_holding": teams_holding
+                        })
+
+            if not has_protect_item:
+                eligible_cards.append({
+                    "type": "virtual",
+                    "data": {
+                        "Name": "Protect Item", 
+                        "Card Text": "Passive - Can't be used. Saves a player from item losses until one occurs."
+                    }
+                })
 
             if not eligible_cards:
                 await team_channel.send(f"❗ **{team_name}** tried to draw a {card_type} card, but they already hold every available card in the deck!")
@@ -2148,71 +2154,64 @@ class MonopolyCog(commands.Cog):
 
             # 3. Pick a random eligible card
             chosen_card = random.choice(eligible_cards)
-            card_row_index = chosen_card["index"]
             card_data = chosen_card["data"]
-            teams_holding = chosen_card["teams_holding"]
-            
             card_name = card_data.get("Name", "Unknown Card")
             card_text = card_data.get("Card Text", "")
-            
-            new_roll = None
-
-            # 4. Handle Wildcards (Dice Rolls inside cards)
-            if "%d6" in card_text or "%d3" in card_text:
-                if "%d6" in card_text:
-                    new_roll = random.randint(1, 6)
-                elif "%d3" in card_text:
-                    new_roll = random.randint(1, 3)
-
-                wildcard_str = str(card_data.get("Wildcard", "{}"))
-                if not wildcard_str.strip():
-                    wildcard_str = "{}"
-                    
-                try:
-                    wildcard_data = json.loads(wildcard_str)
-                except Exception:
-                    wildcard_data = {}
-
-                wildcard_data[team_name] = new_roll
-                
-                await asyncio.to_thread(
-                    card_sheet.update_cell, 
-                    card_row_index, 
-                    4, # Column D (Wildcard)
-                    json.dumps(wildcard_data)
-                )
-
-            # 5. Append team to 'Held By Team' (Preserving other teams)
-            teams_holding.append(team_name)
-            await asyncio.to_thread(
-                card_sheet.update_cell, 
-                card_row_index, 
-                3, # Column C (Held By Team)
-                ", ".join(teams_holding)
-            )
-
-            # 6. Format and send output
-            card_text_display = card_text
-            if new_roll is not None:
-                card_text_display = card_text_display.replace("%d6", str(new_roll)).replace("%d3", str(new_roll))
-
             card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type, "🃏"))
-
-            embed = discord.Embed(
-                title=f"{card_emoji} {card_type} Card Drawn!",
-                description=f"**{team_name}** drew **{card_name}**!\n\n> {card_text_display}",
-                color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
-            )
-            await team_channel.send(embed=embed) 
-
-            # ---> NEW: Activate Protect Item Flag if drawn <---
-            if card_name.lower() == "protect item":
+            
+            # 4. Handle based on type
+            if chosen_card["type"] == "virtual":
+                # --- VIRTUAL CARD LOGIC (PROTECT ITEM) ---
                 team_row_idx = team_records.index(team_info) + 2
                 headers = list(team_records[0].keys()) if team_records else []
                 if "Protect Item" in headers:
                     prot_col = headers.index("Protect Item") + 1
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, prot_col, "yes")
-                    await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew **Protect Item**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
+                    
+                embed = discord.Embed(
+                    title=f"{card_emoji} {card_type} Card Drawn!",
+                    description=f"**{team_name}** drew **{card_name}**!\n\n> {card_text}",
+                    color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
+                )
+                await team_channel.send(embed=embed)
+                await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew **Protect Item**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
+
+            else:
+                # --- PHYSICAL CARD LOGIC ---
+                card_row_index = chosen_card["index"]
+                teams_holding = chosen_card["teams_holding"]
+                new_roll = None
+
+                # Handle Wildcards (Dice Rolls inside cards)
+                if "%d6" in card_text or "%d3" in card_text:
+                    if "%d6" in card_text:
+                        new_roll = random.randint(1, 6)
+                    elif "%d3" in card_text:
+                        new_roll = random.randint(1, 3)
+
+                    wildcard_str = str(card_data.get("Wildcard", "{}"))
+                    if not wildcard_str.strip(): wildcard_str = "{}"
+                    try: wildcard_data = json.loads(wildcard_str)
+                    except Exception: wildcard_data = {}
+
+                    wildcard_data[team_name] = new_roll
+                    await asyncio.to_thread(card_sheet.update_cell, card_row_index, 4, json.dumps(wildcard_data))
+
+                # Append team to 'Held By Team'
+                teams_holding.append(team_name)
+                await asyncio.to_thread(card_sheet.update_cell, card_row_index, 3, ", ".join(teams_holding))
+
+                # Format output
+                card_text_display = card_text
+                if new_roll is not None:
+                    card_text_display = card_text_display.replace("%d6", str(new_roll)).replace("%d3", str(new_roll))
+
+                embed = discord.Embed(
+                    title=f"{card_emoji} {card_type} Card Drawn!",
+                    description=f"**{team_name}** drew **{card_name}**!\n\n> {card_text_display}",
+                    color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
+                )
+                await team_channel.send(embed=embed) 
 
         except Exception as e:
             print(f"❌ Error in team_receives_card: {e}")
@@ -2707,7 +2706,7 @@ class MonopolyCog(commands.Cog):
         # --- PASSIVES SECTION (TOP, NO INDEX) ---
         if is_protected:
             embed.add_field(
-                name="<:serverbooster:1406225321778348042> --- Passives --- <:serverbooster:1406225321778348042>",
+                name="<:serverbooster:1406225321778348042> Passives <:serverbooster:1406225321778348042>",
                 value="<:inventory:1437979836881703074> **Protect Item**\n*This prayer is active and will automatically block the next effect that steals your GP or cards.*",
                 inline=False
             )
@@ -4280,39 +4279,69 @@ class MonopolyCog(commands.Cog):
                         embed_desc = f"🤺 **Rick Turpentine!**\n*\"Stand and deliver!\"* Rick tried to steal from the other teams, but they were completely broke! He feels bad and gives **{chosen_team}** **10,000,000 GP** out of his own pocket!"
 
                 elif chosen_buff == "quiz":
-                    reward = random.choice(["roll", "gp", "gp2"])
+                    reward = random.choice(["roll", "gp", "card"])
                     if reward == "roll":
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                         embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them a **Free Dice Roll**!"
+                    
                     elif reward == "gp":
                         await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 15_000_000)
                         embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them **15,000,000 GP**!"
-                    else:
-                        await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 25_000_000)
-                        embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them **25,000,000 GP**!"
+                    
+                    else:  # Reward is a Chance card
+                        all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
+                        available_cards = [
+                            {"type": "physical", "data": r, "index": all_chance.index(r) + 2} 
+                            for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                        ]
+                        
+                        if not has_protect:
+                            available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                            
+                        if available_cards:
+                            drawn_card = random.choice(available_cards)
+                            drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
+                            embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them a free **{drawn_card_name}** Chance card!"
+                            
+                            if drawn_card["type"] == "virtual":
+                                col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                                if col != -1:
+                                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                            else:
+                                card_idx = drawn_card["index"]
+                                current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                                current_holders.append(chosen_team)
+                                await asyncio.to_thread(self.chance_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
+                        else:
+                            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 15_000_000)
+                            embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered correctly, but already holds every Chance card! He awards **15,000,000 GP** instead!"
 
                 elif chosen_buff == "arnav":
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
                     available_cards = [
-                        r for r in all_chest 
-                        if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        and not (str(r.get("Name", "")).strip().lower() == "protect item" and has_protect)
+                        {"type": "physical", "data": r, "index": all_chest.index(r) + 2} 
+                        for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
+                    # Inject virtual Protect Item
+                    if not has_protect:
+                        available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                        
                     if available_cards:
                         drawn_card = random.choice(available_cards)
-                        card_idx = all_chest.index(drawn_card) + 2
-                        current_holders = [t.strip() for t in str(drawn_card.get("Held By Team", "")).split(",") if t.strip()]
-                        current_holders.append(chosen_team)
-                        await asyncio.to_thread(self.chest_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
-                        
-                        drawn_card_name = str(drawn_card.get('Name', '')).strip()
+                        drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
                         embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** successfully cracked the combination! They have been granted a free **{drawn_card_name}** Chest card!"
                         
-                        if drawn_card_name.lower() == "protect item":
+                        if drawn_card["type"] == "virtual":
                             col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                 embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                        else:
+                            card_idx = drawn_card["index"]
+                            current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                            current_holders.append(chosen_team)
+                            await asyncio.to_thread(self.chest_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
                     else:
                         await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
                         embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** opened the chest but already has all the cards! They found **10,000,000 GP** instead!"
@@ -4320,25 +4349,28 @@ class MonopolyCog(commands.Cog):
                 elif chosen_buff == "oldman":
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
                     available_cards = [
-                        r for r in all_chance 
-                        if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        and not (str(r.get("Name", "")).strip().lower() == "protect item" and has_protect)
+                        {"type": "physical", "data": r, "index": all_chance.index(r) + 2} 
+                        for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
+                    # Inject virtual Protect Item
+                    if not has_protect:
+                        available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                        
                     if available_cards:
                         drawn_card = random.choice(available_cards)
-                        card_idx = all_chance.index(drawn_card) + 2
-                        current_holders = [t.strip() for t in str(drawn_card.get("Held By Team", "")).split(",") if t.strip()]
-                        current_holders.append(chosen_team)
-                        await asyncio.to_thread(self.chance_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
-                        
-                        drawn_card_name = str(drawn_card.get('Name', '')).strip()
+                        drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
                         embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** successfully solved the Strange Box! They have been granted a free **{drawn_card_name}** Chance card!"
                         
-                        if drawn_card_name.lower() == "protect item":
+                        if drawn_card["type"] == "virtual":
                             col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                 embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                        else:
+                            card_idx = drawn_card["index"]
+                            current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                            current_holders.append(chosen_team)
+                            await asyncio.to_thread(self.chance_sheet.update_cell, card_idx, 3, ", ".join(current_holders))
                     else:
                         await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
                         embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** solved the box but already has all the cards! They found **10,000,000 GP** inside instead!"
@@ -4356,34 +4388,40 @@ class MonopolyCog(commands.Cog):
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
                     
-                    unowned_cards = [
-                        {"sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} 
-                        for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        and not (str(r.get("Name", "")).strip().lower() == "protect item" and has_protect)
-                    ] + [
-                        {"sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} 
-                        for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        and not (str(r.get("Name", "")).strip().lower() == "protect item" and has_protect)
-                    ]
+                    # Count total owned physical cards + 1 if they have Protect Item
+                    owned_count = sum(1 for r in all_chance + all_chest if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")])
+                    if has_protect: owned_count += 1
                     
-                    if len(unowned_cards) == len(all_chance) + len(all_chest):
+                    if owned_count == 0:
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                         embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut notices **{chosen_team}** has empty pockets and takes pity on them. He awards them a **Free Dice Roll**!"
                     else:
+                        unowned_cards = [
+                            {"type": "physical", "sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} 
+                            for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                        ] + [
+                            {"type": "physical", "sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} 
+                            for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                        ]
+                        
+                        # Inject virtual Protect Item
+                        if not has_protect:
+                            unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                            
                         if unowned_cards:
                             drawn_card = random.choice(unowned_cards)
-                            current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
-                            current_holders.append(chosen_team)
-                            await asyncio.to_thread(drawn_card["sheet"].update_cell, drawn_card["row"], 3, ", ".join(current_holders))
-                            
                             drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
                             embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card_name}** card!"
                             
-                            if drawn_card_name.lower() == "protect item":
+                            if drawn_card["type"] == "virtual":
                                 col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
                                 if col != -1:
                                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
                                     embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                            else:
+                                current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                                current_holders.append(chosen_team)
+                                await asyncio.to_thread(drawn_card["sheet"].update_cell, drawn_card["row"], 3, ", ".join(current_holders))
                         else:
                             await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
                             embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, but they already know everything! He awards them a **10,000,000 GP** scholarship instead!"
@@ -4392,7 +4430,7 @@ class MonopolyCog(commands.Cog):
                     boost = int(current_gp * 0.15)
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + boost)
                     embed_desc = f"🧞 **The Genie!**\n*\"A wish granted!\"* The Genie magically multiplies **{chosen_team}**'s wealth, granting them a permanent **15% boost** to their current GP stack (**+{boost:,} GP**)!"
-
+            
             embed = discord.Embed(title=event_title, description=embed_desc, color=embed_color)
             await channel.send(embed=embed)
             await self.mirror_to_game_log(channel, embed=embed)
