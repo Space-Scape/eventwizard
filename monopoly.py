@@ -4146,55 +4146,72 @@ class MonopolyCog(commands.Cog):
                              (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
                 ]
                 
-                # 🛑 Caster Guard - Must have ANOTHER card besides Smite!
-                if not other_caster_cards or not non_active_cards:
-                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because one team has no removable cards for the recoil destruction."
+                elif has_recoil:
+                caster_chest = self.get_held_cards(self.chest_sheet, team_name)
+                caster_chance = self.get_held_cards(self.chance_sheet, team_name)
+                all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
+                
+                card_sheet = extra_data.get("card_sheet")
+                card_row = extra_data.get("card_row")
+                
+                # Filter out the Rogue's Gloves card they just used so it can't be swapped
+                other_caster_cards = [
+                    c for c in all_caster
+                    if not ( (c in caster_chest and card_sheet == self.chest_sheet and c["row_index"] == card_row) or 
+                             (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
+                ]
+                
+                # 🛑 Caster Guard - Must have ANOTHER card besides Rogue's Gloves!
+                if not other_caster_cards:
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Steal failed because **{team_name}** has no other cards to swap."
                     if victim_channel:
-                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to steal from you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
                         await victim_channel.send(embed=fail_embed)
                         await self.mirror_to_game_log(victim_channel, embed=fail_embed)
                 else:
                     await self.consume_recoil(victim_team)
                     
-                    # Remove from target
-                    target_card = random.choice(non_active_cards)
-                    t_sheet = self.chest_sheet if target_card in victim_chest_cards else self.chance_sheet
-                    t_row = target_card['row_index']
+                    # Victim gives to Caster
+                    stolen_from_victim = random.choice(target_cards)
+                    v_sheet = stolen_from_victim["sheet"]
+                    v_row = stolen_from_victim["row_index"]
                     
-                    w_str = str(t_sheet.cell(t_row, 4).value or "{}")
+                    v_holders = str(v_sheet.cell(v_row, 3).value or "").split(",")
+                    v_holders = [h.strip() for h in v_holders if h.strip() and h.strip() != victim_team]
+                    v_holders.append(team_name)
+                    v_sheet.update_cell(v_row, 3, ", ".join(v_holders))
+                    
                     try:
-                        w_data = json.loads(w_str)
-                        w_data.pop(victim_team, None)
-                        t_sheet.update_cell(t_row, 4, json.dumps(w_data))
+                        v_wild_str = str(v_sheet.cell(v_row, 4).value or "{}")
+                        v_wild_data = json.loads(v_wild_str)
+                        vw = v_wild_data.pop(victim_team, None)
+                        if vw is not None: v_wild_data[team_name] = vw
+                        v_sheet.update_cell(v_row, 4, json.dumps(v_wild_data))
                     except: pass
-                    
-                    h_str = str(t_sheet.cell(t_row, 3).value or "")
-                    t_teams = [t.strip() for t in h_str.split(',') if t.strip()]
-                    if victim_team in t_teams: t_teams.remove(victim_team)
-                    t_sheet.update_cell(t_row, 3, ", ".join(t_teams))
-                    
-                    # Remove from caster (from their OTHER cards)
-                    caster_card = random.choice(other_caster_cards)
-                    c_sheet = self.chest_sheet if caster_card in caster_chest else self.chance_sheet
-                    c_row = caster_card['row_index']
-                    
-                    cw_str = str(c_sheet.cell(c_row, 4).value or "{}")
-                    try:
-                        cw_data = json.loads(cw_str)
-                        cw_data.pop(team_name, None)
-                        c_sheet.update_cell(c_row, 4, json.dumps(cw_data))
-                    except: pass
-                    
-                    ch_str = str(c_sheet.cell(c_row, 3).value or "")
-                    c_teams = [t.strip() for t in ch_str.split(',') if t.strip()]
-                    if team_name in c_teams: c_teams.remove(team_name)
-                    c_sheet.update_cell(c_row, 3, ", ".join(c_teams))
 
-                    embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{victim_team}** lost a card! (**{caster_card['name']}** and **{target_card['name']}**)"
+                    # Caster gives to Victim
+                    stolen_from_caster = random.choice(other_caster_cards)
+                    c_sheet = self.chest_sheet if stolen_from_caster in caster_chest else self.chance_sheet
+                    c_row = stolen_from_caster["row_index"]
+                    
+                    c_holders = str(c_sheet.cell(c_row, 3).value or "").split(",")
+                    c_holders = [h.strip() for h in c_holders if h.strip() and h.strip() != team_name]
+                    c_holders.append(victim_team)
+                    c_sheet.update_cell(c_row, 3, ", ".join(c_holders))
+
+                    try:
+                        c_wild_str = str(c_sheet.cell(c_row, 4).value or "{}")
+                        c_wild_data = json.loads(c_wild_str)
+                        cw = c_wild_data.pop(team_name, None)
+                        if cw is not None: c_wild_data[victim_team] = cw
+                        c_sheet.update_cell(c_row, 4, json.dumps(c_wild_data))
+                    except: pass
+
+                    embed_description += f"> 💍 **Recoil Triggered!** **{team_name}** tried to steal, but the ring forced a swap! **{team_name}** got **{stolen_from_victim['card_name']}**, and **{victim_team}** got **{stolen_from_caster['name']}**!"
                     
                     recoil_caster_embed = discord.Embed(
                         title="💍 Recoil Activated!", 
-                        description=f"You attacked a team wearing a **Ring of Recoil**!\nBoth your team and **{victim_team}** lost a card!\n\n🔴 You lost **{caster_card['name']}**.\n🟢 They lost **{target_card['name']}**.", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nInstead of a clean steal, the ring forced a mutual swap!\n\n🟢 You received **{stolen_from_victim['card_name']}**.\n🔴 You lost **{stolen_from_caster['name']}**.", 
                         color=discord.Color.dark_red()
                     )
                     await interaction.channel.send(embed=recoil_caster_embed)
@@ -4203,7 +4220,7 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="💍 Recoil Shattered!", 
-                            description=f"**{team_name}** tried to use **Smite** on you, but your **Ring of Recoil** triggered! Both teams lost a card!\n\n🔴 You lost **{target_card['name']}**.\n🟢 They lost **{caster_card['name']}**.", 
+                            description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Ring of Recoil** triggered! It forced a swap instead of a steal!\n\n🟢 You received **{stolen_from_caster['name']}**.\n🔴 You lost **{stolen_from_victim['card_name']}**.", 
                             color=discord.Color.green()
                         )
                         await victim_channel.send(embed=victim_embed)
