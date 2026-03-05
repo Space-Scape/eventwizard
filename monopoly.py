@@ -2598,6 +2598,20 @@ class MonopolyCog(commands.Cog):
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col_idx, "no")
         except Exception as e:
             print(f"❌ Error consuming Phoenix Necklace for {team_name}: {e}")
+
+    async def consume_charos(self, team_name: str):
+        """Shatters the Ring of Charos (a) after halving a house purchase cost."""
+        try:
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            headers = list(records[0].keys()) if records else []
+            if "Ring of Charos" in headers:
+                team_info = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), None)
+                if team_info:
+                    team_row_idx = records.index(team_info) + 2
+                    col_idx = headers.index("Ring of Charos") + 1
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col_idx, "no")
+        except Exception as e:
+            print(f"❌ Error consuming Ring of Charos for {team_name}: {e}")
     
     def check_and_consume_alchemy(self, team_name: str) -> tuple[int, str]:
         """
