@@ -4065,8 +4065,8 @@ class MonopolyCog(commands.Cog):
         await interaction.channel.send(embed=final_embed)
         await self.mirror_to_game_log(interaction.channel, embed=final_embed)
 
-    async def trigger_passive_random_event(self, channel: discord.TextChannel, team_name: str):
-        """Silently handles a random event if the 5% spawn chance is met in /roll."""
+    async def trigger_passive_random_event(self, channel: discord.TextChannel, team_name: str, forced_event: str = None):
+        """Silently handles a random event if the 5% spawn chance is met, or forces one if requested."""
         try:
             records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
@@ -4076,16 +4076,6 @@ class MonopolyCog(commands.Cog):
             chosen_team = str(team_info.get("Team")).strip()
             team_row_idx = records.index(team_info) + 2
             
-            try:
-                victim_mult = float(team_info.get("Multiplier", 1))
-            except ValueError:
-                victim_mult = 1.0
-
-            nerf_chance = max(5.0, min(95.0, 50.0 + ((victim_mult - 3.0) * 5.0)))
-            buff_chance = 100.0 - nerf_chance
-            
-            event_type = random.choices(["nerf", "buff"], weights=[nerf_chance, buff_chance], k=1)[0]
-            
             headers = list(records[0].keys())
             gp_col = headers.index("GP") + 1 if "GP" in headers else -1
             current_gp = int(str(team_info.get("GP", 0)).replace(',', ''))
@@ -4093,7 +4083,42 @@ class MonopolyCog(commands.Cog):
 
             embed_desc = ""
             event_title = ""
+            
+            nerf_pool = ["dwarf", "whirlpool", "ents", "gravedigger", "sandwich", "jekyll", "demon", "plant", "beekeeper", "mime", "maze", "pete", "bob", "twin"]
+            buff_pool = ["certers", "arnav", "oldman", "frog", "countcheck", "exam", "genie", "postie", "pinball", "sandwich_good", "turpentine", "quiz"]
+
+            if forced_event:
+                if forced_event in nerf_pool:
+                    event_type = "nerf"
+                    chosen_nerf = forced_event
+                elif forced_event in buff_pool:
+                    event_type = "buff"
+                    chosen_buff = forced_event
+                else:
+                    print(f"❌ Invalid forced event: {forced_event}")
+                    return
+            else:
+                # Normal Random Logic
+                try:
+                    victim_mult = float(team_info.get("Multiplier", 1))
+                except ValueError:
+                    victim_mult = 1.0
+
+                nerf_chance = max(5.0, min(95.0, 50.0 + ((victim_mult - 3.0) * 5.0)))
+                buff_chance = 100.0 - nerf_chance
+                
+                event_type = random.choices(["nerf", "buff"], weights=[nerf_chance, buff_chance], k=1)[0]
+                
+                if event_type == "nerf":
+                    chosen_nerf = random.choice(nerf_pool)
+                else:
+                    chosen_buff = random.choice(buff_pool)
+
             embed_color = discord.Color.red() if event_type == "nerf" else discord.Color.green()
+
+            # ==========================================
+            # 🔴 NERF MECHANICS
+            # ==========================================
 
             if event_type == "nerf":
                 event_title = "😈 A Disastrous Random Event Appears!"
@@ -4438,6 +4463,47 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error in trigger_passive_random_event: {e}")
 
+    @app_commands.command(name="force_event", description="[Staff] Force a specific random event for testing.")
+    @app_commands.describe(team_role="The team to trigger the event for", event_id="The event to test (Start typing to see list)")
+    async def force_event(self, interaction: discord.Interaction, team_role: discord.Role, event_id: str):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+            return
+
+        team_name = team_role.name
+        if team_name not in ACTIVE_TEAMS:
+            await interaction.response.send_message(f"❌ Please select a valid Team role. ({team_name} is not active).", ephemeral=True)
+            return
+
+        team_chan = self.get_team_channel(team_name)
+        if not team_chan:
+            await interaction.response.send_message(f"❌ Could not find the text channel for {team_name}.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Trigger the event and pass the requested ID directly to the engine
+            await self.trigger_passive_random_event(team_chan, team_name, forced_event=event_id)
+            await interaction.followup.send(f"✅ Successfully forced the `{event_id}` event for **{team_name}** in their channel.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error forcing event: {e}")
+
+    @force_event.autocomplete('event_id')
+    async def force_event_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        # All valid internal IDs
+        events = [
+            "dwarf", "whirlpool", "ents", "gravedigger", "sandwich", "jekyll", "demon", "plant", 
+            "beekeeper", "mime", "maze", "pete", "bob", "twin",
+            "certers", "arnav", "oldman", "frog", "countcheck", "exam", "genie", "postie", 
+            "pinball", "sandwich_good", "turpentine", "quiz"
+        ]
+        # Return matches based on what the user has typed so far (Caps at 25 results to obey Discord limits)
+        return [
+            app_commands.Choice(name=event, value=event)
+            for event in events if current.lower() in event.lower()
+        ][:25]
+    
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         """Listens for manual Discord role changes and updates the team list automatically."""
