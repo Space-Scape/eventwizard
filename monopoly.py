@@ -4412,44 +4412,31 @@ class MonopolyCog(commands.Cog):
                 elif chosen_buff == "exam":
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
-                    
-                    # Count total owned physical cards + 1 if they have Protect Item
-                    owned_count = sum(1 for r in all_chance + all_chest if chosen_team in [t.strip() for t in str(r.get("Held By Team", "")).split(",")])
-                    if has_protect: owned_count += 1
-                    
-                    if owned_count == 0:
+                    unowned_cards = [
+                        {"type": "physical", "sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} 
+                        for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                    ] + [
+                        {"type": "physical", "sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} 
+                        for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
+                    ]
+                    if not has_protect:
+                        unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                    if not unowned_cards:
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
-                        embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut notices **{chosen_team}** has empty pockets and takes pity on them. He awards them a **Free Dice Roll**!"
+                        embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut is stunned—**{chosen_team}** already knows everything! He awards them a **Free Dice Roll** for their perfect score!"
                     else:
-                        unowned_cards = [
-                            {"type": "physical", "sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} 
-                            for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        ] + [
-                            {"type": "physical", "sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} 
-                            for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
-                        ]
-                        
-                        # Inject virtual Protect Item
-                        if not has_protect:
-                            unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
-                            
-                        if unowned_cards:
-                            drawn_card = random.choice(unowned_cards)
-                            drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
-                            embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card_name}** card!"
-                            
-                            if drawn_card["type"] == "virtual":
-                                col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
-                                if col != -1:
-                                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
-                            else:
-                                current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
-                                current_holders.append(chosen_team)
-                                await asyncio.to_thread(drawn_card["sheet"].update_cell, drawn_card["row"], 3, ", ".join(current_holders))
+                        drawn_card = random.choice(unowned_cards)
+                        drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
+                        embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card_name}** card!"
+                        if drawn_card["type"] == "virtual":
+                            col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                            if col != -1:
+                                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
+                                embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
                         else:
-                            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
-                            embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, but they already know everything! He awards them a **10,000,000 GP** scholarship instead!"
+                            current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
+                            current_holders.append(chosen_team)
+                            await asyncio.to_thread(drawn_card["sheet"].update_cell, drawn_card["row"], 3, ", ".join(current_holders))
 
                 elif chosen_buff == "genie":
                     boost = int(current_gp * 0.15)
