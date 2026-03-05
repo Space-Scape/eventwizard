@@ -1692,6 +1692,11 @@ class MonopolyCog(commands.Cog):
     async def auto_post_show_drops_if_boss_tile(self, team_name: str, position: int):
         """Auto-post the /show_drops embed in a team's channel if the tile has boss drops."""
         try:
+            if position == 10:
+                is_in_jail = await asyncio.to_thread(self.get_jail_status, team_name)
+                if is_in_jail != "yes":
+                    return
+
             team_chan = self.get_team_channel(team_name)
             if not team_chan:
                 return
