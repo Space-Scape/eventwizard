@@ -4414,24 +4414,20 @@ class MonopolyCog(commands.Cog):
         return None
 
     async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
-        """Calculates team caps, hardcoded to a maximum of 19 players."""
-        try:
-            max_team_size = 19
+        """Calculates team caps, permanently hardcoded to a maximum of 19 players."""
+        capacity_data = {}
+        
+        for team_name in ACTIVE_TEAMS:
+            role = discord.utils.get(guild.roles, name=team_name)
+            current_size = len(role.members) if role else 0
             
-            capacity_data = {}
-            for team_name in ACTIVE_TEAMS:
-                role = discord.utils.get(guild.roles, name=team_name)
-                current_size = len(role.members) if role else 0
-                
-                capacity_data[team_name] = {
-                    "current": current_size,
-                    "max": max_team_size,
-                    "is_full": current_size >= max_team_size
-                }
-            return capacity_data
-        except Exception as e:
-            print(f"❌ Error calculating capacities: {e}")
-            return {team: {"current": 0, "max": 19, "is_full": False} for team in ACTIVE_TEAMS}
+            capacity_data[team_name] = {
+                "current": current_size,
+                "max": 19,
+                "is_full": current_size >= 19
+            }
+            
+        return capacity_data
             
     class CaptainApprovalView(ui.View):
         def __init__(self, cog, target_member: discord.Member, team_name: str):
@@ -4901,7 +4897,7 @@ class MonopolyCog(commands.Cog):
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
-
+        
     @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
     @app_commands.describe(
         player="The player who wants to join the team", 
