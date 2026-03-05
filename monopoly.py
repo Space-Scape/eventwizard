@@ -1036,12 +1036,14 @@ class MonopolyCog(commands.Cog):
 
                 # --- ROLL GRANTING LOGIC ---
                 try:
-                    # Refresh records for roll check
-                    records = self.cog.team_data_sheet.get_all_records()
+                    # Refresh records for roll check and grab jail status
+                    records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     current_tile = None
+                    is_in_jail = False
                     for record in records:
                         if record.get("Team") == team_name:
                             current_tile = int(record.get("Position", 0))
+                            is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
                             break
                     
                     tile_boss_map = {
@@ -1058,11 +1060,19 @@ class MonopolyCog(commands.Cog):
 
                     bosses_for_tile = tile_boss_map.get(current_tile, [])
                     if self.boss in bosses_for_tile:
-                        self.cog.increment_rolls_available(team_name)
+                        # 1. Grant the Roll
+                        await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
+                        
+                        # 2. Check for Jailbreak!
+                        extra_jail_text = ""
+                        if current_tile == 10 and is_in_jail:
+                            await asyncio.to_thread(self.cog.set_jail_status, team_name, "no")
+                            extra_jail_text = "\n\n⛓️ **Jailbreak!** Your team has completed their sentence and is no longer In Jail!"
+
                         if team_chan:
                             roll_grant_embed = discord.Embed(
                                 title="🎲 Roll Granted!",
-                                description=f"Your team landed a drop at **{self.boss}**! A free roll has been granted!",
+                                description=f"Your team landed a drop at **{self.boss}**! A free roll has been granted!{extra_jail_text}",
                                 color=discord.Color.green()
                             )
                             await team_chan.send(embed=roll_grant_embed)
