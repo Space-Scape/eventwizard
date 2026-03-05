@@ -5150,8 +5150,8 @@ class MonopolyCog(commands.Cog):
             
             capacity_data[team_name] = {
                 "current": current_size,
-                "max": 19,
-                "is_full": current_size >= 19
+                "max": 20,
+                "is_full": current_size >= 20
             }
             
         return capacity_data
