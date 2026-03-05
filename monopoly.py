@@ -49,7 +49,7 @@ TEAM_CHANNELS_MAP = {
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
-ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3", "Team 4"]
+ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3"]
 TEAM_LIST_CONFIG_FILE = "team_list_config.json"
 
 SIGNUP_LIST_CONFIG_FILE = "signup_list_config.json"
