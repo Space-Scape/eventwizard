@@ -4879,12 +4879,6 @@ class MonopolyCog(commands.Cog):
         embed.description = description
         embed.set_footer(text="Roster updates automatically as players are drafted!")
         return embed
-        
-    @app_commands.command(name="team_request_fix", description="[Staff] Manually generate a team request for a player to a specific captain.")
-    @app_commands.describe(
-        player="The player who wants to join the team", 
-        captain="The captain of the destination team"
-    )
 
-    async def setup(bot: commands.Bot):
-        await bot.add_cog(MonopolyCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(MonopolyCog(bot))
