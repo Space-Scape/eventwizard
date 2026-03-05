@@ -3971,6 +3971,7 @@ class MonopolyCog(commands.Cog):
         victim_channel = self.get_team_channel(target_team)
         card_emoji = CARD_EMOJIS.get(card_name, "🃏")
         embed_color = discord.Color.blue()
+        double_card_note = extra_data.get("double_card_note", "")
         
         loop = asyncio.get_event_loop()
 
