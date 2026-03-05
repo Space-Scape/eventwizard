@@ -4886,5 +4886,5 @@ class MonopolyCog(commands.Cog):
         captain="The captain of the destination team"
     )
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(MonopolyCog(bot))
+    async def setup(bot: commands.Bot):
+        await bot.add_cog(MonopolyCog(bot))
