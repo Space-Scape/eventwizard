@@ -3735,6 +3735,18 @@ class MonopolyCog(commands.Cog):
             stealable_cards = extra_data.get("stealable_cards", [])
             target_cards = [c for c in stealable_cards if c["victim_team"] == victim_team]
             
+            if not target_cards:
+                embed_description = f"<:rogue_gloves:1437979836881703074> **{team_name}** tried to pick **{victim_team}**'s pocket, but they have no removable items left!"
+                if victim_channel:
+                    fail_embed = discord.Embed(
+                        title="<:rogue_gloves:1437980096790134914> Rogue's Gloves Failed",
+                        description=f"**{team_name}** tried to steal from you, but you have no cards left to take!",
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=fail_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                return
+
             stolen_card = random.choice(target_cards)
             target_sheet = stolen_card["sheet"]
             target_row = stolen_card["row_index"]
