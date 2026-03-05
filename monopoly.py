@@ -49,7 +49,7 @@ TEAM_CHANNELS_MAP = {
 TEAM_CHANNEL_IDS_AS_STR = [str(cid) for cid in TEAM_CHANNELS_MAP.values()]
 
 TEAM_REQUEST_CHANNEL_ID = 1477919745176109220
-ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3"]
+ACTIVE_TEAMS = ["Team 1", "Team 2", "Team 3", "Team 4"]
 TEAM_LIST_CONFIG_FILE = "team_list_config.json"
 
 SIGNUP_LIST_CONFIG_FILE = "signup_list_config.json"
@@ -4594,6 +4594,7 @@ class MonopolyCog(commands.Cog):
             
             headers = list(records[0].keys())
             gp_col = headers.index("GP") + 1 if "GP" in headers else -1
+            pos_col = headers.index("Position") + 1 if "Position" in headers else -1
             current_gp = int(str(team_info.get("GP", 0)).replace(',', ''))
             
             if current_pos is None:
@@ -4693,6 +4694,7 @@ class MonopolyCog(commands.Cog):
                     new_pos = max(0, current_pos - spaces_back)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     event_final_pos = new_pos
+                    if pos_col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pos_col, new_pos)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🌀 **The Whirlpool!**\nA sudden whirlpool sucks **{chosen_team}** under! They wash up **{spaces_back}** spaces backwards on Tile **{new_pos}**!"
@@ -4702,6 +4704,7 @@ class MonopolyCog(commands.Cog):
                     spaces_back = random.randint(1, 6)
                     new_pos = max(0, current_pos - spaces_back)
                     event_final_pos = new_pos
+                    if pos_col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pos_col, new_pos)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🥖 **The Sandwich Lady!**\n*\"You picked the wrong sandwich!\"* She whacks **{chosen_team}** with a stale baguette! They are knocked **{spaces_back}** tiles backwards to Tile **{new_pos}**!"
@@ -4716,6 +4719,7 @@ class MonopolyCog(commands.Cog):
                     new_pos = max(0, current_pos - 2)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     event_final_pos = new_pos
+                    if pos_col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pos_col, new_pos)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🐝 **The Beekeeper!**\n**{chosen_team}** failed to build the hive and got swarmed! They panic and flee backwards **2 tiles** to Tile **{new_pos}**!"
@@ -4726,6 +4730,7 @@ class MonopolyCog(commands.Cog):
                     new_pos = max(0, current_pos - spaces_back)
                     if hasattr(self, "resolve_nonroll_landing_tile"): new_pos = self.resolve_nonroll_landing_tile(new_pos)
                     event_final_pos = new_pos
+                    if pos_col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pos_col, new_pos)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     embed_desc = f"🧭 **The Mysterious Old Man's Maze!**\n**{chosen_team}** is dragged into the maze and completely loses their sense of direction! They eventually stumble out **{spaces_back}** spaces backwards, ending up on Tile **{new_pos}**!"
@@ -4734,6 +4739,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "pete":
                     new_pos = 10
                     event_final_pos = new_pos
+                    if pos_col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pos_col, new_pos)
                     if new_pos == 0: await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                     await asyncio.to_thread(self.log_command, chosen_team, "/card_effect_set_tile", {"team": chosen_team, "tile": new_pos})
                     if hasattr(self, "set_jail_status"): await asyncio.to_thread(self.set_jail_status, chosen_team, "yes")
