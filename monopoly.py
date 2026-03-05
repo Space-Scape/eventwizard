@@ -3739,7 +3739,23 @@ class MonopolyCog(commands.Cog):
             target_sheet = stolen_card["sheet"]
             target_row = stolen_card["row_index"]
 
-            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
+            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            victim_info = next((r for r in team_records if r.get("Team") == victim_team), {})
+            has_protect = str(victim_info.get("Protect Item", "no")).strip().lower() == "yes"
+
+            if has_protect:
+                await self.consume_protect_item(victim_team)
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:inventory:1437979836881703074> But **{victim_team}**'s Protect Item prayer activated! The steal was blocked."
+                if victim_channel:
+                    protect_embed = discord.Embed(
+                        title="<:inventory:1437979836881703074> Protect Item Activated!",
+                        description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Protect Item** prayer saved your card!",
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=protect_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=protect_embed)
+
+            elif await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
                 embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:redemption:1437979567900987493> But **{victim_team}**'s Redemption activated!"
                 if victim_channel:
                     fizzle_embed = discord.Embed(
@@ -3826,7 +3842,6 @@ class MonopolyCog(commands.Cog):
                     color=discord.Color.dark_red()
                 )
                 await interaction.channel.send(embed=skull_embed)
-
                 await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
 
                 if victim_channel:
@@ -3836,7 +3851,6 @@ class MonopolyCog(commands.Cog):
                         color=discord.Color.dark_red()
                     )
                     await victim_channel.send(embed=victim_embed)
-
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
             
             else:
@@ -3867,7 +3881,6 @@ class MonopolyCog(commands.Cog):
                         color=discord.Color.dark_red()
                     )
                     await victim_channel.send(embed=victim_embed)
-
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
         elif action == "pickpocket":
@@ -3885,7 +3898,22 @@ class MonopolyCog(commands.Cog):
             target_row_idx = all_teams_data.index(target_record) + 2
             caster_row_idx = all_teams_data.index(caster_record) + 2
 
-            if await asyncio.to_thread(self.check_and_consume_redemption, target_team):
+            # --- 🛡️ NEW: Check Protect Item First ---
+            has_protect = str(target_record.get("Protect Item", "no")).strip().lower() == "yes"
+
+            if has_protect:
+                await self.consume_protect_item(target_team)
+                embed_description += f"> <:inventory:1437979836881703074> **{target_team}**'s Protect Item prayer activated! The Pickpocket was blocked."
+                if victim_channel:
+                    protect_embed = discord.Embed(
+                        title="<:inventory:1437979836881703074> Protect Item Activated!", 
+                        description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Protect Item** prayer saved your GP!", 
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=protect_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=protect_embed)
+
+            elif await asyncio.to_thread(self.check_and_consume_redemption, target_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The Pickpocket fizzled."
                 if victim_channel:
                     fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Redemption** activated!", color=discord.Color.blue())
@@ -3944,7 +3972,23 @@ class MonopolyCog(commands.Cog):
             
             non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
 
-            if await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
+            team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            victim_info = next((r for r in team_records if r.get("Team") == victim_team), {})
+            has_protect = str(victim_info.get("Protect Item", "no")).strip().lower() == "yes"
+
+            if has_protect:
+                await self.consume_protect_item(victim_team)
+                embed_description += f"> <:inventory:1437979836881703074> **{victim_team}**'s Protect Item prayer activated! The Smite was blocked."
+                if victim_channel:
+                    protect_embed = discord.Embed(
+                        title="<:inventory:1437979836881703074> Protect Item Activated!", 
+                        description=f"**{team_name}** tried to use **Smite** on you, but your **Protect Item** prayer saved your inventory!", 
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=protect_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=protect_embed)
+
+            elif await asyncio.to_thread(self.check_and_consume_redemption, victim_team):
                 embed_description += f"> <:redemption:1437979567900987493> **{victim_team}**'s Redemption activated!"
                 if victim_channel:
                     fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Redemption** activated!", color=discord.Color.blue())
@@ -4010,31 +4054,41 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             else:
-                card_to_remove = random.choice(non_active_cards)
-                remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
-                remove_row = card_to_remove['row_index']
+                if not non_active_cards:
+                    embed_description += f"> **{victim_team}** has no removable cards! The Smite had no effect."
+                    if victim_channel:
+                        fail_embed = discord.Embed(
+                            title="🛡️ Smite Failed!",
+                            description=f"**{team_name}** tried to Smite you, but you have no cards to lose!",
+                            color=discord.Color.blue()
+                        )
+                        await victim_channel.send(embed=fail_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                else:
+                    card_to_remove = random.choice(non_active_cards)
+                    remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
+                    remove_row = card_to_remove['row_index']
 
-                wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
-                try:
-                    wildcard_data = json.loads(wildcard_str)
-                    wildcard_data.pop(victim_team, None)
-                    remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                except Exception as e:
-                    print(f"❌ Error clearing wildcard on Smite: {e}")
+                    wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
+                    try:
+                        wildcard_data = json.loads(wildcard_str)
+                        wildcard_data.pop(victim_team, None)
+                        remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
+                    except Exception as e:
+                        print(f"❌ Error clearing wildcard on Smite: {e}")
+                        
+                    held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
+                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                    if victim_team in teams:
+                        teams.remove(victim_team)
+                    remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
+
+                    embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
                     
-                held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
-                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                if victim_team in teams:
-                    teams.remove(victim_team)
-                remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
-
-                embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
-                
-                if victim_channel:
-                    victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
-                    await victim_channel.send(embed=victim_embed)
-
-                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+                    if victim_channel:
+                        victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
         card_sheet = extra_data.get("card_sheet")
         card_row = extra_data.get("card_row")
