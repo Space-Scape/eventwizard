@@ -956,7 +956,30 @@ class MonopolyCog(commands.Cog):
                                 tax_map = {1: 0.20, 2: 0.40, 3: 0.60, 4: 0.80}
                                 tax_percent = tax_map.get(house_count, 0)
                                 tax_amount = int(final_gp_value * tax_percent)
-                                final_gp_value -= tax_amount
+                                
+                                has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+                                
+                                if has_phoenix and tax_amount > 0:
+                                    await self.cog.consume_phoenix_necklace(team_name)
+                                    blocked_tax = tax_amount
+                                    tax_amount = 0
+                                    
+                                    phoenix_msg = (
+                                        f"<:pneck:1469359523989819392> **Phoenix Necklace Shattered!** **{team_name}** was about to pay "
+                                        f"**{blocked_tax:,} GP** in taxes to **{owner_team}**, but the necklace completely absorbed the blow!"
+                                    )
+                                    
+                                    if team_chan:
+                                        await team_chan.send(phoenix_msg)
+                                        await self.cog.mirror_to_game_log(team_chan, content=phoenix_msg, team_name=team_name)
+                                        
+                                    owner_team_chan = self.cog.get_team_channel(owner_team)
+                                    if owner_team_chan:
+                                        await owner_team_chan.send(phoenix_msg)
+                                        await self.cog.mirror_to_game_log(owner_team_chan, content=phoenix_msg, team_name=owner_team)
+                                else:
+                                    # Normal tax deduction
+                                    final_gp_value -= tax_amount
 
                         headers = self.cog.team_data_sheet.row_values(1)
                         try:
@@ -2145,20 +2168,9 @@ class MonopolyCog(commands.Cog):
 
             # ---> INJECT THE VIRTUAL PASSIVES (Only if they have NONE) <---
             if not has_any_passive:
-                eligible_cards.append({
-                    "type": "virtual",
-                    "data": {
-                        "Name": "Protect Item", 
-                        "Card Text": "Passive - Can't be used. Saves a player from item losses until one occurs."
-                    }
-                })
-                eligible_cards.append({
-                    "type": "virtual",
-                    "data": {
-                        "Name": "Ring of Recoil", 
-                        "Card Text": "Passive - Dealing with you has a price. Attacking this team causes the effect to trigger on both teams."
-                    }
-                })
+                eligible_cards.append({"type": "virtual", "data": {"Name": "Protect Item", "Card Text": "Passive - Can't be used. Saves a player from item losses until one occurs."}})
+                eligible_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil", "Card Text": "Passive - Dealing with you has a price. Attacking this team causes the effect to trigger on both teams."}})
+                eligible_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace", "Card Text": "Passive - Can't be used. Automatically shatters to absorb your next rent payment."}})
 
             if not eligible_cards:
                 await team_channel.send(f"❗ **{team_name}** tried to draw a {card_type} card, but they already hold every available card in the deck!")
@@ -2504,7 +2516,21 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error consuming Ring of Recoil for {team_name}: {e}")
             traceback.print_exc()
-        
+
+    async def consume_phoenix_necklace(self, team_name: str):
+        """Shatters the Phoenix Necklace after absorbing a rent payment."""
+        try:
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            headers = list(records[0].keys()) if records else []
+            if "Phoenix Necklace" in headers:
+                team_info = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), None)
+                if team_info:
+                    team_row_idx = records.index(team_info) + 2
+                    col_idx = headers.index("Phoenix Necklace") + 1
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col_idx, "no")
+        except Exception as e:
+            print(f"❌ Error consuming Phoenix Necklace for {team_name}: {e}")
+    
     def check_and_consume_alchemy(self, team_name: str) -> tuple[int, str]:
         """
         Checks if a team has an active Alchemy card across both card sheets.
@@ -2736,13 +2762,13 @@ class MonopolyCog(commands.Cog):
             team_record = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), {})
             is_protected = str(team_record.get("Protect Item", "no")).strip().lower() == "yes"
             has_recoil = str(team_record.get("Ring of Recoil", "no")).strip().lower() == "yes"
+            has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
         except Exception as e:
             print(f"❌ Error fetching passives status: {e}")
-            is_protected = False
-            has_recoil = False
+            is_protected, has_recoil, has_phoenix = False, False, False
 
         # 2. Check if the inventory is completely empty
-        if not chest_cards and not chance_cards and not is_protected and not has_recoil:
+        if not chest_cards and not chance_cards and not is_protected and not has_recoil and not has_phoenix:
             await interaction.followup.send("❌ Your team holds no cards and has no active passives.", ephemeral=True)
             return
 
@@ -2757,7 +2783,9 @@ class MonopolyCog(commands.Cog):
         if is_protected:
             passives_text += "<:inventory:1437979836881703074> **Protect Item**\n*This prayer is active and will automatically block the next effect that steals your GP or cards.*\n\n"
         if has_recoil:
-            passives_text += "💍 **Ring of Recoil**\n*Dealing with you has a price. Attacking this team causes the effect to trigger on both teams.*\n\n"
+            passives_text += "💍 **Ring of Recoil**\n*Speak of mutually assured destruction... Affects triggered on you are also triggered to the attacker.*\n\n"
+        if has_phoenix:
+            passives_text += "<:pneck:1469359523989819392> **Phoenix Necklace**\n*This necklace will completely absorb the next rent payment you owe to another team before shattering.*\n\n"
 
         if passives_text:
             embed.add_field(
@@ -2788,6 +2816,7 @@ class MonopolyCog(commands.Cog):
                 )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+    
     @app_commands.command(name="use_card", description="Use a held card by its index from /cards")
     @app_commands.describe(index="The index of the card you want to use (starts at 1)")
     async def use_card(self, interaction: discord.Interaction, index: int):
@@ -4511,7 +4540,9 @@ class MonopolyCog(commands.Cog):
                 # --- PASSIVE CHECKS ---
                 has_protect = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
                 has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
-                has_any_passive = has_protect or has_recoil
+                has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+            
+                has_any_passive = has_protect or has_recoil or has_phoenix
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
