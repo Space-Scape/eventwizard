@@ -4414,28 +4414,10 @@ class MonopolyCog(commands.Cog):
         return None
 
     async def get_team_capacity_limits(self, guild: discord.Guild) -> dict:
-        """Calculates dynamic team caps based on the Signups sheet (Row 10 and below)."""
+        """Calculates team caps, hardcoded to a maximum of 19 players."""
         try:
-            # Get raw values to bypass header parsing and slice exactly at Row 10
-            values = await asyncio.to_thread(self.signup_sheet.get_all_values)
+            max_team_size = 19
             
-            total_draftable_players = 0
-            
-            # values[9:] grabs everything from Row 10 downwards (0-indexed)
-            if len(values) >= 10:
-                for row in values[9:]:
-                    # Check if the row actually contains data (a name) to prevent counting empty rows
-                    if any(str(cell).strip() for cell in row):
-                        total_draftable_players += 1
-            
-            active_captains = len(ACTIVE_TEAMS)
-            if active_captains == 0: 
-                active_captains = 1 
-                
-            max_non_captains_per_team = math.ceil(total_draftable_players / active_captains)
-            
-            max_team_size = max_non_captains_per_team + 2
-
             capacity_data = {}
             for team_name in ACTIVE_TEAMS:
                 role = discord.utils.get(guild.roles, name=team_name)
@@ -4446,11 +4428,10 @@ class MonopolyCog(commands.Cog):
                     "max": max_team_size,
                     "is_full": current_size >= max_team_size
                 }
-                
             return capacity_data
         except Exception as e:
             print(f"❌ Error calculating capacities: {e}")
-            return {team: {"current": 0, "max": 99, "is_full": False} for team in ACTIVE_TEAMS}
+            return {team: {"current": 0, "max": 19, "is_full": False} for team in ACTIVE_TEAMS}
             
     class CaptainApprovalView(ui.View):
         def __init__(self, cog, target_member: discord.Member, team_name: str):
@@ -4888,22 +4869,13 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error saving team list config: {e}")
 
     def build_team_list_embed(self, guild: discord.Guild, capacities: dict) -> discord.Embed:
-        """Constructs the roster embed and adds a Lock icon if manual limits are active."""
-        # Check lock status from config
-        config = self.load_team_list_config()
-        is_locked = "manual_max_size" in config
-        
-        title_text = "🏆 Official Team Roster"
-        if is_locked:
-            title_text += f" 🔒 (Locked)"
-        
-        embed = discord.Embed(title=title_text, color=discord.Color.gold())
-        
+        """Constructs the roster embed showing all teams."""
+        embed = discord.Embed(title="🏆 Official Team Roster", color=discord.Color.gold())
         description = ""
 
         for team_name in ACTIVE_TEAMS:
             role = discord.utils.get(guild.roles, name=team_name)
-            cap_data = capacities.get(team_name, {"current": 0, "max": 99, "is_full": False})
+            cap_data = capacities.get(team_name, {"current": 0, "max": 19, "is_full": False})
             
             cap_status = " 🔴 (FULL)" if cap_data["is_full"] else ""
             
