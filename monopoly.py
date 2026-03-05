@@ -1102,7 +1102,7 @@ class MonopolyCog(commands.Cog):
                                     "Protect Item": "<:inventory:1437979836881703074>", 
                                     "Ring of Recoil": "💍", 
                                     "Phoenix Necklace": "<:pneck:1469359523989819392>", 
-                                    "Ring of Charos": "🐈",
+                                    "Ring of Charos": "💕",
                                     "Ring of Stone": "🪨"
                                 }
                                 p_emoji = emoji_map.get(chosen_passive, "💎")
@@ -2255,7 +2255,7 @@ class MonopolyCog(commands.Cog):
             elif card_name == "Phoenix Necklace":
                 card_emoji = "<:pneck:1469359523989819392>"
             elif card_name == "Ring of Charos":
-                card_emoji = "🐈"
+                card_emoji = "💕"
             elif card_name == "Ring of Stone":
                 card_emoji = "🪨"
             else:
@@ -2287,7 +2287,7 @@ class MonopolyCog(commands.Cog):
                 elif card_name == "Phoenix Necklace":
                     await team_channel.send(f"<:pneck:1469359523989819392> **{team_name}** drew a **Phoenix Necklace**!\nThe necklace is now **ACTIVE** in your inventory and will absorb the next rent payment you owe!")
                 elif card_name == "Ring of Charos":
-                    await team_channel.send(f"🐈 **{team_name}** drew a **Ring of Charos (a)**!\nThe ring is now **ACTIVE** in your inventory and will halve the cost of your next house purchase!")
+                    await team_channel.send(f"💕 **{team_name}** drew a **Ring of Charos (a)**!\nThe ring is now **ACTIVE** in your inventory and will halve the cost of your next house purchase!")
                 elif card_name == "Ring of Stone":
                     await team_channel.send(f"🪨 **{team_name}** drew a **Ring of Stone**!\nThe ring is now **ACTIVE** in your inventory and will prevent the next card effect that tries to move or teleport you!")
 
@@ -4784,8 +4784,9 @@ class MonopolyCog(commands.Cog):
                 has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
                 has_phoenix = str(team_info.get("Phoenix Necklace", "no")).strip().lower() == "yes"
                 has_charos = str(team_info.get("Ring of Charos", "no")).strip().lower() == "yes"
+                has_stone = str(team_info.get("Ring of Stone", "no")).strip().lower() == "yes"
             
-                has_any_passive = has_protect or has_recoil or has_phoenix or has_charos
+                has_any_passive = has_protect or has_recoil or has_phoenix or has_charos or has_stone
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
@@ -4851,6 +4852,7 @@ class MonopolyCog(commands.Cog):
                             available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                             available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
                             available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
+                            available_cards.append({"type": "virtual", "data": {"Name": "Ring of Stone"}})
                             
                         if available_cards:
                             drawn_card = random.choice(available_cards)
@@ -4871,6 +4873,8 @@ class MonopolyCog(commands.Cog):
                                         embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
                                     elif drawn_card_name == "Ring of Charos":
                                         embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
+                                    elif drawn_card_name == "Ring of Stone":
+                                        embed_desc += f"\n\n🪨 The **Ring of Stone** is now **ACTIVE** in your inventory!"
                             else:
                                 card_idx = drawn_card["index"]
                                 current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4893,6 +4897,7 @@ class MonopolyCog(commands.Cog):
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Stone"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
@@ -4913,6 +4918,8 @@ class MonopolyCog(commands.Cog):
                                     embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
                                 elif drawn_card_name == "Ring of Charos":
                                     embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Stone":
+                                    embed_desc += f"\n\n🪨 The **Ring of Stone** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4935,6 +4942,7 @@ class MonopolyCog(commands.Cog):
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
                         available_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Stone"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
@@ -4955,6 +4963,8 @@ class MonopolyCog(commands.Cog):
                                     embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
                                 elif drawn_card_name == "Ring of Charos":
                                     embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Stone":
+                                    embed_desc += f"\n\n🪨 The **Ring of Stone** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4991,6 +5001,7 @@ class MonopolyCog(commands.Cog):
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Phoenix Necklace"}})
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Charos"}})
+                        unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Stone"}})
                     
                     if not unowned_cards:
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
@@ -5014,6 +5025,8 @@ class MonopolyCog(commands.Cog):
                                     embed_desc += f"\n\n<:pneck:1469359523989819392> The **Phoenix Necklace** is now **ACTIVE** in your inventory!"
                                 elif drawn_card_name == "Ring of Charos":
                                     embed_desc += f"\n\n💕 The **Ring of Charos (a)** is now **ACTIVE** in your inventory!"
+                                elif drawn_card_name == "Ring of Stone":
+                                    embed_desc += f"\n\n🪨 The **Ring of Stone** is now **ACTIVE** in your inventory!"
                         else:
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
                             current_holders.append(chosen_team)
