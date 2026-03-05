@@ -1086,7 +1086,9 @@ class MonopolyCog(commands.Cog):
                 # --- 💎 RARE DROP TABLE LOGIC ---
                 try:
                     rdt_chance = random.randint(1, 100)
-                    if rdt_chance <= 25 and team_name != "*No team*":
+                    print(f"🎲 RDT Roll for {team_name}: {rdt_chance} (Needs 1-10 to hit)")
+                    
+                    if rdt_chance <= 10 and team_name != "*No team*":
                         all_recs = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                         t_info = next((r for r in all_recs if r.get("Team") == team_name), {})
                         
@@ -1117,12 +1119,27 @@ class MonopolyCog(commands.Cog):
                                 }
                                 p_emoji = emoji_map.get(chosen_passive, "💎")
                                 
+                                # Pull the exact card text to display
+                                passive_descriptions = {
+                                    "Protect Item": "Passive - Saves a player from item losses until one occurs.",
+                                    "Ring of Recoil": "Passive - Affects triggered on you are also triggered to the attacker.",
+                                    "Phoenix Necklace": "Passive - Automatically shatters to absorb your next rent payment.",
+                                    "Ring of Charos": "Passive - Automatically halves the cost of your next house purchase.",
+                                    "Ring of Stone": "Passive - Automatically shatters to block forced movement or teleports."
+                                }
+                                card_text = passive_descriptions.get(chosen_passive, "")
+                                
                                 # Custom display name for flavor
                                 display_name = "Protect Item Scroll" if chosen_passive == "Protect Item" else ("Ring of Charos (a)" if chosen_passive == "Ring of Charos" else chosen_passive)
                                 
                                 rdt_embed = discord.Embed(
                                     title="💎 Rare Drop Table Hit!",
-                                    description=f"**{team_name}** got lucky on the RDT!\nAlong with your boss drop, you found a **{display_name}**!\n\n{p_emoji} The passive is now **ACTIVE** in your inventory.",
+                                    description=(
+                                        f"**{team_name}** got lucky on the RDT!\n"
+                                        f"Along with your boss drop, you found a **{display_name}**!\n\n"
+                                        f"> {card_text}\n\n"
+                                        f"{p_emoji} This item has been added to your inventory and is now **ACTIVE**. You can use `/cards` to view your current card inventory."
+                                    ),
                                     color=discord.Color.magenta()
                                 )
                                 if team_chan:
@@ -4795,12 +4812,12 @@ class MonopolyCog(commands.Cog):
                 has_any_passive = has_protect or has_recoil or has_phoenix or has_charos or has_stone
 
                 if chosen_buff == "certers":
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
-                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles unnote some rare items for **{chosen_team}**! They have been granted a massive injection of **30,000,000 GP**!"
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 20_000_000)
+                    embed_desc = f"📜 **The Certers!**\nNiles, Miles, and Giles unnote some rare items for **{chosen_team}**! They have been granted a massive injection of **20,000,000 GP**!"
 
                 elif chosen_buff == "postie":
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 20_000_000)
-                    embed_desc = f"💌 **Postie Pete!**\n*\"Special delivery!\"* Pete hands **{chosen_team}** a parcel filled with inheritance! They receive **20,000,000 GP**!"
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 10_000_000)
+                    embed_desc = f"💌 **Postie Pete!**\n*\"Special delivery!\"* Pete hands **{chosen_team}** a parcel filled with inheritance! They receive **10,000,000 GP**!"
 
                 elif chosen_buff == "pinball":
                     col = headers.index("GP Doubled") + 1 if "GP Doubled" in headers else -1
