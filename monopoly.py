@@ -4130,23 +4130,8 @@ class MonopolyCog(commands.Cog):
                     victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.", color=discord.Color.dark_red())
                     await victim_channel.send(embed=victim_embed)
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-            
+                
             elif has_recoil:
-                caster_chest = self.get_held_cards(self.chest_sheet, team_name)
-                caster_chance = self.get_held_cards(self.chance_sheet, team_name)
-                all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
-                
-                card_sheet = extra_data.get("card_sheet")
-                card_row = extra_data.get("card_row")
-
-                # Filter out the Smite card they just used so it can't be destroyed by recoil
-                other_caster_cards = [
-                    c for c in all_caster
-                    if not ( (c in caster_chest and card_sheet == self.chest_sheet and c["row_index"] == card_row) or 
-                             (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
-                ]
-                
-                elif has_recoil:
                 caster_chest = self.get_held_cards(self.chest_sheet, team_name)
                 caster_chance = self.get_held_cards(self.chance_sheet, team_name)
                 all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
