@@ -2119,9 +2119,13 @@ class MonopolyCog(commands.Cog):
             rows = await asyncio.to_thread(card_sheet.get_all_records)
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             
-            # Check if they already have the Protect Item prayer active
+            # Check if they already have ANY passive active
             team_info = next((r for r in team_records if r.get("Team") == team_name), {})
             has_protect_item = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
+            has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
+            
+            # ---> THE 1-PASSIVE LIMIT <---
+            has_any_passive = has_protect_item or has_recoil
 
             # 2. Build the Deck
             eligible_cards = []
@@ -2139,12 +2143,20 @@ class MonopolyCog(commands.Cog):
                             "teams_holding": teams_holding
                         })
 
-            if not has_protect_item:
+            # ---> INJECT THE VIRTUAL PASSIVES (Only if they have NONE) <---
+            if not has_any_passive:
                 eligible_cards.append({
                     "type": "virtual",
                     "data": {
                         "Name": "Protect Item", 
                         "Card Text": "Passive - Can't be used. Saves a player from item losses until one occurs."
+                    }
+                })
+                eligible_cards.append({
+                    "type": "virtual",
+                    "data": {
+                        "Name": "Ring of Recoil", 
+                        "Card Text": "Passive - Dealing with you has a price. Attacking this team causes the effect to trigger on both teams."
                     }
                 })
 
@@ -2157,16 +2169,24 @@ class MonopolyCog(commands.Cog):
             card_data = chosen_card["data"]
             card_name = card_data.get("Name", "Unknown Card")
             card_text = card_data.get("Card Text", "")
-            card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type, "🃏"))
+            
+            if card_name == "Ring of Recoil":
+                card_emoji = "💍"
+            elif card_name == "Protect Item":
+                card_emoji = "<:inventory:1437979836881703074>"
+            else:
+                card_emoji = CARD_EMOJIS.get(card_name, CARD_EMOJIS.get(card_type, "🃏"))
             
             # 4. Handle based on type
             if chosen_card["type"] == "virtual":
-                # --- VIRTUAL CARD LOGIC (PROTECT ITEM) ---
+                # --- VIRTUAL CARD LOGIC (PASSIVES) ---
                 team_row_idx = team_records.index(team_info) + 2
                 headers = list(team_records[0].keys()) if team_records else []
-                if "Protect Item" in headers:
-                    prot_col = headers.index("Protect Item") + 1
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, prot_col, "yes")
+                
+                # Dynamically update whichever passive they drew
+                if card_name in headers:
+                    passive_col = headers.index(card_name) + 1
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, passive_col, "yes")
                     
                 embed = discord.Embed(
                     title=f"{card_emoji} {card_type} Card Drawn!",
@@ -2174,7 +2194,12 @@ class MonopolyCog(commands.Cog):
                     color=discord.Color.gold() if card_type == "Chest" else discord.Color.blue()
                 )
                 await team_channel.send(embed=embed)
-                await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew **Protect Item**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
+                
+                # Send specific confirmation messages
+                if card_name == "Protect Item":
+                    await team_channel.send(f"<:inventory:1437979836881703074> **{team_name}** drew **Protect Item**!\nThe prayer is now **ACTIVE** in your inventory and will automatically block the next effect that steals your GP or cards!")
+                else:
+                    await team_channel.send(f"💍 **{team_name}** drew a **Ring of Recoil**!\nThe ring is now **ACTIVE** in your inventory and will force the next team that attacks you to suffer the same fate!")
 
             else:
                 # --- PHYSICAL CARD LOGIC ---
@@ -2458,6 +2483,28 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error consuming Protect Item for {team_name}: {e}")
             return False
 
+    async def consume_recoil(self, team_name: str):
+        """Shatters the Ring of Recoil after one use by setting the sheet flag back to 'no'."""
+        try:
+            # Fetch all records asynchronously
+            records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            headers = list(records[0].keys()) if records else []
+            
+            if "Ring of Recoil" in headers:
+                # Find the specific team's row
+                team_info = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), None)
+                
+                if team_info:
+                    team_row_idx = records.index(team_info) + 2
+                    col_idx = headers.index("Ring of Recoil") + 1
+                    
+                    # Flip the flag back to "no"
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col_idx, "no")
+                    
+        except Exception as e:
+            print(f"❌ Error consuming Ring of Recoil for {team_name}: {e}")
+            traceback.print_exc()
+        
     def check_and_consume_alchemy(self, team_name: str) -> tuple[int, str]:
         """
         Checks if a team has an active Alchemy card across both card sheets.
@@ -2683,18 +2730,20 @@ class MonopolyCog(commands.Cog):
         chest_cards = self.get_held_cards(self.chest_sheet, team_name)
         chance_cards = self.get_held_cards(self.chance_sheet, team_name)
 
-        # 1. Fetch Team Data for Protect Item status
+        # 1. Fetch Team Data for Passives status
         try:
             records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             team_record = next((r for r in records if str(r.get("Team", "")).strip().lower() == team_name.strip().lower()), {})
             is_protected = str(team_record.get("Protect Item", "no")).strip().lower() == "yes"
+            has_recoil = str(team_record.get("Ring of Recoil", "no")).strip().lower() == "yes"
         except Exception as e:
-            print(f"❌ Error fetching Protect Item status: {e}")
+            print(f"❌ Error fetching passives status: {e}")
             is_protected = False
+            has_recoil = False
 
         # 2. Check if the inventory is completely empty
-        if not chest_cards and not chance_cards and not is_protected:
-            await interaction.followup.send("❌ Your team holds no cards and has no active prayers.", ephemeral=True)
+        if not chest_cards and not chance_cards and not is_protected and not has_recoil:
+            await interaction.followup.send("❌ Your team holds no cards and has no active passives.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -2704,10 +2753,16 @@ class MonopolyCog(commands.Cog):
         )
 
         # --- PASSIVES SECTION (TOP, NO INDEX) ---
+        passives_text = ""
         if is_protected:
+            passives_text += "<:inventory:1437979836881703074> **Protect Item**\n*This prayer is active and will automatically block the next effect that steals your GP or cards.*\n\n"
+        if has_recoil:
+            passives_text += "💍 **Ring of Recoil**\n*Dealing with you has a price. Attacking this team causes the effect to trigger on both teams.*\n\n"
+
+        if passives_text:
             embed.add_field(
                 name="<:serverbooster:1406225321778348042> Passives <:serverbooster:1406225321778348042>",
-                value="<:inventory:1437979836881703074> **Protect Item**\n*This prayer is active and will automatically block the next effect that steals your GP or cards.*",
+                value=passives_text.strip(),
                 inline=False
             )
 
@@ -2733,7 +2788,6 @@ class MonopolyCog(commands.Cog):
                 )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
-
     @app_commands.command(name="use_card", description="Use a held card by its index from /cards")
     @app_commands.describe(index="The index of the card you want to use (starts at 1)")
     async def use_card(self, interaction: discord.Interaction, index: int):
@@ -3736,10 +3790,10 @@ class MonopolyCog(commands.Cog):
             target_cards = [c for c in stealable_cards if c["victim_team"] == victim_team]
             
             if not target_cards:
-                embed_description = f"<:rogue_gloves:1437979836881703074> **{team_name}** tried to pick **{victim_team}**'s pocket, but they have no removable items left!"
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to pick **{victim_team}**'s pocket, but they have no removable items left!"
                 if victim_channel:
                     fail_embed = discord.Embed(
-                        title="<:rogue_gloves:1437980096790134914> Rogue's Gloves Failed",
+                        title="🕵️ Rogue's Gloves Failed",
                         description=f"**{team_name}** tried to steal from you, but you have no cards left to take!",
                         color=discord.Color.blue()
                     )
@@ -3747,13 +3801,11 @@ class MonopolyCog(commands.Cog):
                     await self.mirror_to_game_log(victim_channel, embed=fail_embed)
                 return
 
-            stolen_card = random.choice(target_cards)
-            target_sheet = stolen_card["sheet"]
-            target_row = stolen_card["row_index"]
-
+            # --- 🛡️ PASSIVE CHECKS ---
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             victim_info = next((r for r in team_records if r.get("Team") == victim_team), {})
             has_protect = str(victim_info.get("Protect Item", "no")).strip().lower() == "yes"
+            has_recoil = str(victim_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
 
             if has_protect:
                 await self.consume_protect_item(victim_team)
@@ -3779,10 +3831,7 @@ class MonopolyCog(commands.Cog):
                     await self.mirror_to_game_log(victim_channel, embed=fizzle_embed)
 
             elif await asyncio.to_thread(self.check_and_consume_vengeance, victim_team):
-                embed_description = (
-                    f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n"
-                    f"<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
-                )
+                embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** tried to use **Rogue's Gloves** on **{victim_team}**...\n\n<:venge:1438084953559797884> **{victim_team}** had Vengeance! The effect was rebounded!\n"
 
                 caster_chest_cards = self.get_held_cards(self.chest_sheet, team_name)
                 caster_chance_cards = self.get_held_cards(self.chance_sheet, team_name)
@@ -3819,11 +3868,9 @@ class MonopolyCog(commands.Cog):
                     try:
                         wildcard_data_json_rebound = json.loads(wildcard_str_rebound)
                         caster_wildcard = wildcard_data_json_rebound.pop(team_name, None)
-                        if caster_wildcard is not None:
-                            wildcard_data_json_rebound[victim_team] = caster_wildcard
+                        if caster_wildcard is not None: wildcard_data_json_rebound[victim_team] = caster_wildcard
                         rebound_sheet.update_cell(rebound_row, 4, json.dumps(wildcard_data_json_rebound))
-                    except Exception as e:
-                        print(f"❌ Error transferring wildcard data on Rogue's Gloves Vengeance rebound: {e}")
+                    except: pass
 
                     embed_description += f"<:rogue_gloves:1437980096790134914> The steal rebounded! **{victim_team}** stole **{stolen_from_caster_name}** from **{team_name}** instead."
 
@@ -3840,49 +3887,107 @@ class MonopolyCog(commands.Cog):
                     try:
                         wildcard_data_json_rg = json.loads(wildcard_str_rg)
                         caster_wildcard = wildcard_data_json_rg.pop(team_name, None)
-                        if caster_wildcard is not None:
-                            wildcard_data_json_rg[victim_team] = caster_wildcard
+                        if caster_wildcard is not None: wildcard_data_json_rg[victim_team] = caster_wildcard
                         card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data_json_rg))
-                    except Exception as e:
-                        print(f"❌ Error transferring wildcard data for Rogue's Gloves on Vengeance rebound: {e}")
+                    except: pass
 
                     embed_description += f"<:rogue_gloves:1437980096790134914> The steal rebounded! **{victim_team}** stole the **Rogue's Gloves** card from **{team_name}**!"
 
-                skull_embed = discord.Embed(
-                    title="<:venge:1438084953559797884> Vengeance Activated!",
-                    description=f"You activated **{victim_team}**'s Vengeance!\nThey stole your **{stolen_from_caster_name}** card!",
-                    color=discord.Color.dark_red()
-                )
+                skull_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"You activated **{victim_team}**'s Vengeance!\nThey stole your **{stolen_from_caster_name}** card!", color=discord.Color.dark_red())
                 await interaction.channel.send(embed=skull_embed)
                 await self.mirror_to_game_log(interaction.channel, embed=skull_embed)
 
                 if victim_channel:
-                    victim_embed = discord.Embed(
-                        title="<:venge:1438084953559797884> Vengeance Activated!",
-                        description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.",
-                        color=discord.Color.dark_red()
-                    )
+                    victim_embed = discord.Embed(title="<:venge:1438084953559797884> Vengeance Activated!", description=f"**{team_name}** tried to use **Rogue's Gloves** on you, but your **Vengeance** rebounded the effect!\nYou stole **{stolen_from_caster_name}** from their team.", color=discord.Color.dark_red())
                     await victim_channel.send(embed=victim_embed)
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
             
+            elif has_recoil:
+                caster_chest = self.get_held_cards(self.chest_sheet, team_name)
+                caster_chance = self.get_held_cards(self.chance_sheet, team_name)
+                all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
+                
+                card_sheet = extra_data.get("card_sheet")
+                card_row = extra_data.get("card_row")
+                
+                # Filter out the Rogue's Gloves card they just used so it can't be swapped
+                other_caster_cards = [
+                    c for c in all_caster
+                    if not ( (c in caster_chest and card_sheet == self.chest_sheet and c["row_index"] == card_row) or 
+                             (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
+                ]
+                
+                # 🛑 Caster Guard
+                if not other_caster_cards:
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Steal failed because **{team_name}** has no other cards to swap."
+                    if victim_channel:
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to steal from you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
+                        await victim_channel.send(embed=fail_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                else:
+                    await self.consume_recoil(victim_team)
+                    
+                    # Victim gives to Caster
+                    stolen_from_victim = random.choice(target_cards)
+                    v_sheet = stolen_from_victim["sheet"]
+                    v_row = stolen_from_victim["row_index"]
+                    
+                    v_holders = str(v_sheet.cell(v_row, 3).value or "").split(",")
+                    v_holders = [h.strip() for h in v_holders if h.strip() and h.strip() != victim_team]
+                    v_holders.append(team_name)
+                    v_sheet.update_cell(v_row, 3, ", ".join(v_holders))
+                    
+                    try:
+                        v_wild_str = str(v_sheet.cell(v_row, 4).value or "{}")
+                        v_wild_data = json.loads(v_wild_str)
+                        vw = v_wild_data.pop(victim_team, None)
+                        if vw is not None: v_wild_data[team_name] = vw
+                        v_sheet.update_cell(v_row, 4, json.dumps(v_wild_data))
+                    except: pass
+
+                    # Caster gives to Victim
+                    stolen_from_caster = random.choice(other_caster_cards)
+                    c_sheet = self.chest_sheet if stolen_from_caster in caster_chest else self.chance_sheet
+                    c_row = stolen_from_caster["row_index"]
+                    
+                    c_holders = str(c_sheet.cell(c_row, 3).value or "").split(",")
+                    c_holders = [h.strip() for h in c_holders if h.strip() and h.strip() != team_name]
+                    c_holders.append(victim_team)
+                    c_sheet.update_cell(c_row, 3, ", ".join(c_holders))
+
+                    try:
+                        c_wild_str = str(c_sheet.cell(c_row, 4).value or "{}")
+                        c_wild_data = json.loads(c_wild_str)
+                        cw = c_wild_data.pop(team_name, None)
+                        if cw is not None: c_wild_data[victim_team] = cw
+                        c_sheet.update_cell(c_row, 4, json.dumps(c_wild_data))
+                    except: pass
+
+                    embed_description += f"> 💍 **Recoil Triggered!** **{team_name}** tried to steal, but the ring forced a swap! **{team_name}** got **{stolen_from_victim['card_name']}**, and **{victim_team}** got **{stolen_from_caster['name']}**!"
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to steal from you, but your **Ring of Recoil** forced a swap!\nYou received **{stolen_from_caster['name']}** and lost **{stolen_from_victim['card_name']}**.", color=discord.Color.green())
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
             else:
+                stolen_card = random.choice(target_cards)
+                target_sheet = stolen_card["sheet"]
+                target_row = stolen_card["row_index"]
+
                 held_by_str = str(target_sheet.cell(target_row, 3).value or "")
                 teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                if victim_team in teams:
-                    teams.remove(victim_team)
-                if team_name not in teams:
-                    teams.append(team_name)
+                if victim_team in teams: teams.remove(victim_team)
+                if team_name not in teams: teams.append(team_name)
                 target_sheet.update_cell(target_row, 3, ", ".join(teams))
 
                 wildcard_str = str(target_sheet.cell(target_row, 4).value or "{}")
                 try:
                     wildcard_data_json = json.loads(wildcard_str)
                     victim_wildcard = wildcard_data_json.pop(victim_team, None)
-                    if victim_wildcard is not None:
-                        wildcard_data_json[team_name] = victim_wildcard
+                    if victim_wildcard is not None: wildcard_data_json[team_name] = victim_wildcard
                     target_sheet.update_cell(target_row, 4, json.dumps(wildcard_data_json))
-                except Exception as e:
-                    print(f"❌ Error transferring wildcard data: {e}")
+                except: pass
 
                 embed_description = f"<:rogue_gloves:1437980096790134914> **{team_name}** used **Rogue's Gloves** and stole **{stolen_card['card_name']}** from **{victim_team}**!"
                 
@@ -3910,8 +4015,9 @@ class MonopolyCog(commands.Cog):
             target_row_idx = all_teams_data.index(target_record) + 2
             caster_row_idx = all_teams_data.index(caster_record) + 2
 
-            # --- 🛡️ NEW: Check Protect Item First ---
+            # --- 🛡️ PASSIVE CHECKS ---
             has_protect = str(target_record.get("Protect Item", "no")).strip().lower() == "yes"
+            has_recoil = str(target_record.get("Ring of Recoil", "no")).strip().lower() == "yes"
 
             if has_protect:
                 await self.consume_protect_item(target_team)
@@ -3951,6 +4057,35 @@ class MonopolyCog(commands.Cog):
                     await victim_channel.send(embed=victim_embed)
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
+            elif has_recoil:
+                base_percent = 0.20
+                maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
+                maul_note = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if maul_active else ""
+                
+                steal_amount = max(1, int(highest_gp * (0.10 if maul_active else base_percent)))
+                
+                # 🛑 Caster Guard
+                if caster_gp < steal_amount:
+                    embed_description += f"> 💍 **{target_team}** has a **Ring of Recoil**! The Pickpocket failed because **{team_name}** did not have enough GP to afford the recoil damage."
+                    if victim_channel:
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Pickpocket you, but couldn't survive your **Ring of Recoil**!", color=discord.Color.blue())
+                        await victim_channel.send(embed=fail_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                else:
+                    await self.consume_recoil(target_team)
+                    new_target_gp = max(0, highest_gp - steal_amount)
+                    new_caster_gp = max(0, caster_gp - steal_amount)
+
+                    self.team_data_sheet.update_cell(target_row_idx, gp_col_idx, new_target_gp)
+                    self.team_data_sheet.update_cell(caster_row_idx, gp_col_idx, new_caster_gp)
+
+                    embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{target_team}** lost **{steal_amount:,} GP**!{maul_note}"
+
+                    if victim_channel:
+                        victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to use **Pickpocket** on you, but your **Ring of Recoil** triggered! Both teams lost **{steal_amount:,} GP**!{maul_note}", color=discord.Color.green())
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
             else:
                 base_percent = 0.20
                 maul_active = await asyncio.to_thread(self.check_and_consume_elder_maul, target_team)
@@ -3984,9 +4119,11 @@ class MonopolyCog(commands.Cog):
             
             non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
 
+            # --- 🛡️ PASSIVE CHECKS ---
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             victim_info = next((r for r in team_records if r.get("Team") == victim_team), {})
             has_protect = str(victim_info.get("Protect Item", "no")).strip().lower() == "yes"
+            has_recoil = str(victim_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
 
             if has_protect:
                 await self.consume_protect_item(victim_team)
@@ -4020,10 +4157,7 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=(
-                                f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
-                                f"They had no removable cards to lose."
-                            ),
+                            description=f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\nThey had no removable cards to lose.",
                             color=discord.Color.dark_red()
                         )
                         await victim_channel.send(embed=victim_embed)
@@ -4038,13 +4172,11 @@ class MonopolyCog(commands.Cog):
                         wildcard_data = json.loads(wildcard_str)
                         wildcard_data.pop(team_name, None)
                         remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                    except Exception as e:
-                        print(f"❌ Error clearing wildcard on Vengeance Smite: {e}")
+                    except: pass
                         
                     held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
                     teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if team_name in teams:
-                        teams.remove(team_name)
+                    if team_name in teams: teams.remove(team_name)
                     remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
                     
                     embed_description += f"**{team_name}** lost their **{card_to_remove['name']}** card."
@@ -4056,12 +4188,65 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         victim_embed = discord.Embed(
                             title="<:venge:1438084953559797884> Vengeance Activated!",
-                            description=(
-                                f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\n"
-                                f"They lost their **{card_to_remove['name']}** card."
-                            ),
+                            description=f"**{team_name}** tried to use **Smite** on your team, but your **Vengeance** rebounded the effect!\nThey lost their **{card_to_remove['name']}** card.",
                             color=discord.Color.dark_red()
                         )
+                        await victim_channel.send(embed=victim_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
+            elif has_recoil:
+                caster_chest = self.get_held_cards(self.chest_sheet, team_name)
+                caster_chance = self.get_held_cards(self.chance_sheet, team_name)
+                all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
+                
+                # 🛑 Caster Guard
+                if not all_caster or not non_active_cards:
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because one team has no removable cards for the recoil."
+                    if victim_channel:
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
+                        await victim_channel.send(embed=fail_embed)
+                        await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                else:
+                    await self.consume_recoil(victim_team)
+                    
+                    # Remove from target
+                    target_card = random.choice(non_active_cards)
+                    t_sheet = self.chest_sheet if target_card in victim_chest_cards else self.chance_sheet
+                    t_row = target_card['row_index']
+                    
+                    w_str = str(t_sheet.cell(t_row, 4).value or "{}")
+                    try:
+                        w_data = json.loads(w_str)
+                        w_data.pop(victim_team, None)
+                        t_sheet.update_cell(t_row, 4, json.dumps(w_data))
+                    except: pass
+                    
+                    h_str = str(t_sheet.cell(t_row, 3).value or "")
+                    t_teams = [t.strip() for t in h_str.split(',') if t.strip()]
+                    if victim_team in t_teams: t_teams.remove(victim_team)
+                    t_sheet.update_cell(t_row, 3, ", ".join(t_teams))
+                    
+                    # Remove from caster
+                    caster_card = random.choice(all_caster)
+                    c_sheet = self.chest_sheet if caster_card in caster_chest else self.chance_sheet
+                    c_row = caster_card['row_index']
+                    
+                    cw_str = str(c_sheet.cell(c_row, 4).value or "{}")
+                    try:
+                        cw_data = json.loads(cw_str)
+                        cw_data.pop(team_name, None)
+                        c_sheet.update_cell(c_row, 4, json.dumps(cw_data))
+                    except: pass
+                    
+                    ch_str = str(c_sheet.cell(c_row, 3).value or "")
+                    c_teams = [t.strip() for t in ch_str.split(',') if t.strip()]
+                    if team_name in c_teams: c_teams.remove(team_name)
+                    c_sheet.update_cell(c_row, 3, ", ".join(c_teams))
+
+                    embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{victim_team}** lost a card! (**{target_card['name']}** and **{caster_card['name']}**)"
+                    
+                    if victim_channel:
+                        victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Ring of Recoil** triggered! Both teams lost a card!", color=discord.Color.green())
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
@@ -4086,13 +4271,11 @@ class MonopolyCog(commands.Cog):
                         wildcard_data = json.loads(wildcard_str)
                         wildcard_data.pop(victim_team, None)
                         remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                    except Exception as e:
-                        print(f"❌ Error clearing wildcard on Smite: {e}")
+                    except: pass
                         
                     held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
                     teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if victim_team in teams:
-                        teams.remove(victim_team)
+                    if victim_team in teams: teams.remove(victim_team)
                     remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
 
                     embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
@@ -4101,7 +4284,6 @@ class MonopolyCog(commands.Cog):
                         victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
         card_sheet = extra_data.get("card_sheet")
         card_row = extra_data.get("card_row")
         wildcard_data = extra_data.get("wildcard_data", {})
@@ -4320,13 +4502,16 @@ class MonopolyCog(commands.Cog):
             else:
                 event_title = "😇 A Blessing Appears!"
                 
-                # Added the missing buffs back to the pool!
                 buff_pool = [
                     "certers", "arnav", "oldman", "frog", "countcheck", "exam", 
                     "genie", "postie", "pinball", "sandwich_good", "turpentine", "quiz"
                 ]
                 chosen_buff = random.choice(buff_pool)
+                
+                # --- PASSIVE CHECKS ---
                 has_protect = str(team_info.get("Protect Item", "no")).strip().lower() == "yes"
+                has_recoil = str(team_info.get("Ring of Recoil", "no")).strip().lower() == "yes"
+                has_any_passive = has_protect or has_recoil
 
                 if chosen_buff == "certers":
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, current_gp + 30_000_000)
@@ -4386,8 +4571,10 @@ class MonopolyCog(commands.Cog):
                             for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                         ]
                         
-                        if not has_protect:
+                        # ---> INJECT VIRTUAL PASSIVES <---
+                        if not has_any_passive:
                             available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                            available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                             
                         if available_cards:
                             drawn_card = random.choice(available_cards)
@@ -4395,10 +4582,13 @@ class MonopolyCog(commands.Cog):
                             embed_desc = f"🧠 **The Quiz Master!**\n**{chosen_team}** answered the odd-one-out correctly! The Quiz Master awards them a free **{drawn_card_name}** Chance card!"
                             
                             if drawn_card["type"] == "virtual":
-                                col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                                col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                                 if col != -1:
                                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                    if drawn_card_name == "Protect Item":
+                                        embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                    else:
+                                        embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
                             else:
                                 card_idx = drawn_card["index"]
                                 current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4414,9 +4604,11 @@ class MonopolyCog(commands.Cog):
                         {"type": "physical", "data": r, "index": all_chest.index(r) + 2} 
                         for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
-                    # Inject virtual Protect Item
-                    if not has_protect:
+                    
+                    # ---> INJECT VIRTUAL PASSIVES <---
+                    if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
@@ -4424,10 +4616,13 @@ class MonopolyCog(commands.Cog):
                         embed_desc = f"🏴‍☠️ **Capt' Arnav's Chest!**\n**{chosen_team}** successfully cracked the combination! They have been granted a free **{drawn_card_name}** Chest card!"
                         
                         if drawn_card["type"] == "virtual":
-                            col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                            col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                                embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                if drawn_card_name == "Protect Item":
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                else:
+                                    embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4443,9 +4638,11 @@ class MonopolyCog(commands.Cog):
                         {"type": "physical", "data": r, "index": all_chance.index(r) + 2} 
                         for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
-                    # Inject virtual Protect Item
-                    if not has_protect:
+                    
+                    # ---> INJECT VIRTUAL PASSIVES <---
+                    if not has_any_passive:
                         available_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                        available_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
                         
                     if available_cards:
                         drawn_card = random.choice(available_cards)
@@ -4453,10 +4650,13 @@ class MonopolyCog(commands.Cog):
                         embed_desc = f"🎁 **The Mysterious Old Man!**\n**{chosen_team}** successfully solved the Strange Box! They have been granted a free **{drawn_card_name}** Chance card!"
                         
                         if drawn_card["type"] == "virtual":
-                            col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                            col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                                embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                if drawn_card_name == "Protect Item":
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                else:
+                                    embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
                         else:
                             card_idx = drawn_card["index"]
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
@@ -4478,6 +4678,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_buff == "exam":
                     all_chance = await asyncio.to_thread(self.chance_sheet.get_all_records)
                     all_chest = await asyncio.to_thread(self.chest_sheet.get_all_records)
+                    
                     unowned_cards = [
                         {"type": "physical", "sheet": self.chance_sheet, "row": all_chance.index(r) + 2, "data": r} 
                         for r in all_chance if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
@@ -4485,8 +4686,12 @@ class MonopolyCog(commands.Cog):
                         {"type": "physical", "sheet": self.chest_sheet, "row": all_chest.index(r) + 2, "data": r} 
                         for r in all_chest if chosen_team not in [t.strip() for t in str(r.get("Held By Team", "")).split(",")]
                     ]
-                    if not has_protect:
+                    
+                    # ---> INJECT VIRTUAL PASSIVES <---
+                    if not has_any_passive:
                         unowned_cards.append({"type": "virtual", "data": {"Name": "Protect Item"}})
+                        unowned_cards.append({"type": "virtual", "data": {"Name": "Ring of Recoil"}})
+                    
                     if not unowned_cards:
                         await asyncio.to_thread(self.increment_rolls_available, chosen_team)
                         embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut is stunned—**{chosen_team}** already knows everything! He awards them a **Free Dice Roll** for their perfect score!"
@@ -4494,11 +4699,15 @@ class MonopolyCog(commands.Cog):
                         drawn_card = random.choice(unowned_cards)
                         drawn_card_name = str(drawn_card["data"].get('Name', '')).strip()
                         embed_desc = f"🐲 **Surprise Exam!**\nMr. Mordaut tests **{chosen_team}**, and they score an A+! They are awarded a free **{drawn_card_name}** card!"
+                        
                         if drawn_card["type"] == "virtual":
-                            col = headers.index("Protect Item") + 1 if "Protect Item" in headers else -1
+                            col = headers.index(drawn_card_name) + 1 if drawn_card_name in headers else -1
                             if col != -1:
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                                embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                if drawn_card_name == "Protect Item":
+                                    embed_desc += f"\n\n<:inventory:1437979836881703074> The **Protect Item** prayer is now **ACTIVE** in your inventory!"
+                                else:
+                                    embed_desc += f"\n\n💍 The **Ring of Recoil** is now **ACTIVE** in your inventory!"
                         else:
                             current_holders = [t.strip() for t in str(drawn_card["data"].get("Held By Team", "")).split(",") if t.strip()]
                             current_holders.append(chosen_team)
