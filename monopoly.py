@@ -1509,7 +1509,7 @@ class MonopolyCog(commands.Cog):
             try:
                 gp_col = headers.index("GP") + 1
                 cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
-                glider_fee = 12_000_000
+                glider_fee = 8_000_000
                 
                 if cur_gp >= glider_fee:
                     # Deduct the glider fee
