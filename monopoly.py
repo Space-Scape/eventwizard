@@ -1599,7 +1599,7 @@ class MonopolyCog(commands.Cog):
         triggered_event = None
 
         # ---> NEW: Do not trigger random events if landing on Tile 0 <---
-        if new_pos != 0 and random.randint(1, 100) <= spawn_chance:
+        if new_pos not in (0, 10) and random.randint(1, 100) <= spawn_chance:
             event_triggered = True
             
             # Instantly fetch the event name AND the precise final tile from memory!
