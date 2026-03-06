@@ -128,7 +128,7 @@ boss_drops = {
     "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
     "Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon"],
     "Royal Titans": ["Fire element staff crown", "Mystic vigour prayer scroll", "Bran", "Ice element staff crown", "Deadeye prayer scroll"],
-    "Sarachnis": ["Sarachnis cudgel", "Sraracha"],
+    "Sarachnis": ["Sarachnis cudgel", "Sraracha", "Pristine spider silk"],
     "Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
     "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Venator vestige", "Leviathan's lure", "Smoke quartz"],
     "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Bellator vestige", "Siren's staff", "Shadow quartz"],
