@@ -27,11 +27,11 @@ REVIEW_CHANNEL = "1436465463742824499"
 LOG_CHANNEL = "1436463720401211474"
 GAME_LOG_CHANNEL_ID = 1477197002499690516
 GAME_LOG_TEAM_COLOR_MAP = {
-    "Team 1": 0xE74C3C,  # Red
+    "Team 1": 0x00BCD4,  # Cyan
     "Team 2": 0x9B59B6,  # Purple
-    "Team 3": 0xF1C40F,  # Yellow
+    "Team 3": 0xE74C3C,  # Red
     "Team 4": 0x2ECC71,  # Green
-    "Team 5": 0x00BCD4,  # Cyan
+    "Team 5": 0x00BCD4,  # Red
     "Team 6": 0xC4A484,  # Light Brown
     "Team 7": 0x3498DB,  # Blue
 }
