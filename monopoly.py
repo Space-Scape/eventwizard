@@ -900,151 +900,169 @@ class MonopolyCog(commands.Cog):
                     screenshot=self.image_url
                 )
 
+                # --- SCAVENGER MUTUALLY EXCLUSIVE REWARD LOGIC ---
+                # Check if the boss is in the global SCAVENGER_BOSSES list you defined at the top
+                is_scavenger = self.boss in SCAVENGER_BOSSES
+                
+                # If Scavenger, randomly pick ONE reward. If Main Board, it's always None (runs normal loop)
+                scavenger_reward = random.choice(["Chest", "Chance", "GP"]) if is_scavenger else None
+
                 # --- GP CALCULATION LOGIC ---
-                try:
-                    gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
-
-                    # ---> THREADED FETCH <---
-                    item_values_records = await asyncio.to_thread(self.cog.item_values_sheet.get_all_records)
-                    gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
-                    
-                    base_gp_value = gp_lookup.get(self.drop, 0)
-                    final_gp_value = base_gp_value * gp_multiplier
-                    
-                    # ---> THREADED FETCH <---
-                    records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
-                    team_record = next((r for r in records if r.get("Team") == team_name), None)
-                    
-                    is_gp_halved = False
-                    is_gp_doubled = False
-                    if team_record:
-                        is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
-                        is_gp_doubled = str(team_record.get("GP Doubled", "no")).strip().lower() == "yes"
-                        
-                    # Calculate modifiers (Order: Card -> Double -> Halve)
-                    if is_gp_doubled:
-                        final_gp_value = final_gp_value * 2
-                    if is_gp_halved:
-                        final_gp_value = final_gp_value // 2
-                        
-                    original_gp_value_pre_tax = final_gp_value
-
-                    # Build the status message footer
-                    bonus_parts = []
-                    if gp_multiplier > 1 and consumed_card_name:
-                        emoji = CARD_EMOJIS.get(consumed_card_name, "")
-                        bonus_parts.append(f"x{gp_multiplier} from {emoji} **{consumed_card_name}**")
-                    if is_gp_doubled:
-                        bonus_parts.append("Doubled by 🎯 **Pinball Troll**")
-                    if is_gp_halved:
-                        bonus_parts.append("Halved by 🌳 **The Ents**")
-                        
-                    alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
-
-                    if final_gp_value > 0 and team_name != "*No team*":
-                        # ---> THREADED FETCH <---
-                        house_records = await asyncio.to_thread(self.cog.house_data_sheet.get_all_records)
-                        current_tile = int(team_record.get("Position", 0) or 0) if team_record else None
-
-                        tax_amount = 0
-                        owner_team = None
-                        house_count = 0
-
-                        if current_tile is not None:
-                            for hrec in house_records:
-                                tile = int(hrec.get("Tile", 0) or 0)
-                                if tile == current_tile:
-                                    owner_team = hrec.get("OwnerTeam", "")
-                                    house_count = int(hrec.get("HouseCount", 0) or 0)
-                                    break
-
-                            if owner_team and owner_team != team_name and house_count > 0:
-                                tax_map = {1: 0.20, 2: 0.40, 3: 0.60, 4: 0.80}
-                                tax_percent = tax_map.get(house_count, 0)
-                                tax_amount = int(final_gp_value * tax_percent)
-                                
-                                has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
-                                
-                                if has_phoenix and tax_amount > 0:
-                                    await self.cog.consume_phoenix_necklace(team_name)
-                                    blocked_tax = tax_amount
-                                    tax_amount = 0
-                                    
-                                    phoenix_msg = (
-                                        f"<:pneck:1469359523989819392> **Phoenix Necklace Shattered!** **{team_name}** was about to pay "
-                                        f"**{blocked_tax:,} GP** in taxes to **{owner_team}**, but the necklace completely absorbed the blow!"
-                                    )
-                                    
-                                    if team_chan:
-                                        await team_chan.send(phoenix_msg)
-                                        await self.cog.mirror_to_game_log(team_chan, content=phoenix_msg, team_name=team_name)
-                                        
-                                    owner_team_chan = self.cog.get_team_channel(owner_team)
-                                    if owner_team_chan:
-                                        await owner_team_chan.send(phoenix_msg)
-                                        await self.cog.mirror_to_game_log(owner_team_chan, content=phoenix_msg, team_name=owner_team)
-                                else:
-                                    # Normal tax deduction
-                                    final_gp_value -= tax_amount
+                # Only run GP calculation if it's a Main Board boss, OR if they won the GP roll as a Scavenger
+                if not is_scavenger or scavenger_reward == "GP":
+                    try:
+                        gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
 
                         # ---> THREADED FETCH <---
-                        headers = await asyncio.to_thread(self.cog.team_data_sheet.row_values, 1)
-                        try:
-                            gp_col_index = headers.index("GP") + 1
-                        except ValueError:
-                            print("❌ GP column not found in TeamData.")
-                            return
-
-                        for idx, record in enumerate(records, start=2):
-                            if record.get("Team") == team_name:
-                                current_gp_raw = str(record.get("GP", 0)).replace(',', '')
-                                current_gp = int(current_gp_raw) if current_gp_raw.isdigit() else 0
-                                new_gp = max(0, current_gp + final_gp_value)
-                                
-                                # ---> THREADED UPDATE <---
-                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, idx, gp_col_index, new_gp)
-                                
-                                gp_message = (
-                                    f"<:MaxCash:1347684049040183427> **{team_name}** earned **{final_gp_value:,} GP** "
-                                    f"from a **{self.drop}** drop!{alchemy_bonus}"
-                                )
-                                if team_chan:
-                                    await team_chan.send(gp_message)
-                                    await self.cog.mirror_to_game_log(team_chan, content=gp_message, team_name=team_name)
-                                break
-
-                        if tax_amount > 0 and owner_team:
-                            owner_team_chan = self.cog.get_team_channel(owner_team)
-                            for o_idx, orec in enumerate(records, start=2):
-                                if orec.get("Team") == owner_team:
-                                    owner_gp_raw = str(orec.get("GP", 0)).replace(',', '')
-                                    owner_gp = int(owner_gp_raw) if owner_gp_raw.isdigit() else 0
-                                    new_owner_gp = owner_gp + tax_amount
-                                    
-                                    await asyncio.to_thread(self.cog.team_data_sheet.update_cell, o_idx, gp_col_index, new_owner_gp)
-                                    break
+                        item_values_records = await asyncio.to_thread(self.cog.item_values_sheet.get_all_records)
+                        gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
+                        
+                        base_gp_value = gp_lookup.get(self.drop, 0)
+                        final_gp_value = base_gp_value * gp_multiplier
+                        
+                        # ---> THREADED FETCH <---
+                        records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
+                        team_record = next((r for r in records if r.get("Team") == team_name), None)
+                        
+                        is_gp_halved = False
+                        is_gp_doubled = False
+                        if team_record:
+                            is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
+                            is_gp_doubled = str(team_record.get("GP Doubled", "no")).strip().lower() == "yes"
                             
-                            tax_message = (
-                                f"<:houseicon:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
-                                f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
-                                f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
-                            )
-                            if team_chan:
-                                await team_chan.send(tax_message)
-                                await self.cog.mirror_to_game_log(team_chan, content=tax_message, team_name=team_name)
-                            if owner_team_chan:
-                                await owner_team_chan.send(tax_message)
-                                await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
+                        # Calculate modifiers (Order: Card -> Double -> Halve)
+                        if is_gp_doubled:
+                            final_gp_value = final_gp_value * 2
+                        if is_gp_halved:
+                            final_gp_value = final_gp_value // 2
+                            
+                        original_gp_value_pre_tax = final_gp_value
 
-                    # Cleanup Pinball Troll flag (Last thing in the inner try)
-                    if is_gp_doubled:
-                        asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
+                        # Build the status message footer
+                        bonus_parts = []
+                        if gp_multiplier > 1 and consumed_card_name:
+                            emoji = CARD_EMOJIS.get(consumed_card_name, "")
+                            bonus_parts.append(f"x{gp_multiplier} from {emoji} **{consumed_card_name}**")
+                        if is_gp_doubled:
+                            bonus_parts.append("Doubled by 🎯 **Pinball Troll**")
+                        if is_gp_halved:
+                            bonus_parts.append("Halved by 🌳 **The Ents**")
+                            
+                        alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
 
-                except Exception as inner_e:
-                    print(f"❌ Error in GP calculation: {inner_e}")
-                    traceback.print_exc()
+                        if final_gp_value > 0 and team_name != "*No team*":
+                            # ---> THREADED FETCH <---
+                            house_records = await asyncio.to_thread(self.cog.house_data_sheet.get_all_records)
+                            current_tile = int(team_record.get("Position", 0) or 0) if team_record else None
 
-                # --- ROLL GRANTING LOGIC ---
+                            tax_amount = 0
+                            owner_team = None
+                            house_count = 0
+
+                            if current_tile is not None:
+                                for hrec in house_records:
+                                    tile = int(hrec.get("Tile", 0) or 0)
+                                    if tile == current_tile:
+                                        owner_team = hrec.get("OwnerTeam", "")
+                                        house_count = int(hrec.get("HouseCount", 0) or 0)
+                                        break
+
+                                if owner_team and owner_team != team_name and house_count > 0:
+                                    tax_map = {1: 0.20, 2: 0.40, 3: 0.60, 4: 0.80}
+                                    tax_percent = tax_map.get(house_count, 0)
+                                    tax_amount = int(final_gp_value * tax_percent)
+                                    
+                                    has_phoenix = str(team_record.get("Phoenix Necklace", "no")).strip().lower() == "yes"
+                                    
+                                    if has_phoenix and tax_amount > 0:
+                                        await self.cog.consume_phoenix_necklace(team_name)
+                                        blocked_tax = tax_amount
+                                        tax_amount = 0
+                                        
+                                        phoenix_msg = (
+                                            f"<:pneck:1469359523989819392> **Phoenix Necklace Shattered!** **{team_name}** was about to pay "
+                                            f"**{blocked_tax:,} GP** in taxes to **{owner_team}**, but the necklace completely absorbed the blow!"
+                                        )
+                                        
+                                        if team_chan:
+                                            await team_chan.send(phoenix_msg)
+                                            await self.cog.mirror_to_game_log(team_chan, content=phoenix_msg, team_name=team_name)
+                                            
+                                        owner_team_chan = self.cog.get_team_channel(owner_team)
+                                        if owner_team_chan:
+                                            await owner_team_chan.send(phoenix_msg)
+                                            await self.cog.mirror_to_game_log(owner_team_chan, content=phoenix_msg, team_name=owner_team)
+                                    else:
+                                        # Normal tax deduction
+                                        final_gp_value -= tax_amount
+
+                            # ---> THREADED FETCH <---
+                            headers = await asyncio.to_thread(self.cog.team_data_sheet.row_values, 1)
+                            try:
+                                gp_col_index = headers.index("GP") + 1
+                            except ValueError:
+                                print("❌ GP column not found in TeamData.")
+                                return
+
+                            for idx, record in enumerate(records, start=2):
+                                if record.get("Team") == team_name:
+                                    current_gp_raw = str(record.get("GP", 0)).replace(',', '')
+                                    current_gp = int(current_gp_raw) if current_gp_raw.isdigit() else 0
+                                    new_gp = max(0, current_gp + final_gp_value)
+                                    
+                                    # ---> THREADED UPDATE <---
+                                    await asyncio.to_thread(self.cog.team_data_sheet.update_cell, idx, gp_col_index, new_gp)
+                                    
+                                    # Custom flavor text if they are a Scavenger who hit the GP roll
+                                    if is_scavenger:
+                                        gp_message = (
+                                            f"<:MaxCash:1347684049040183427> **Scavenger Loot!** **{team_name}** rolled the GP prize and earned **{final_gp_value:,} GP** "
+                                            f"from their off-board **{self.drop}** drop!{alchemy_bonus}"
+                                        )
+                                    else:
+                                        gp_message = (
+                                            f"<:MaxCash:1347684049040183427> **{team_name}** earned **{final_gp_value:,} GP** "
+                                            f"from a **{self.drop}** drop!{alchemy_bonus}"
+                                        )
+
+                                    if team_chan:
+                                        await team_chan.send(gp_message)
+                                        await self.cog.mirror_to_game_log(team_chan, content=gp_message, team_name=team_name)
+                                    break
+
+                            if tax_amount > 0 and owner_team:
+                                owner_team_chan = self.cog.get_team_channel(owner_team)
+                                for o_idx, orec in enumerate(records, start=2):
+                                    if orec.get("Team") == owner_team:
+                                        owner_gp_raw = str(orec.get("GP", 0)).replace(',', '')
+                                        owner_gp = int(owner_gp_raw) if owner_gp_raw.isdigit() else 0
+                                        new_owner_gp = owner_gp + tax_amount
+                                        
+                                        # ---> THREADED UPDATE <---
+                                        await asyncio.to_thread(self.cog.team_data_sheet.update_cell, o_idx, gp_col_index, new_owner_gp)
+                                        
+                                        tax_message = (
+                                            f"<:houseicon:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
+                                            f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
+                                            f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
+                                        )
+                                        if team_chan:
+                                            await team_chan.send(tax_message)
+                                            await self.cog.mirror_to_game_log(team_chan, content=tax_message, team_name=team_name)
+                                        if owner_team_chan:
+                                            await owner_team_chan.send(tax_message)
+                                            await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
+                                        break
+
+                        # Cleanup Pinball Troll flag
+                        if is_gp_doubled:
+                            asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
+
+                    except Exception as inner_e:
+                        print(f"❌ Error in GP calculation: {inner_e}")
+                        traceback.print_exc()
+
+                # --- ROLL / CARD GRANTING LOGIC ---
                 try:
                     # Refresh records for roll check and grab jail status
                     records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
@@ -1056,53 +1074,56 @@ class MonopolyCog(commands.Cog):
                             is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
                             break
                     
-                    tile_boss_map = {
-                        1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                        4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                        8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
-                        13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                        18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                        21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                        25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                        31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                        35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-                    }
-
-                    bosses_for_tile = tile_boss_map.get(current_tile, [])
-                    if self.boss in bosses_for_tile:
-                        # 1. Grant the Roll
-                        await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
+                    if not is_scavenger:
+                        tile_boss_map = {
+                            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
+                            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
+                            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
+                            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
+                            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+                            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
+                            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+                            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
+                            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+                        }
                         
-                        # 2. Check for Jailbreak!
-                        extra_jail_text = ""
-                        if current_tile == 10 and is_in_jail:
-                            await asyncio.to_thread(self.cog.set_jail_status, team_name, "no")
-                            extra_jail_text = "\n\n⛓️ **Jailbreak!** Your team has completed their sentence and is no longer In Jail!"
-
-                        if team_chan:
-                            roll_grant_embed = discord.Embed(
-                                title="🎲 Roll Granted!",
-                                description=f"Your team landed a drop at **{self.boss}**! A free roll has been granted!{extra_jail_text}",
-                                color=discord.Color.green()
-                            )
-                            await team_chan.send(embed=roll_grant_embed)
-                            await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
-                    
-                    elif self.boss in SCAVENGER_BOSSES:
-                        card_type = random.choice(["Chest", "Chance"])
-                        if team_chan:
-                            scavenge_embed = discord.Embed(
-                                title="📦 Scavenger Reward!",
-                                description=f"Your off-board grinding at **{self.boss}** paid off! You earned a **{card_type}** card!",
-                                color=discord.Color.purple()
-                            )
-                            await team_chan.send(embed=scavenge_embed)
-                            await self.cog.mirror_to_game_log(team_chan, embed=scavenge_embed, team_name=team_name)
+                        bosses_for_tile = tile_boss_map.get(current_tile, [])
+                        
+                        if self.boss in bosses_for_tile:
+                            # 1. Grant the Roll
+                            await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
                             
-                            await self.cog.team_receives_card(team_name, card_type, team_chan)
-                
+                            # 2. Check for Jailbreak!
+                            extra_jail_text = ""
+                            if current_tile == 10 and is_in_jail:
+                                await asyncio.to_thread(self.cog.set_jail_status, team_name, "no")
+                                extra_jail_text = "\n\n⛓️ **Jailbreak!** Your team has completed their sentence and is no longer In Jail!"
+
+                            if team_chan:
+                                roll_grant_embed = discord.Embed(
+                                    title="🎲 Roll Granted!",
+                                    description=f"Your team landed a drop at **{self.boss}**! A free roll has been granted!{extra_jail_text}",
+                                    color=discord.Color.green()
+                                )
+                                await team_chan.send(embed=roll_grant_embed)
+                                await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
+                    else:
+                        # Scavenger Boss - Grant Card (If they won the Card roll instead of the GP roll)
+                        if scavenger_reward in ["Chest", "Chance"]:
+                            if team_chan:
+                                scavenge_embed = discord.Embed(
+                                    title="📦 Scavenger Loot!",
+                                    description=f"Your off-board grinding at **{self.boss}** paid off! Instead of GP, you found a **{scavenger_reward}** card!",
+                                    color=discord.Color.purple()
+                                )
+                                await team_chan.send(embed=scavenge_embed)
+                                await self.cog.mirror_to_game_log(team_chan, embed=scavenge_embed, team_name=team_name)
+                                
+                            # Safely draw the card for the team
+                            await asyncio.to_thread(self.cog.team_receives_card, team_name, scavenger_reward, team_chan)
+
                 except Exception as roll_e:
-                    print(f"❌ Error checking tile before granting roll: {roll_e}")
+                    print(f"❌ Error checking tile before granting roll/card: {roll_e}")
 
                 await interaction.followup.send("✅ Drop approved and logged.", ephemeral=True)
                 
