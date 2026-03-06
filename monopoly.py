@@ -1503,38 +1503,60 @@ class MonopolyCog(commands.Cog):
                 print(f"❌ Error updating Pass Go: {e}")
 
         # 5. Special Tile Handling (Gliders / Jail)
-        if new_pos == 12: 
-            new_pos = 28 if current_tile != 38 else 12
-        elif new_pos == 28: 
-            new_pos = 38 if current_tile != 12 else 28
-        elif new_pos == 38: 
-            if current_tile != 12:
-                new_pos = 12
-                # Manual Glider 38 Go Bonus
-                try:
-                    pass_go_col = headers.index("Go Passes") + 1
-                    gp_col = headers.index("GP") + 1
-                    cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
-                    cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
+        glider_message = ""
+        
+        if new_pos in (12, 28, 38):
+            try:
+                gp_col = headers.index("GP") + 1
+                cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
+                glider_fee = 12_000_000
+                
+                if cur_gp >= glider_fee:
+                    # Deduct the glider fee
+                    cur_gp -= glider_fee
+                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp)
+                    glider_message = f"✈️ **Glider Flight:** You automatically paid **12,000,000 GP** to take the Gnome Glider!"
                     
-                    # --- ADDED: Ents GP Halved Check ---
-                    is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
-                    glider_reward = 10_000_000 if is_gp_halved else 20_000_000
-                    
-                    if is_gp_halved:
-                        asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
+                    if new_pos == 12: 
+                        new_pos = 28 if current_tile != 38 else 12
+                    elif new_pos == 28: 
+                        new_pos = 38 if current_tile != 12 else 28
+                    elif new_pos == 38: 
+                        if current_tile != 12:
+                            new_pos = 12
+                            # Manual Glider 38 Go Bonus
+                            try:
+                                pass_go_col = headers.index("Go Passes") + 1
+                                cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
+                                
+                                is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
+                                glider_reward = 10_000_000 if is_gp_halved else 20_000_000
+                                
+                                if is_gp_halved:
+                                    asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
 
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
-                    await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
+                                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
+                                
+                                # Add Go reward to the already fee-deducted cur_gp
+                                await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
+                                
+                                if is_gp_halved:
+                                    go_message = f"🌳 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
+                                else:
+                                    go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
+                            except Exception as e:
+                                print(f"❌ Error updating Glider Go Bonus: {e}")
+                        else:
+                            new_pos = 38
+                else:
+                    # Cannot afford the glider
+                    glider_message = f"🚫 **Glider Denied:** You cannot afford the **12,000,000 GP** flight fee! You stay on Tile {new_pos} and are granted a **Free Roll** instead!"
+                    await asyncio.to_thread(self.increment_rolls_available, team_name)
+                    # new_pos remains unchanged (12, 28, or 38)
                     
-                    if is_gp_halved:
-                        go_message = f"🌳 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
-                    else:
-                        go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
-                except Exception as e:
-                    print(f"❌ Error updating Glider Go Bonus: {e}")
-            else:
-                new_pos = 38
+            except Exception as e:
+                print(f"❌ Error processing glider fee: {e}")
+
         elif new_pos == 30:
             new_pos = JAIL_TILE
             go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
@@ -1573,6 +1595,10 @@ class MonopolyCog(commands.Cog):
         if new_pos == 0:
             await asyncio.to_thread(self.increment_rolls_available, team_name)
             roll_status_details.append("\n🎯 **BULLSEYE!** You landed directly on **GO** and earned a **Free Roll**!")
+
+        # Add the Glider explanation to the embed
+        if glider_message:
+            roll_status_details.append(f"\n{glider_message}")
 
         roll_desc = "\n".join(roll_status_details)
         
@@ -4729,7 +4755,7 @@ class MonopolyCog(commands.Cog):
                 elif chosen_nerf == "ents":
                     col = headers.index("GP Halved") + 1 if "GP Halved" in headers else -1
                     if col != -1: await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, col, "yes")
-                    embed_desc = f"🪾 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! **All GP earned is cut in half** until their next roll!"
+                    embed_desc = f"🌳 **The Ents!**\nAn ent grew and shakes **{chosen_team}** upside down! **All GP earned is cut in half** until their next roll!"
 
                 elif chosen_nerf == "gravedigger":
                     col = headers.index("Roll Penalty") + 1
