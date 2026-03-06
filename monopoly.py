@@ -903,25 +903,14 @@ class MonopolyCog(commands.Cog):
 
                 # --- SCAVENGER MUTUALLY EXCLUSIVE REWARD LOGIC ---
                 is_scavenger = self.boss in SCAVENGER_BOSSES
+                scavenger_reward = None
                 
                 if is_scavenger:
                     # 90% chance for GP, 5% for Chest, 5% for Chance
                     scavenger_reward = random.choices(["GP", "Chest", "Chance"], weights=[90, 5, 5], k=1)[0]
-                    # Lock the team out of scavenging until they move to a new tile
-                    self.cog.team_scavenges_per_tile[team_name] = current_tile
-                else:
-                    scavenger_reward = None
-
-               # --- SCAVENGER MUTUALLY EXCLUSIVE REWARD LOGIC ---
-                is_scavenger = self.boss in SCAVENGER_BOSSES
-                
-                if is_scavenger:
-                    # 90% chance for GP, 5% for Chest, 5% for Chance
-                    scavenger_reward = random.choices(["GP", "Chest", "Chance"], weights=[90, 5, 5], k=1)[0]
-                else:
-                    scavenger_reward = None
 
                 # --- GP CALCULATION LOGIC ---
+                # Only run GP calculation if it's a Main Board boss, OR if they won the GP roll as a Scavenger
                 if not is_scavenger or scavenger_reward == "GP":
                     try:
                         gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
@@ -945,7 +934,6 @@ class MonopolyCog(commands.Cog):
                             is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
                             is_gp_doubled = str(team_record.get("GP Doubled", "no")).strip().lower() == "yes"
                             
-                        # Calculate modifiers (Order: Card -> Double -> Halve)
                         if is_gp_doubled:
                             final_gp_value = final_gp_value * 2
                         if is_gp_halved:
@@ -965,18 +953,17 @@ class MonopolyCog(commands.Cog):
                         alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
 
                         if final_gp_value > 0 and team_name != "*No team*":
-                            # ---> THREADED FETCH <---
                             house_records = await asyncio.to_thread(self.cog.house_data_sheet.get_all_records)
-                            current_tile = int(team_record.get("Position", 0) or 0) if team_record else None
+                            current_tile_for_tax = int(team_record.get("Position", 0) or 0) if team_record else None
 
                             tax_amount = 0
                             owner_team = None
                             house_count = 0
 
-                            if current_tile is not None:
+                            if current_tile_for_tax is not None:
                                 for hrec in house_records:
                                     tile = int(hrec.get("Tile", 0) or 0)
-                                    if tile == current_tile:
+                                    if tile == current_tile_for_tax:
                                         owner_team = hrec.get("OwnerTeam", "")
                                         house_count = int(hrec.get("HouseCount", 0) or 0)
                                         break
@@ -1007,16 +994,10 @@ class MonopolyCog(commands.Cog):
                                             await owner_team_chan.send(phoenix_msg)
                                             await self.cog.mirror_to_game_log(owner_team_chan, content=phoenix_msg, team_name=owner_team)
                                     else:
-                                        # Normal tax deduction
                                         final_gp_value -= tax_amount
 
-                            # ---> THREADED FETCH <---
                             headers = await asyncio.to_thread(self.cog.team_data_sheet.row_values, 1)
-                            try:
-                                gp_col_index = headers.index("GP") + 1
-                            except ValueError:
-                                print("❌ GP column not found in TeamData.")
-                                return
+                            gp_col_index = headers.index("GP") + 1
 
                             for idx, record in enumerate(records, start=2):
                                 if record.get("Team") == team_name:
@@ -1024,7 +1005,6 @@ class MonopolyCog(commands.Cog):
                                     current_gp = int(current_gp_raw) if current_gp_raw.isdigit() else 0
                                     new_gp = max(0, current_gp + final_gp_value)
                                     
-                                    # ---> THREADED UPDATE <---
                                     await asyncio.to_thread(self.cog.team_data_sheet.update_cell, idx, gp_col_index, new_gp)
                                     
                                     if is_scavenger:
@@ -1050,13 +1030,11 @@ class MonopolyCog(commands.Cog):
                                         owner_gp_raw = str(orec.get("GP", 0)).replace(',', '')
                                         owner_gp = int(owner_gp_raw) if owner_gp_raw.isdigit() else 0
                                         new_owner_gp = owner_gp + tax_amount
-                                        
-                                        # ---> THREADED UPDATE <---
                                         await asyncio.to_thread(self.cog.team_data_sheet.update_cell, o_idx, gp_col_index, new_owner_gp)
                                         
                                         tax_message = (
                                             f"<:houseicon:1438085020156821555> **House Tax:** {team_name} paid **{tax_amount:,} GP** "
-                                            f"to **{owner_team}** for a level {house_count} house on tile {current_tile} "
+                                            f"to **{owner_team}** for a level {house_count} house on tile {current_tile_for_tax} "
                                             f"(Original Value: **{original_gp_value_pre_tax:,} GP** | Tax: **{int(tax_percent * 100)}%**)."
                                         )
                                         if team_chan:
@@ -1076,7 +1054,6 @@ class MonopolyCog(commands.Cog):
 
                 # --- ROLL / CARD GRANTING LOGIC ---
                 try:
-                    # Refresh records for roll check and grab jail status
                     records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     current_tile = None
                     is_in_jail = False
@@ -1087,30 +1064,17 @@ class MonopolyCog(commands.Cog):
                             is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
                             break
                     
-                    # 🛡️ FIX: Lock the scavenger slot only if we successfully found the tile
+                    # 🛡️ Lock the scavenger slot only if we successfully found the tile
                     if is_scavenger and current_tile is not None:
                         self.cog.team_scavenges_per_tile[team_name] = current_tile
 
                     if not is_scavenger:
-                        tile_boss_map = {
-                            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-                            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-                            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
-                            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-                            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
-                            21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-                            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-                            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-                            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
-                        }
-                        
+                        tile_boss_map = self.cog._get_tile_boss_map()
                         bosses_for_tile = tile_boss_map.get(current_tile, [])
                         
                         if self.boss in bosses_for_tile:
-                            # 1. Grant the Roll
                             await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
                             
-                            # 2. Check for Jailbreak!
                             extra_jail_text = ""
                             if current_tile == 10 and is_in_jail:
                                 await asyncio.to_thread(self.cog.set_jail_status, team_name, "no")
@@ -1125,7 +1089,7 @@ class MonopolyCog(commands.Cog):
                                 await team_chan.send(embed=roll_grant_embed)
                                 await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
                     else:
-                        # Scavenger Boss - Grant Card (If they won the Card roll instead of the GP roll)
+                        # Scavenger Boss - Grant Card
                         if scavenger_reward in ["Chest", "Chance"]:
                             if team_chan:
                                 scavenge_embed = discord.Embed(
@@ -1136,7 +1100,6 @@ class MonopolyCog(commands.Cog):
                                 await team_chan.send(embed=scavenge_embed)
                                 await self.cog.mirror_to_game_log(team_chan, embed=scavenge_embed, team_name=team_name)
                                 
-                            # Safely draw the card for the team
                             await self.cog.team_receives_card(team_name, scavenger_reward, team_chan)
 
                 except Exception as roll_e:
@@ -1147,8 +1110,6 @@ class MonopolyCog(commands.Cog):
                 # --- 💎 RARE DROP TABLE LOGIC ---
                 try:
                     rdt_chance = random.randint(1, 100)
-                    print(f"🎲 RDT Roll for {team_name}: {rdt_chance} (Needs 1-10 to hit)")
-                    
                     if rdt_chance <= 10 and team_name != "*No team*":
                         all_recs = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                         t_info = next((r for r in all_recs if r.get("Team") == team_name), {})
@@ -1159,9 +1120,7 @@ class MonopolyCog(commands.Cog):
                         hc = str(t_info.get("Ring of Charos", "no")).strip().lower() == "yes"
                         hs = str(t_info.get("Ring of Stone", "no")).strip().lower() == "yes"
 
-                        # Only grant if their passive slot is completely empty
                         if not (hp or hr or hpn or hc or hs):
-                            # Keep exact sheet header names here!
                             passive_choices = ["Protect Item", "Ring of Recoil", "Phoenix Necklace", "Ring of Charos", "Ring of Stone"]
                             chosen_passive = random.choice(passive_choices)
                             
@@ -1180,7 +1139,6 @@ class MonopolyCog(commands.Cog):
                                 }
                                 p_emoji = emoji_map.get(chosen_passive, "💎")
                                 
-                                # Pull the exact card text to display
                                 passive_descriptions = {
                                     "Protect Item": "Passive - Saves a player from item losses until one occurs.",
                                     "Ring of Recoil": "Passive - Affects triggered on you are also triggered to the attacker.",
@@ -1189,8 +1147,6 @@ class MonopolyCog(commands.Cog):
                                     "Ring of Stone": "Passive - Automatically shatters to block forced movement or teleports."
                                 }
                                 card_text = passive_descriptions.get(chosen_passive, "")
-                                
-                                # Custom display name for flavor
                                 display_name = "Protect Item Scroll" if chosen_passive == "Protect Item" else ("Ring of Charos (a)" if chosen_passive == "Ring of Charos" else chosen_passive)
                                 
                                 rdt_embed = discord.Embed(
@@ -1199,7 +1155,7 @@ class MonopolyCog(commands.Cog):
                                         f"**{team_name}** got lucky on the RDT!\n"
                                         f"Along with your boss drop, you found a **{display_name}**!\n\n"
                                         f"> {card_text}\n\n"
-                                        f"{p_emoji} This item has been added to your inventory and is now **ACTIVE**. You can use `/cards` to view your current card inventory."
+                                        f"{p_emoji} This item has been added to your inventory and is now **ACTIVE**."
                                     ),
                                     color=discord.Color.magenta()
                                 )
