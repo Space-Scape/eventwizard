@@ -97,6 +97,14 @@ ROLL_GRANTING_TILES = {GO_TILE, BANK_STANDING_TILE} | GLIDER_TILES | CHEST_TILES
 # ---------------------------
 # 🔹 Boss-Drop Mapping
 # ---------------------------
+
+SCAVENGER_BOSSES = [
+    "Dagannoth Kings",
+    "Sarachnis",
+    "Royal Titans",
+    "Vorkath"
+]
+
 boss_drops = {
     "Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Jar of venom", "Nid"],
     "Corp": ["Spectral sigil", "Arcane sigil", "Elysian sigil", "Holy elixir", "Jar of spirits", "Pet dark core", "Spirit shield"],
@@ -107,6 +115,7 @@ boss_drops = {
     "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
     "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Saradomin's light"],
     "Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
+    "Dagannoth Kings": ["Berserker ring", "Warrior ring", "Archers ring", "Seers ring", "Dragon axe", "Mud battlestaff", "Pet dagannoth supreme", "Pet dagannoth prime", "Pet dagannoth rex"],
     "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
     "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Magus vestige", "Eye of the duke", "Ice quartz"],
     "Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
@@ -118,6 +127,8 @@ boss_drops = {
     "Nightmare": ["Little nightmare", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Parasitic egg", "Jar of dreams", "Slepey tablet"],
     "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
     "Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon"],
+    "Royal Titans": ["Fire element staff crown", "Mystic vigour prayer scroll", "Bran", "Ice element staff crown", "Deadeye prayer scroll"],
+    "Sarachnis": ["Sarachnis cudgel", "Sraracha"],
     "Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
     "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Venator vestige", "Leviathan's lure", "Smoke quartz"],
     "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Bellator vestige", "Siren's staff", "Shadow quartz"],
@@ -126,6 +137,7 @@ boss_drops = {
     "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Ultor vestige", "Executioner's axe head", "Blood quartz"],
     "Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
     "Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
+    "Vorkath": ["Vorki", "Vorkath's head", "Draconic visage", "Skeletal visage", "Dragonbone necklace", "Jar of decay"]
     "Yama": ["Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"]
 }
@@ -134,6 +146,7 @@ boss_drops = {
 class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.player_stances = {}
         self.signup_sheet = None
         self.signup_sheet_book = None
         
@@ -1074,7 +1087,20 @@ class MonopolyCog(commands.Cog):
                             )
                             await team_chan.send(embed=roll_grant_embed)
                             await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
-
+                    
+                    elif self.boss in SCAVENGER_BOSSES:
+                        card_type = random.choice(["Chest", "Chance"])
+                        if team_chan:
+                            scavenge_embed = discord.Embed(
+                                title="📦 Scavenger Reward!",
+                                description=f"Your off-board grinding at **{self.boss}** paid off! You earned a **{card_type}** card!",
+                                color=discord.Color.purple()
+                            )
+                            await team_chan.send(embed=scavenge_embed)
+                            await self.cog.mirror_to_game_log(team_chan, embed=scavenge_embed, team_name=team_name)
+                            
+                            await self.cog.team_receives_card(team_name, card_type, team_chan)
+                
                 except Exception as roll_e:
                     print(f"❌ Error checking tile before granting roll: {roll_e}")
 
@@ -2164,7 +2190,7 @@ class MonopolyCog(commands.Cog):
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
     @app_commands.describe(
-        screenshot="Attach a screenshot of the drop",
+        screenshot="Attach a screenshot of the drop. Must be in boss room!",
         submitted_for="User you are submitting the drop for (optional)",
     )
     async def submitdrop(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
@@ -2192,11 +2218,16 @@ class MonopolyCog(commands.Cog):
             if record.get("Team") == team_name:
                 current_tile = int(record.get("Position", 0))
                 break
-
+        
         if current_tile is None:
             await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
             return
 
+        allowed, error_msg = self.check_and_update_turn_stance(interaction.user.id, team_name, current_tile, "main")
+        if not allowed:
+            await interaction.followup.send(content=error_msg, ephemeral=True)
+            return
+        
         # 2. Boss Map
         tile_boss_map = {
             1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
@@ -2245,6 +2276,83 @@ class MonopolyCog(commands.Cog):
                 ephemeral=True
             )
 
+    def check_and_update_turn_stance(self, user_id: int, team_name: str, current_tile: int, requested_stance: str) -> tuple[bool, str]:
+        """
+        Checks if a player is allowed to use the requested command type on the current tile.
+        """
+        data = self.player_stances.get(user_id)
+        
+        # If they have a saved stance AND their team is still on the exact same tile
+        if data and data["team"] == team_name and data["tile"] == current_tile:
+            if data["stance"] != requested_stance:
+                other_cmd = "/scavenge" if requested_stance == "main" else "/submitdrop"
+                stance_name = "Main Board" if data["stance"] == "main" else "Scavenger"
+                return False, f"⏳ **Dual-Box Prevention:** You are locked into the **{stance_name}** stance for this turn (Tile {current_tile}). You cannot use `{other_cmd}` until your Captain rolls and moves the team to a new tile!"
+        
+        # If they moved to a new tile, changed teams, or are brand new: update and allow!
+        self.player_stances[user_id] = {
+            "stance": requested_stance,
+            "team": team_name,
+            "tile": current_tile
+        }
+        return True, ""
+    
+    @app_commands.command(name="scavenge", description="Locks you out of the current tile's submissions to scavenge elsewhere.")
+    @app_commands.describe(
+        screenshot="Attach a screenshot of the drop (Must be in boss room!)",
+        submitted_for="User you are submitting the drop for (optional)",
+    )
+    async def scavenge(self, interaction: discord.Interaction, screenshot: discord.Attachment, submitted_for: Optional[discord.Member] = None):
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except:
+            return
+            
+        if submitted_for is None:
+            submitted_for = interaction.user
+
+        team_name = self.get_team(submitted_for) or "*No team*"
+        if team_name == "*No team*":
+            await interaction.followup.send(content=f"❌ **{submitted_for.display_name}** is not on a team.", ephemeral=True)
+            return
+
+        # 1. Fetch current tile
+        current_tile = None
+        records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+        for record in records:
+            if record.get("Team") == team_name:
+                current_tile = int(record.get("Position", 0))
+                break
+
+        if current_tile is None:
+            await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
+            return
+
+        # Dual-Box Check (Per Turn/Tile)
+        allowed, error_msg = self.check_and_update_turn_stance(interaction.user.id, team_name, current_tile, "scavenge")
+        if not allowed:
+            await interaction.followup.send(content=error_msg, ephemeral=True)
+            return
+
+        # 2. Inject the FULL warning text into the actual menu message!
+        warning_text = (
+            "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere. "
+            "If you Scavenge, you can **not** submit a drop for the **current tile** (meant for accounts that can not do certain content). *Use this wisely.*\n\n"
+            "**Select the Scavenger Boss you defeated:**"
+        )
+
+        await interaction.followup.send(
+            content=warning_text,
+            view=self.RestrictedBossSelectView(
+                cog=self,
+                submitting_user=interaction.user,
+                submitted_for=submitted_for,
+                screenshot_url=screenshot.url,
+                valid_bosses=SCAVENGER_BOSSES
+            ),
+            ephemeral=True
+        )
+    
     async def team_receives_card(self, team_name: str, card_type: str, team_channel: discord.TextChannel):
         card_sheet = self.chance_sheet if card_type == "Chance" else self.chest_sheet
         try:
