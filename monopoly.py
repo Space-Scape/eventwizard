@@ -4431,6 +4431,7 @@ class MonopolyCog(commands.Cog):
             
             non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
 
+            # ---> NEW: HARD GUARD CLAUSE <---
             if not non_active_cards:
                 embed_description = f"<:smite:1437979867084881950> **{team_name}** tried to Smite **{victim_team}**, but they have no removable cards left!"
                 if victim_channel:
@@ -4541,17 +4542,15 @@ class MonopolyCog(commands.Cog):
                              (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
                 ]
                 
-                # 🛑 Caster Guard - Must have ANOTHER card besides Smite!
-                if not other_caster_cards:
-                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because **{team_name}** has no other cards to lose to the recoil."
+                if not other_caster_cards or not non_active_cards:
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because one team has no removable cards for the recoil destruction."
                     if victim_channel:
-                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** penalty.", color=discord.Color.blue())
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
                         await victim_channel.send(embed=fail_embed)
                         await self.mirror_to_game_log(victim_channel, embed=fail_embed)
                 else:
                     await self.consume_recoil(victim_team)
                     
-                    # Remove from target
                     target_card = random.choice(non_active_cards)
                     t_sheet = self.chest_sheet if target_card in victim_chest_cards else self.chance_sheet
                     t_row = target_card['row_index']
@@ -4568,7 +4567,6 @@ class MonopolyCog(commands.Cog):
                     if victim_team in t_teams: t_teams.remove(victim_team)
                     t_sheet.update_cell(t_row, 3, ", ".join(t_teams))
                     
-                    # Remove from caster (from their OTHER cards)
                     caster_card = random.choice(other_caster_cards)
                     c_sheet = self.chest_sheet if caster_card in caster_chest else self.chance_sheet
                     c_row = caster_card['row_index']
@@ -4603,6 +4601,7 @@ class MonopolyCog(commands.Cog):
                         )
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+
             else:
                 card_to_remove = random.choice(non_active_cards)
                 remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
@@ -4626,41 +4625,6 @@ class MonopolyCog(commands.Cog):
                     victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
                     await victim_channel.send(embed=victim_embed)
                     await self.mirror_to_game_log(victim_channel, embed=victim_embed)
-
-            else:
-                if not non_active_cards:
-                    embed_description += f"> **{victim_team}** has no removable cards! The Smite had no effect."
-                    if victim_channel:
-                        fail_embed = discord.Embed(
-                            title="🛡️ Smite Failed!",
-                            description=f"**{team_name}** tried to Smite you, but you have no cards to lose!",
-                            color=discord.Color.blue()
-                        )
-                        await victim_channel.send(embed=fail_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=fail_embed)
-                else:
-                    card_to_remove = random.choice(non_active_cards)
-                    remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
-                    remove_row = card_to_remove['row_index']
-
-                    wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
-                    try:
-                        wildcard_data = json.loads(wildcard_str)
-                        wildcard_data.pop(victim_team, None)
-                        remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
-                    except: pass
-                        
-                    held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
-                    teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
-                    if victim_team in teams: teams.remove(victim_team)
-                    remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
-
-                    embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
-                    
-                    if victim_channel:
-                        victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
-                        await victim_channel.send(embed=victim_embed)
-                        await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                         
         card_sheet = extra_data.get("card_sheet")
         card_row = extra_data.get("card_row")
