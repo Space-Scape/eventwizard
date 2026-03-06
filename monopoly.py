@@ -628,6 +628,39 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"❌ Error decrementing rolls: {e}")
 
+    async def process_manual_pass_go(self, team_name: str, team_row_idx: int, team_record: dict) -> str:
+        """Helper to process GP and Passes when a card effect forces a player over GO."""
+        try:
+            # Fetch fresh headers to ensure correct column indexing
+            all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
+            headers = list(all_records[0].keys())
+            
+            pass_go_col = headers.index("Go Passes") + 1
+            gp_col = headers.index("GP") + 1
+            
+            # Use data from the record provided
+            cur_passes = int(team_record.get("Go Passes", 0))
+            cur_gp = int(str(team_record.get("GP", 0)).replace(',',''))
+            
+            # --- ADDED: Ents GP Halved Check ---
+            is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
+            go_reward = 10_000_000 if is_gp_halved else 20_000_000
+
+            # Update the sheet
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pass_go_col, cur_passes + 1)
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, cur_gp + go_reward)
+            
+            if is_gp_halved:
+                # Clear the flag after the penalty is applied
+                asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
+                return f"\n\n💰 **PASS GO!** You crossed GO and received **10,000,000 GP** (Halved by 🌳 **The Ents**!)."
+            
+            return f"\n\n💰 **PASS GO!** You crossed GO and received **20,000,000 GP**!"
+            
+        except Exception as e:
+            print(f"❌ Error processing manual Pass Go: {e}")
+            return ""
+    
     def get_used_card_flag(self, team_name: str) -> str:
         """Checks the 'Used Card This Turn' flag for a team. Defaults to 'no'."""
         try:
