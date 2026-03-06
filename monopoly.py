@@ -1076,15 +1076,21 @@ class MonopolyCog(commands.Cog):
 
                 # --- ROLL / CARD GRANTING LOGIC ---
                 try:
+                    # Refresh records for roll check and grab jail status
                     records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     current_tile = None
                     is_in_jail = False
+                    
                     for record in records:
                         if record.get("Team") == team_name:
-                            current_tile = int(record.get("Position", 0))
+                            current_tile = int(record.get("Position", 0) or 0)
                             is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
                             break
                     
+                    # 🛡️ FIX: Lock the scavenger slot only if we successfully found the tile
+                    if is_scavenger and current_tile is not None:
+                        self.cog.team_scavenges_per_tile[team_name] = current_tile
+
                     if not is_scavenger:
                         tile_boss_map = {
                             1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
