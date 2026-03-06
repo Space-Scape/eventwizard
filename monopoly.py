@@ -3257,29 +3257,36 @@ class MonopolyCog(commands.Cog):
                 # Fetch snapshot
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 caster_pos = -1
-                for record in all_teams_data:
+                team_row_idx = -1
+                for idx, record in enumerate(all_teams_data, start=2):
                     if record.get("Team") == team_name:
                         caster_pos = int(record.get("Position", -1))
+                        team_row_idx = idx
                         break
                 
                 if caster_pos == -1:
                     await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
                     return
 
-                # Calculate movement
-                intended_pos = (caster_pos + stored_roll) % BOARD_SIZE
+                # Calculate movement and check for GO crossing
+                raw_new_pos = caster_pos + stored_roll
+                intended_pos = raw_new_pos % BOARD_SIZE
                 new_pos = self.resolve_nonroll_landing_tile(intended_pos)
+
+                # --- 💰 PASS GO CHECK ---
+                go_msg = ""
+                if raw_new_pos >= BOARD_SIZE and new_pos != 30:
+                    go_msg = await self.process_manual_pass_go(team_name, team_row_idx, all_teams_data[team_row_idx-2])
 
                 await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 
                 destination_tile_name = self.get_tile_name_for_display(new_pos)
-                embed_description = f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+                embed_description = f"> Moved **{stored_roll}** spaces forward to the **{destination_tile_name}** tile (Tile **{new_pos}**).{go_msg}"
                 embed_description += self.get_glider_redirect_note(intended_pos, new_pos)
 
-                # Route through normal board triggers (Only grants rolls on Special tiles)
                 await self.check_and_award_card_on_land(team_name, new_pos, "using Vile Vigour to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
+                
             elif card_name == "Lure":
                 all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 caster_pos = -1
@@ -3986,31 +3993,24 @@ class MonopolyCog(commands.Cog):
                     await interaction.followup.send("<:teleblock:1438088930816819271> You are Teleblocked! You cannot use this card.", ephemeral=True)
                     return 
 
-                all_teams_data = self.team_data_sheet.get_all_records()
+                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 caster_pos = -1
-                for record in all_teams_data:
+                team_row_idx = -1
+                for idx, record in enumerate(all_teams_data, start=2):
                     if record.get("Team") == team_name:
                         caster_pos = int(record.get("Position", -1))
+                        team_row_idx = idx
                         break
-
-                if caster_pos == -1:
-                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
-                    return  
 
                 if caster_pos == 10:
                     await interaction.followup.send("❌ You cannot use **Home Tele** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
                     return  
 
-                try:
-                    houses = self.get_houses()
-                except Exception as e:
-                    print(f"❌ Error fetching houses for Home Tele: {e}")
-                    await interaction.followup.send("❌ An internal error occurred while finding houses.", ephemeral=True)
-                    return
-
+                houses = self.get_houses()
                 closest_house_pos = -1
                 min_distance = float('inf')
 
+                # Find nearest house ahead
                 for house in houses:
                     house_tile = house.get("tile", 0)
                     if house_tile > caster_pos:
@@ -4019,17 +4019,35 @@ class MonopolyCog(commands.Cog):
                             min_distance = distance
                             closest_house_pos = house_tile
 
+                # If no house ahead, check for nearest house after wrapping around GO
+                passed_go_on_tele = False
                 if closest_house_pos == -1:
-                    await interaction.followup.send("❌ Card effect failed: No house tiles are ahead of you on the board.", ephemeral=True)
-                    return  
+                    for house in houses:
+                        house_tile = house.get("tile", 0)
+                        distance = (house_tile - caster_pos) % BOARD_SIZE
+                        if distance < min_distance:
+                            min_distance = distance
+                            closest_house_pos = house_tile
+                            passed_go_on_tele = True
 
-                new_pos = self.resolve_nonroll_landing_tile(closest_house_pos)
+                if closest_house_pos == -1:
+                    await interaction.followup.send("❌ Card effect failed: No house tiles exist on the board.", ephemeral=True)
+                    return
+
+                intended_pos = closest_house_pos
+                new_pos = self.resolve_nonroll_landing_tile(intended_pos)
+
+                # --- 💰 PASS GO CHECK ---
+                go_msg = ""
+                if passed_go_on_tele and new_pos != 30:
+                    go_msg = await self.process_manual_pass_go(team_name, team_row_idx, all_teams_data[team_row_idx-2])
+
                 destination_tile_name = self.get_tile_name_for_display(new_pos)
-                embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**) — nearest house tile ahead."
+                embed_description = f"> Teleported to the **{destination_tile_name}** tile (Tile **{new_pos}**).{go_msg}"
                 await loop.run_in_executor(None, self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                 await self.check_and_award_card_on_land(team_name, new_pos, "teleporting to")
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
-
+                
             elif card_name == "Tele Other":
                 all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
