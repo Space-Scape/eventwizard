@@ -1515,7 +1515,7 @@ class MonopolyCog(commands.Cog):
                     # Deduct the glider fee
                     cur_gp -= glider_fee
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp)
-                    glider_message = f"✈️ **Glider Flight:** You automatically paid **12,000,000 GP** to take the Gnome Glider!"
+                    glider_message = f"🪂 **Glider Flight:** The gnomes take an automatic payment of **8,000,000 GP** to use their glider!"
                     
                     if new_pos == 12: 
                         new_pos = 28 if current_tile != 38 else 12
@@ -1541,16 +1541,16 @@ class MonopolyCog(commands.Cog):
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
                                 
                                 if is_gp_halved:
-                                    go_message = f"🌳 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
+                                    go_message = f"🌳🪂 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
                                 else:
-                                    go_message = "💰 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
+                                    go_message = "💰🪂 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
                             except Exception as e:
                                 print(f"❌ Error updating Glider Go Bonus: {e}")
                         else:
                             new_pos = 38
                 else:
                     # Cannot afford the glider
-                    glider_message = f"🚫 **Glider Denied:** You cannot afford the **12,000,000 GP** flight fee! You stay on Tile {new_pos} and are granted a **Free Roll** instead!"
+                    glider_message = f"🚫💰 **You're Too Poor:** You cannot afford the gnome's **8,000,000 GP** glider fee! You stay on Tile {new_pos} and are granted a **Free Roll** instead!"
                     await asyncio.to_thread(self.increment_rolls_available, team_name)
                     # new_pos remains unchanged (12, 28, or 38)
                     
