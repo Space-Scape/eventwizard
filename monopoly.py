@@ -137,7 +137,7 @@ boss_drops = {
     "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Ultor vestige", "Executioner's axe head", "Blood quartz"],
     "Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
     "Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
-    "Vorkath": ["Vorki", "Vorkath's head", "Draconic visage", "Skeletal visage", "Dragonbone necklace", "Jar of decay"]
+    "Vorkath": ["Vorki", "Vorkath's head", "Draconic visage", "Skeletal visage", "Dragonbone necklace", "Jar of decay"],
     "Yama": ["Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"]
 }
