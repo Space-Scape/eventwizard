@@ -1379,8 +1379,7 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(f"❌ Failed to submit signup: {e}", ephemeral=True)
 
     @app_commands.command(name="roll", description="Roll a dice (1-6) for MONOPOLY")
-    @app_commands.describe(value="Optional forced roll (1-6) for quick testing")
-    async def roll(self, interaction: discord.Interaction, value: int | None = None):
+    async def roll(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message("❌ You can only use this command in your team's channel.", ephemeral=True)
             return
@@ -1436,8 +1435,7 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ Your team has no rolls available.", ephemeral=True)
             return
 
-        # 3. Dice Roll Execution
-        raw_result = value if (value and 1 <= value <= 6) else random.randint(1, 6)
+        raw_result = random.randint(1, 6)
         
         # --- ADDED: Apply Pre-Roll Nerfs ---
         team_record = all_records[team_row_index-2]
@@ -1874,20 +1872,20 @@ class MonopolyCog(commands.Cog):
             traceback.print_exc()
 
     @app_commands.command(name="monopoly_help", description="Show the help and rules for the Monopoly event.")
-    async def monopoly_help(self, interaction: Interaction):
+    async def monopoly_help(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         try:
             embed1 = discord.Embed(
                 title="How to Play (The Basics)",
                 description=(
-                    "The whole game runs on drop submissions. Here's the loop:\n"
-                    "1. **Submit a Drop:** A team member uses /submit_drop in the #drop-submission channel\n"
-                    "2. **Get Approved:** Event Staff checks it out and approves it.\n"
+                    "The whole game runs on drop submissions:\n"
+                    "1. **Submit a Drop:** A team member uses `/submitdrop` in the #drop-submission channel. Screenshots must **strictly** be in the room where the drop was received.\n"
+                    "2. **Get Approved:** Event Staff checks it out and approves it. All approvals have a chance for a rare passive drop!\n"
                     "3. **Get GP & a Roll:** Once it's approved, two things happen:\n"
                     "    - Your team gets GP for the drop.\n"
-                    "    - Your team gets one roll\n"
-                    "4. **Use Your Roll:** Your team's Captain heads to your team channel and uses the /roll command.\n"
+                    "    - Your team gets one roll.\n"
+                    "4. **Use Your Roll:** Head to your team channel and use the `/roll` command.\n"
                     "5. **Move:** The bot rolls a 1-6, and your team moves on the board.\n"
                     "6. **Repeat:** Keep submitting those drops to get more rolls!"
                 ),
@@ -1895,59 +1893,63 @@ class MonopolyCog(commands.Cog):
             )
             
             embed2 = discord.Embed(
-                title="Game Commands",
-                color=discord.Color.green()
+                title="⚙️ Advanced Game Mechanics",
+                color=discord.Color.orange()
             )
             embed2.add_field(
-                name="For Team Captains Only!",
-                value=(
-                    "**/use-card:** Lets you see and use the cards your team is holding.\n"
-                    "**/buy-house:** Landed on a tile? Use this to buy a house for it (up to 4).\n"
-                    "**/customize:** Change your character's icon and color!"
-                ),
+                name="🏠 Houses & Taxes",
+                value="When you land on a boss tile, your Captain can buy a house (up to 4 per tile). If another team lands on your property and gets a drop, they pay you a massive percentage of their earnings as tax!",
                 inline=False
             )
             embed2.add_field(
+                name="🃏 Cards & PvP",
+                value="Landing on Chest or Chance tiles grants your team a card. Captains can use these to teleport, boost GP, or ruthlessly attack and steal from other teams! Teams can only use one card per turn.",
+                inline=False
+            )
+            embed2.add_field(
+                name="💎 Rare Drop Table (Passives)",
+                value="Every approved drop has a chance to roll on the Rare Drop Table. You can win powerful passive items (like a Ring of Recoil or Protect Item) that automatically defend your team from attacks or taxes. You can only hold **ONE** passive at a time!",
+                inline=False
+            )
+            embed2.add_field(
+                name="🎲 Random Events",
+                value="The board is alive! Every time you roll the dice, there is a chance to trigger a Random Event. Some will bless your team with riches, while others will heavily sabotage your progress.",
+                inline=False
+            )
+            
+            embed3 = discord.Embed(
+                title="Game Commands",
+                color=discord.Color.blue()
+            )
+            embed3.add_field(
+                name="For Team Captains Only!",
+                value=(
+                    "**/use_card:** Lets you see and use the cards your team is holding.\n"
+                    "**/buy_house:** Landed on a tile? Use this to buy a house for it (up to 4).\n"
+                    "**/customize:** Change your character's icon and color!\n"
+                    "**/player_request:** Draft a player to your team."
+                ),
+                inline=False
+            )
+            embed3.add_field(
                 name="For Everyone on the Team!",
                 value=(
-                    "**/roll:** Uses one of your team's saved-up rolls to move your piece.\n"
-                    "**/stats:** View your team's status, GP, and position.\n"
+                    "**/roll:** Uses one of your team's rolls to move.\n"
+                    "**/stats:** View your team's passes, GP, houses, and leaderboard position.\n"
                     "**/gp:** Curious about your GP? Use this to check the team's total.\n"
-                    "**/cards:** See all the cool cards your team is currently holding.\n"
+                    "**/cards:** See all the cards your team is currently holding. *Visible only to you.*\n"
                     "**/show_drops:** Shows every drop available for the tile you're on.\n"
-                    "**/submit_drop:** Use this in your team channel to submit a drop."
+                    "**/submitdrop:** Use this to submit a boss drop for a roll."
                 ),
                 inline=False
             )
             
-            await interaction.followup.send(embeds=[embed1, embed2], ephemeral=False)
+            # Send all three embeds together
+            await interaction.followup.send(embeds=[embed1, embed2, embed3], ephemeral=False)
         
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}", ephemeral=True)
             traceback.print_exc()
-    
-    @app_commands.command(name="customize", description="Open the customization panel for your team")
-    async def customize(self, interaction: discord.Interaction):
-        if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
-            await interaction.response.send_message(
-                "❌ You can only use this command in your team's channel.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        team_name = self.get_team(interaction.user) or "*No team*"
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            self.log_command,
-            interaction.user.name,
-            "/customize",
-            {"team": team_name}
-        )
-        
-        await interaction.followup.send(
-            "🎨 Your customization request has been sent. The game board will update shortly.", ephemeral=True
-        )
 
     @app_commands.command(name="gp", description="Check your team's current GP balance.")
     async def gp(self, interaction: discord.Interaction):
@@ -2000,7 +2002,7 @@ class MonopolyCog(commands.Cog):
             
             gp_list = []
             go_passes_list = []
-            houses_list = [] # Tracker for the new Houses column
+            houses_list = []
 
             for record in records:
                 team_name = record.get("Team", "")
@@ -2015,7 +2017,6 @@ class MonopolyCog(commands.Cog):
                 team_passes_str = str(record.get("Go Passes", 0)).replace(',', '').strip()
                 team_passes = int(team_passes_str) if team_passes_str and team_passes_str.lstrip('-').isdigit() else 0
                 
-                # Format Houses Owned (New Column M)
                 team_houses_str = str(record.get("Houses Owned", 0)).replace(',', '').strip()
                 team_houses = int(team_houses_str) if team_houses_str and team_houses_str.lstrip('-').isdigit() else 0
                 
@@ -2023,12 +2024,10 @@ class MonopolyCog(commands.Cog):
                 go_passes_list.append({"team": team_name, "value": team_passes})
                 houses_list.append({"team": team_name, "value": team_houses})
                 
-            # 2. Sort all lists descending
             gp_list.sort(key=lambda x: x["value"], reverse=True)
             go_passes_list.sort(key=lambda x: x["value"], reverse=True)
             houses_list.sort(key=lambda x: x["value"], reverse=True)
 
-            # 3. Build outputs
             gp_output = ""
             for i, entry in enumerate(gp_list, 1):
                 gp_output += f"**{i}. {entry['team']}**: {entry['value']:,}\n"
@@ -2041,14 +2040,12 @@ class MonopolyCog(commands.Cog):
             for i, entry in enumerate(houses_list, 1):
                 houses_output += f"**{i}. {entry['team']}**: {entry['value']}\n"
 
-            # 4. Construct Embed
             embed = discord.Embed(
                 title="🌐 Monopoly Board Leaderboard",
                 description="Current progress stats for all teams.",
                 color=discord.Color.blue()
             )
             
-            # Using inline=True makes the 3 leaderboards sit side-by-side nicely
             if gp_output:
                 embed.add_field(name="<:MaxCash:1347684049040183427> GP Holdings", value=gp_output, inline=True)
                 
@@ -3945,32 +3942,59 @@ class MonopolyCog(commands.Cog):
             elif card_name == "Tele Other":
                 all_teams_data = self.team_data_sheet.get_all_records()
                 caster_pos = -1
-                opponents = []
+                caster_row = -1
+                valid_opponents = []
 
-                for record in all_teams_data:
+                headers = list(all_teams_data[0].keys())
+                pos_col = headers.index("Position") + 1
+
+                for idx, record in enumerate(all_teams_data, start=2):
                     current_team_name = record.get("Team")
                     if current_team_name == team_name:
                         caster_pos = int(record.get("Position", -1))
-                    elif current_team_name:
-                        opponents.append({
-                            "team": current_team_name,
-                            "pos": int(record.get("Position", -1))
-                        })
+                        caster_row = idx
+                        break
                 
                 if caster_pos == 10:
                     await interaction.followup.send("❌ You cannot use **Tele Other** while on tile 10 (Nex/Gauntlet).", ephemeral=True)
                     return 
 
-                if not opponents:
-                    await interaction.followup.send("❌ Card effect failed: There are no other teams to swap with.", ephemeral=True)
+                if caster_pos == -1:
+                    await interaction.followup.send("❌ Could not find your team's position.", ephemeral=True)
+                    return
+
+                for idx, record in enumerate(all_teams_data, start=2):
+                    opponent_team_name = record.get("Team")
+                    if opponent_team_name == team_name or not opponent_team_name:
+                        continue
+                    
+                    opponent_pos = int(record.get("Position", -1))
+                    
+                    # Calculate shortest circular distance (handles wrapping around GO)
+                    dist = abs(opponent_pos - caster_pos)
+                    shortest_dist = min(dist, BOARD_SIZE - dist)
+                    
+                    # Target must be between 1 and 10 tiles away (front OR back)
+                    if 1 <= shortest_dist <= 10:
+                        valid_opponents.append({
+                            "team": opponent_team_name, 
+                            "pos": opponent_pos, 
+                            "row": idx
+                        })
+                
+                if not valid_opponents:
+                    await interaction.followup.send("❌ Card effect failed: No opponents are within 10 tiles of you.", ephemeral=True)
                     return 
 
-                target = random.choice(opponents)
-                target_team = target["team"]
-                target_pos = target["pos"]
+                # It's random, so pick one of the valid targets
+                chosen_target = random.choice(valid_opponents)
+                target_team = chosen_target["team"]
+                target_pos = chosen_target["pos"]
+                target_row = chosen_target["row"]
+                
                 victim_channel = self.get_team_channel(target_team)
                 embed_description = ""
-                
+
                 # --- 🛡️ PASSIVE CHECKS ---
                 victim_info = next((r for r in all_teams_data if r.get("Team") == target_team), {})
                 has_stone = str(victim_info.get("Ring of Stone", "no")).strip().lower() == "yes"
@@ -3983,7 +4007,7 @@ class MonopolyCog(commands.Cog):
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
                 
                 elif self.check_and_consume_redemption(target_team):
-                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**\'s Redemption activated! The teleport was cancelled."
+                    embed_description += f"> <:redemption:1437979567900987493> **{target_team}**'s Redemption activated! The teleport was cancelled."
                     if victim_channel:
                         fizzle_embed = discord.Embed(title="<:redemption:1437979567900987493> Redemption Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Redemption** activated!", color=discord.Color.blue())
                         await victim_channel.send(embed=fizzle_embed)
@@ -4005,7 +4029,7 @@ class MonopolyCog(commands.Cog):
                         stone_embed = discord.Embed(title="🪨 Ring of Stone Activated!", description=f"**{team_name}** tried to use **Tele Other** on you, but your **Ring of Stone** turned you into a rock and prevented you from being moved!", color=discord.Color.blue())
                         await victim_channel.send(embed=stone_embed)
                         await self.mirror_to_game_log(victim_channel, embed=stone_embed)
-
+                
                 else:
                     caster_intended_pos = target_pos
                     target_intended_pos = caster_pos
@@ -4031,7 +4055,6 @@ class MonopolyCog(commands.Cog):
                     if victim_channel:
                         swap_embed = discord.Embed(title="<:teleother:1437980130407350375> You've Been Swapped!", description=(f"**{team_name}** used **Tele Other** and swapped places with your team!\nYour team is now on the **{target_dest_name}** tile (Tile **{target_final_pos}**)." + target_glider_note_victim), color=discord.Color.orange())
                         await victim_channel.send(embed=swap_embed)
-
                         await self.mirror_to_game_log(victim_channel, embed=swap_embed)
 
                     await self.check_and_award_card_on_land(team_name, caster_final_pos, "being teleported to")
@@ -5161,8 +5184,8 @@ class MonopolyCog(commands.Cog):
     @app_commands.command(name="force_event", description="[Staff] Force a specific random event for testing.")
     @app_commands.describe(team_role="The team to trigger the event for", event_id="The event to test (Start typing to see list)")
     async def force_event(self, interaction: discord.Interaction, team_role: discord.Role, event_id: str):
-        if not self.has_event_staff_role(interaction.user):
-            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Only Administrators can use this command.", ephemeral=True)
             return
 
         team_name = team_role.name
