@@ -876,7 +876,9 @@ class MonopolyCog(commands.Cog):
                     await log_chan.send(content=f"{mention} Drop submission approved by {interaction.user.mention}.", embed=embed)
                     print(f"✅ Sent approval to DropLog ({log_chan.name})")
 
-                self.cog.log_drop_to_sheet(
+                # ---> THREADED LOGGING <---
+                await asyncio.to_thread(
+                    self.cog.log_drop_to_sheet,
                     submitted_for=str(self.submitted_user),
                     team=team_name,
                     boss=self.boss,
@@ -889,14 +891,15 @@ class MonopolyCog(commands.Cog):
                 try:
                     gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
 
-                    item_values_records = self.cog.item_values_sheet.get_all_records()
+                    # ---> THREADED FETCH <---
+                    item_values_records = await asyncio.to_thread(self.cog.item_values_sheet.get_all_records)
                     gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                     
                     base_gp_value = gp_lookup.get(self.drop, 0)
                     final_gp_value = base_gp_value * gp_multiplier
                     
-                    # Fetch team data to check for Ents and Pinball Troll
-                    records = self.cog.team_data_sheet.get_all_records()
+                    # ---> THREADED FETCH <---
+                    records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     team_record = next((r for r in records if r.get("Team") == team_name), None)
                     
                     is_gp_halved = False
@@ -926,7 +929,8 @@ class MonopolyCog(commands.Cog):
                     alchemy_bonus = f" ({', '.join(bonus_parts)}!)" if bonus_parts else ""
 
                     if final_gp_value > 0 and team_name != "*No team*":
-                        house_records = self.cog.house_data_sheet.get_all_records()
+                        # ---> THREADED FETCH <---
+                        house_records = await asyncio.to_thread(self.cog.house_data_sheet.get_all_records)
                         current_tile = int(team_record.get("Position", 0) or 0) if team_record else None
 
                         tax_amount = 0
@@ -970,7 +974,8 @@ class MonopolyCog(commands.Cog):
                                     # Normal tax deduction
                                     final_gp_value -= tax_amount
 
-                        headers = self.cog.team_data_sheet.row_values(1)
+                        # ---> THREADED FETCH <---
+                        headers = await asyncio.to_thread(self.cog.team_data_sheet.row_values, 1)
                         try:
                             gp_col_index = headers.index("GP") + 1
                         except ValueError:
@@ -982,7 +987,9 @@ class MonopolyCog(commands.Cog):
                                 current_gp_raw = str(record.get("GP", 0)).replace(',', '')
                                 current_gp = int(current_gp_raw) if current_gp_raw.isdigit() else 0
                                 new_gp = max(0, current_gp + final_gp_value)
-                                self.cog.team_data_sheet.update_cell(idx, gp_col_index, new_gp)
+                                
+                                # ---> THREADED UPDATE <---
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, idx, gp_col_index, new_gp)
                                 
                                 gp_message = (
                                     f"<:MaxCash:1347684049040183427> **{team_name}** earned **{final_gp_value:,} GP** "
@@ -1000,7 +1007,8 @@ class MonopolyCog(commands.Cog):
                                     owner_gp_raw = str(orec.get("GP", 0)).replace(',', '')
                                     owner_gp = int(owner_gp_raw) if owner_gp_raw.isdigit() else 0
                                     new_owner_gp = owner_gp + tax_amount
-                                    self.cog.team_data_sheet.update_cell(o_idx, gp_col_index, new_owner_gp)
+                                    
+                                    await asyncio.to_thread(self.cog.team_data_sheet.update_cell, o_idx, gp_col_index, new_owner_gp)
                                     break
                             
                             tax_message = (
@@ -1835,7 +1843,7 @@ class MonopolyCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         
         try:
-            team_data = self.get_team_data(team_name)
+            team_data = await asyncio.to_thread(self.get_team_data, team_name)
             if not team_data:
                 await interaction.followup.send("Could not retrieve your team's data.", ephemeral=True)
                 return
@@ -1843,12 +1851,11 @@ class MonopolyCog(commands.Cog):
             position = int(team_data.get("Position", 0))
 
             try:
-                embed = self.build_show_drops_embed_for_tile(position)
+                embed = await asyncio.to_thread(self.build_show_drops_embed_for_tile, position)
             except Exception as e:
                 print(f"Error fetching ItemValues: {e}")
                 await interaction.followup.send("Error fetching item data from the sheet.", ephemeral=True)
                 return
-
             if not embed:
                 await interaction.followup.send("There are no special boss drops on this tile.", ephemeral=False)
                 return
