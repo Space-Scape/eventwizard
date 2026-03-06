@@ -147,6 +147,7 @@ class MonopolyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.player_stances = {}
+        self.team_scavenges_per_tile = {}
         self.signup_sheet = None
         self.signup_sheet_book = None
         
@@ -901,26 +902,30 @@ class MonopolyCog(commands.Cog):
                 )
 
                 # --- SCAVENGER MUTUALLY EXCLUSIVE REWARD LOGIC ---
-                # Check if the boss is in the global SCAVENGER_BOSSES list you defined at the top
                 is_scavenger = self.boss in SCAVENGER_BOSSES
                 
-                # If Scavenger, randomly pick ONE reward. If Main Board, it's always None (runs normal loop)
-                scavenger_reward = random.choice(["Chest", "Chance", "GP"]) if is_scavenger else None
+                if is_scavenger:
+                    # 90% chance for GP, 5% for Chest, 5% for Chance
+                    scavenger_reward = random.choices(["GP", "Chest", "Chance"], weights=[90, 5, 5], k=1)[0]
+                    # Lock the team out of scavenging until they move to a new tile
+                    self.cog.team_scavenges_per_tile[team_name] = current_tile
+                else:
+                    scavenger_reward = None
 
                 # --- GP CALCULATION LOGIC ---
-                # Only run GP calculation if it's a Main Board boss, OR if they won the GP roll as a Scavenger
                 if not is_scavenger or scavenger_reward == "GP":
                     try:
                         gp_multiplier, consumed_card_name = await asyncio.to_thread(self.cog.check_and_consume_alchemy, team_name)
 
-                        # ---> THREADED FETCH <---
                         item_values_records = await asyncio.to_thread(self.cog.item_values_sheet.get_all_records)
                         gp_lookup = {item['Item']: int(str(item['GP']).replace(',', '')) for item in item_values_records}
                         
                         base_gp_value = gp_lookup.get(self.drop, 0)
                         final_gp_value = base_gp_value * gp_multiplier
+
+                        if is_scavenger:
+                            final_gp_value = final_gp_value // 2
                         
-                        # ---> THREADED FETCH <---
                         records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                         team_record = next((r for r in records if r.get("Team") == team_name), None)
                         
@@ -938,7 +943,6 @@ class MonopolyCog(commands.Cog):
                             
                         original_gp_value_pre_tax = final_gp_value
 
-                        # Build the status message footer
                         bonus_parts = []
                         if gp_multiplier > 1 and consumed_card_name:
                             emoji = CARD_EMOJIS.get(consumed_card_name, "")
@@ -1013,7 +1017,6 @@ class MonopolyCog(commands.Cog):
                                     # ---> THREADED UPDATE <---
                                     await asyncio.to_thread(self.cog.team_data_sheet.update_cell, idx, gp_col_index, new_gp)
                                     
-                                    # Custom flavor text if they are a Scavenger who hit the GP roll
                                     if is_scavenger:
                                         gp_message = (
                                             f"<:MaxCash:1347684049040183427> **Scavenger Loot!** **{team_name}** rolled the GP prize and earned **{final_gp_value:,} GP** "
@@ -1054,7 +1057,6 @@ class MonopolyCog(commands.Cog):
                                             await self.cog.mirror_to_game_log(owner_team_chan, content=tax_message, team_name=owner_team)
                                         break
 
-                        # Cleanup Pinball Troll flag
                         if is_gp_doubled:
                             asyncio.create_task(asyncio.to_thread(self.cog.clear_flag_column, team_name, "GP Doubled"))
 
@@ -1064,7 +1066,6 @@ class MonopolyCog(commands.Cog):
 
                 # --- ROLL / CARD GRANTING LOGIC ---
                 try:
-                    # Refresh records for roll check and grab jail status
                     records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     current_tile = None
                     is_in_jail = False
@@ -2349,6 +2350,10 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
             return
 
+        if self.team_scavenges_per_tile.get(team_name) == current_tile:
+            await interaction.followup.send(content=f"❌ **{team_name}** has already used their 1 Scavenge allowance for Tile {current_tile}! You must wait until your team rolls.", ephemeral=True)
+            return
+            
         # Dual-Box Check (Per Turn/Tile)
         allowed, error_msg = self.check_and_update_turn_stance(interaction.user.id, team_name, current_tile, "scavenge")
         if not allowed:
