@@ -744,10 +744,11 @@ class MonopolyCog(commands.Cog):
             options = []
             for target in valid_targets:
                 desc = None
-                if card_action == "rogues_gloves":
+                if card_action in ["rogues_gloves", "smite"]:
                     try:
-                        stealable = self.extra_data.get("stealable_cards", [])
-                        target_count = len([c for c in stealable if c["victim_team"] == target])
+                        list_key = "stealable_cards" if card_action == "rogues_gloves" else "smitable_cards"
+                        card_list = self.extra_data.get(list_key, [])
+                        target_count = len([c for c in card_list if c["victim_team"] == target])
                         desc = f"Holding {target_count} eligible card(s)"
                     except:
                         pass
@@ -3309,24 +3310,77 @@ class MonopolyCog(commands.Cog):
 
             elif card_name == "Rogue's Gloves":
                 stealable_cards = []
-                chance_data = self.chance_sheet.get_all_values()
-                if chance_data:
-                    headers = chance_data[0]
+                for sheet, sheet_name in [(self.chance_sheet, "Chance"), (self.chest_sheet, "Chest")]:
+                    data = sheet.get_all_values()
+                    if not data: continue
+                    headers = data[0]
                     name_col, held_by_col, wildcard_col = headers.index("Name"), headers.index("Held By Team"), headers.index("Wildcard")
-                    for i, row in enumerate(chance_data[1:], start=2):
+                    for i, row in enumerate(data[1:], start=2):
                         if len(row) <= max(name_col, held_by_col, wildcard_col): continue
                         held_by_str = str(row[held_by_col] or "")
-                        if held_by_str and team_name not in held_by_str:
-                            is_active = False
-                            wildcard_str = str(row[wildcard_col] or "{}")
-                            if wildcard_str != "{}" and wildcard_str:
-                                try:
-                                    wildcard_data_json = json.loads(wildcard_str)
-                                    victim_team = held_by_str.strip() 
-                                    if wildcard_data_json.get(victim_team) == "active": is_active = True
-                                except: pass 
-                            if not is_active:
-                                stealable_cards.append({"sheet": self.chance_sheet, "row_index": i, "card_name": str(row[name_col]), "card_type": "Chance", "victim_team": held_by_str.strip()})
+                        if not held_by_str: continue
+                        
+                        all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        wildcard_data_json = {}
+                        if wildcard_str.strip():
+                            try: wildcard_data_json = json.loads(wildcard_str)
+                            except: pass
+                            
+                        valid_victims = [h for h in all_holders if h != team_name and wildcard_data_json.get(h) != "active"]
+                        for v in valid_victims:
+                            stealable_cards.append({"sheet": sheet, "row_index": i, "card_name": str(row[name_col]), "card_type": sheet_name, "victim_team": v})
+
+                if not stealable_cards:
+                    await interaction.followup.send("❌ Card effect failed: There are no eligible cards to steal.", ephemeral=True)
+                    return 
+
+                team_card_counts = {}
+                for c in stealable_cards:
+                    team_card_counts[c["victim_team"]] = team_card_counts.get(c["victim_team"], 0) + 1
+
+                embed = discord.Embed(title="🎯 Target Selection: Rogue's Gloves", description="Select a team to steal from!", color=discord.Color.dark_gray())
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "stealable_cards": stealable_cards, "double_card_note": double_card_note}
+                view = self.CardTargetView(self, team_name, list(team_card_counts.keys()), "Rogue's Gloves", "rogues_gloves", extra_data=extra_memory)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+                return
+
+            elif card_name == "Smite":
+                smitable_cards = []
+                for sheet, sheet_name in [(self.chance_sheet, "Chance"), (self.chest_sheet, "Chest")]:
+                    data = sheet.get_all_values()
+                    if not data: continue
+                    headers = data[0]
+                    name_col, held_by_col, wildcard_col = headers.index("Name"), headers.index("Held By Team"), headers.index("Wildcard")
+                    for i, row in enumerate(data[1:], start=2):
+                        if len(row) <= max(name_col, held_by_col, wildcard_col): continue
+                        held_by_str = str(row[held_by_col] or "")
+                        if not held_by_str: continue
+                        
+                        all_holders = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                        wildcard_str = str(row[wildcard_col] or "{}")
+                        wildcard_data_json = {}
+                        if wildcard_str.strip():
+                            try: wildcard_data_json = json.loads(wildcard_str)
+                            except: pass
+                            
+                        valid_victims = [h for h in all_holders if h != team_name and wildcard_data_json.get(h) != "active"]
+                        for v in valid_victims:
+                            smitable_cards.append({"sheet": sheet, "row_index": i, "card_name": str(row[name_col]), "card_type": sheet_name, "victim_team": v})
+
+                if not smitable_cards:
+                    await interaction.followup.send("❌ Card effect failed: No opponents have removable cards to Smite.", ephemeral=True)
+                    return 
+
+                team_card_counts = {}
+                for c in smitable_cards:
+                    team_card_counts[c["victim_team"]] = team_card_counts.get(c["victim_team"], 0) + 1
+
+                embed = discord.Embed(title="🎯 Target Selection: Smite", description="Select a team to Smite!", color=discord.Color.red())
+                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "smitable_cards": smitable_cards, "double_card_note": double_card_note}
+                view = self.CardTargetView(self, team_name, list(team_card_counts.keys()), "Smite", "smite", extra_data=extra_memory)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+                return
 
                 chest_data = self.chest_sheet.get_all_values()
                 if chest_data:
@@ -3392,20 +3446,6 @@ class MonopolyCog(commands.Cog):
 
                 extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "all_teams_data": all_teams_data, "caster_record": caster_record, "target_gp_data": target_gp_data, "double_card_note": double_card_note}
                 view = self.CardTargetView(self, team_name, valid_targets, "Pickpocket", "pickpocket", extra_data=extra_memory)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-                return
-
-            elif card_name == "Smite":
-                all_teams_data = self.team_data_sheet.get_all_records()
-                valid_targets = [r.get("Team") for r in all_teams_data if r.get("Team") and r.get("Team") != team_name]
-                
-                if not valid_targets:
-                    await interaction.followup.send("❌ Card effect failed: No opponents to Smite.", ephemeral=True)
-                    return 
-
-                embed = discord.Embed(title="🎯 Target Selection: Smite", description="Select a team to Smite!", color=discord.Color.red())
-                extra_memory = {"card_sheet": card_sheet, "card_row": card_row, "wildcard_data": wildcard_data, "team_wildcard_value": team_wildcard_value, "double_card_note": double_card_note}
-                view = self.CardTargetView(self, team_name, valid_targets, "Smite", "smite", extra_data=extra_memory)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=False)
                 return
             
@@ -4391,6 +4431,18 @@ class MonopolyCog(commands.Cog):
             
             non_active_cards = [card for card in all_victim_cards if "(ACTIVE)" not in card['text']]
 
+            if not non_active_cards:
+                embed_description = f"<:smite:1437979867084881950> **{team_name}** tried to Smite **{victim_team}**, but they have no removable cards left!"
+                if victim_channel:
+                    fail_embed = discord.Embed(
+                        title="🛡️ Smite Failed!",
+                        description=f"**{team_name}** tried to Smite you, but you have no cards to lose!",
+                        color=discord.Color.blue()
+                    )
+                    await victim_channel.send(embed=fail_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=fail_embed)
+                return  
+
             # --- 🛡️ PASSIVE CHECKS ---
             team_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             victim_info = next((r for r in team_records if r.get("Team") == victim_team), {})
@@ -4480,11 +4532,20 @@ class MonopolyCog(commands.Cog):
                 caster_chance = self.get_held_cards(self.chance_sheet, team_name)
                 all_caster = [c for c in (caster_chest + caster_chance) if "(ACTIVE)" not in c['text']]
                 
-                # 🛑 Caster Guard
-                if not all_caster or not non_active_cards:
-                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because one team has no removable cards for the recoil."
+                card_sheet = extra_data.get("card_sheet")
+                card_row = extra_data.get("card_row")
+
+                other_caster_cards = [
+                    c for c in all_caster
+                    if not ( (c in caster_chest and card_sheet == self.chest_sheet and c["row_index"] == card_row) or 
+                             (c in caster_chance and card_sheet == self.chance_sheet and c["row_index"] == card_row) )
+                ]
+                
+                # 🛑 Caster Guard - Must have ANOTHER card besides Smite!
+                if not other_caster_cards:
+                    embed_description += f"> 💍 **{victim_team}** has a **Ring of Recoil**! The Smite failed because **{team_name}** has no other cards to lose to the recoil."
                     if victim_channel:
-                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** swap.", color=discord.Color.blue())
+                        fail_embed = discord.Embed(title="🛡️ Attack Failed!", description=f"**{team_name}** tried to Smite you, but the attack failed due to a lack of cards for the **Ring of Recoil** penalty.", color=discord.Color.blue())
                         await victim_channel.send(embed=fail_embed)
                         await self.mirror_to_game_log(victim_channel, embed=fail_embed)
                 else:
@@ -4507,8 +4568,8 @@ class MonopolyCog(commands.Cog):
                     if victim_team in t_teams: t_teams.remove(victim_team)
                     t_sheet.update_cell(t_row, 3, ", ".join(t_teams))
                     
-                    # Remove from caster
-                    caster_card = random.choice(all_caster)
+                    # Remove from caster (from their OTHER cards)
+                    caster_card = random.choice(other_caster_cards)
                     c_sheet = self.chest_sheet if caster_card in caster_chest else self.chance_sheet
                     c_row = caster_card['row_index']
                     
@@ -4524,20 +4585,47 @@ class MonopolyCog(commands.Cog):
                     if team_name in c_teams: c_teams.remove(team_name)
                     c_sheet.update_cell(c_row, 3, ", ".join(c_teams))
 
-                    embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{victim_team}** lost a card! (**{target_card['name']}** and **{caster_card['name']}**)"
+                    embed_description += f"> 💍 **Recoil Triggered!** Both **{team_name}** and **{victim_team}** lost a card! (**{caster_card['name']}** and **{target_card['name']}**)"
                     
                     recoil_caster_embed = discord.Embed(
                         title="💍 Recoil Activated!", 
-                        description=f"You attacked a team wearing a **Ring of Recoil**!\nBoth your team and **{victim_team}** lost a card! You lost your **{caster_card['name']}**.", 
+                        description=f"You attacked a team wearing a **Ring of Recoil**!\nBoth your team and **{victim_team}** lost a card!\n\n🔴 You lost **{caster_card['name']}**.\n🟢 They lost **{target_card['name']}**.", 
                         color=discord.Color.dark_red()
                     )
                     await interaction.channel.send(embed=recoil_caster_embed)
                     await self.mirror_to_game_log(interaction.channel, embed=recoil_caster_embed)
 
                     if victim_channel:
-                        victim_embed = discord.Embed(title="💍 Recoil Activated!", description=f"**{team_name}** tried to use **Smite** on you, but your **Ring of Recoil** triggered! Both teams lost a card!", color=discord.Color.green())
+                        victim_embed = discord.Embed(
+                            title="💍 Recoil Shattered!", 
+                            description=f"**{team_name}** tried to use **Smite** on you, but your **Ring of Recoil** triggered! Both teams lost a card!\n\n🔴 You lost **{target_card['name']}**.\n🟢 They lost **{caster_card['name']}**.", 
+                            color=discord.Color.green()
+                        )
                         await victim_channel.send(embed=victim_embed)
                         await self.mirror_to_game_log(victim_channel, embed=victim_embed)
+            else:
+                card_to_remove = random.choice(non_active_cards)
+                remove_sheet = self.chest_sheet if card_to_remove in victim_chest_cards else self.chance_sheet
+                remove_row = card_to_remove['row_index']
+
+                wildcard_str = str(remove_sheet.cell(remove_row, 4).value or "{}")
+                try:
+                    wildcard_data = json.loads(wildcard_str)
+                    wildcard_data.pop(victim_team, None)
+                    remove_sheet.update_cell(remove_row, 4, json.dumps(wildcard_data))
+                except: pass
+                    
+                held_by_str = str(remove_sheet.cell(remove_row, 3).value or "")
+                teams = [t.strip() for t in held_by_str.split(',') if t.strip()]
+                if victim_team in teams: teams.remove(victim_team)
+                remove_sheet.update_cell(remove_row, 3, ", ".join(teams))
+
+                embed_description += f"> **{victim_team}** lost their **{card_to_remove['name']}** card."
+                
+                if victim_channel:
+                    victim_embed = discord.Embed(title="‼️ Card Lost!", description=f"**{team_name}** used **Smite**! Your team lost your **{card_to_remove['name']}** card!", color=discord.Color.dark_red())
+                    await victim_channel.send(embed=victim_embed)
+                    await self.mirror_to_game_log(victim_channel, embed=victim_embed)
 
             else:
                 if not non_active_cards:
