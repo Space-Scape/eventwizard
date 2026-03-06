@@ -3208,20 +3208,32 @@ class MonopolyCog(commands.Cog):
 
                 for record in all_teams_data:
                     opponent_team_name = record.get("Team")
-                    if opponent_team_name == team_name:
+                    if opponent_team_name == team_name or not opponent_team_name:
                         continue
                     
                     opponent_pos = int(record.get("Position", -1))
-                    if opponent_pos > caster_pos:
-                        opponents_ahead.append((opponent_team_name, opponent_pos))
+                    
+                    # Calculate distance, wrapping around GO
+                    dist = (opponent_pos - caster_pos) % BOARD_SIZE
+                    
+                    # Only target if they are 1 to 12 tiles ahead
+                    if 1 <= dist <= 12:
+                        opponents_ahead.append((opponent_team_name, opponent_pos, dist))
                 
                 if not opponents_ahead:
-                    await interaction.followup.send("❌ Card effect failed: No opponents are ahead of you.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No opponents are within 12 tiles ahead of you.", ephemeral=True)
                     return 
 
-                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[1])
-                target_team = sorted_opponents[0][0]
-                target_pos = sorted_opponents[0][1]
+                # Sort by distance to find the closest opponent
+                sorted_opponents = sorted(opponents_ahead, key=lambda x: x[2])
+                closest_dist = sorted_opponents[0][2]
+                
+                # Handle ties randomly if multiple teams are on the same closest tile
+                closest_teams = [opp for opp in sorted_opponents if opp[2] == closest_dist]
+                chosen_target = random.choice(closest_teams)
+                
+                target_team = chosen_target[0]
+                target_pos = chosen_target[1]
                 
                 victim_channel = self.get_team_channel(target_team)
 
