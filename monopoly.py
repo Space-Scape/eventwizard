@@ -1120,7 +1120,7 @@ class MonopolyCog(commands.Cog):
                                 await self.cog.mirror_to_game_log(team_chan, embed=scavenge_embed, team_name=team_name)
                                 
                             # Safely draw the card for the team
-                            await asyncio.to_thread(self.cog.team_receives_card, team_name, scavenger_reward, team_chan)
+                            await self.cog.team_receives_card(team_name, scavenger_reward, team_chan)
 
                 except Exception as roll_e:
                     print(f"❌ Error checking tile before granting roll/card: {roll_e}")
@@ -2308,7 +2308,7 @@ class MonopolyCog(commands.Cog):
             if data["stance"] != requested_stance:
                 other_cmd = "/scavenge" if requested_stance == "main" else "/submitdrop"
                 stance_name = "Main Board" if data["stance"] == "main" else "Scavenger"
-                return False, f"⏳ **Dual-Box Prevention:** You are locked into the **{stance_name}** stance for this turn (Tile {current_tile}). You cannot use `{other_cmd}` until your Captain rolls and moves the team to a new tile!"
+                return False, f"⏳ **Dual-Prevention:** You are locked into the **{stance_name}** role for this tile (Tile {current_tile}). You can only use `{other_cmd}` until your team moves to a new tile!"
         
         # If they moved to a new tile, changed teams, or are brand new: update and allow!
         self.player_stances[user_id] = {
@@ -2357,7 +2357,7 @@ class MonopolyCog(commands.Cog):
 
         # 2. Inject the FULL warning text into the actual menu message!
         warning_text = (
-            "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere. "
+            "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere.\n"
             "If you Scavenge, you can **not** submit a drop for the **current tile** (meant for accounts that can not do certain content). *Use this wisely.*\n\n"
             "**Select the Scavenger Boss you defeated:**"
         )
