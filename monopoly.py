@@ -479,39 +479,27 @@ class MonopolyCog(commands.Cog):
     def has_event_staff_role(self, member: discord.Member) -> bool:
         return any(role.id == EVENT_STAFF_ROLE_ID for role in member.roles)
         
-    def get_team_house_color(self, team_name: str) -> str:
-        """
-        Retrieves the team's background color hex from TeamData (column F).
-        Used for house color visualization and ownership.
-        """
-        try:
-            team_rows = self.team_data_sheet.get_all_records()
-            for record in team_rows:
-                if record.get("Team") == team_name:
-                    color_hex = record.get("BG Color", "#FFFFFF")
-                    if not str(color_hex).startswith("#"):
-                        color_hex = f"#{color_hex}"
-                    return color_hex
-        except Exception as e:
-            print(f"❌ Error fetching color for {team_name}: {e}")
-        return "#FFFFFF"
-
-
     def get_houses(self) -> list:
-        """
-        Retrieves the list of all active houses from the house data sheet.
-        Returns a list of dictionaries: [{"tile": 5, "color": "#ff0000"}, ...]
-        """
+        """Retrieves all active houses. Optimized to use exactly 2 API calls total."""
         try:
-            data = self.house_data_sheet.get_all_records()
+            house_data = self.house_data_sheet.get_all_records()
+            team_data = self.team_data_sheet.get_all_records()
+            
+            color_map = {}
+            for r in team_data:
+                color_hex = r.get("BG Color", "#FFFFFF")
+                if not str(color_hex).startswith("#"): 
+                    color_hex = f"#{color_hex}"
+                color_map[r.get("Team")] = color_hex
+
             houses = []
-            for record in data:
+            for record in house_data:
                 tile = int(record.get("Tile", 0) or 0)
                 owner = record.get("OwnerTeam", "")
                 if tile > 0 and owner:
-                    color = self.get_team_house_color(owner)
-                    houses.append({"tile": tile, "color": color})
+                    houses.append({"tile": tile, "color": color_map.get(owner, "#FFFFFF")})
             return houses
+            
         except Exception as e:
             print(f"❌ Error fetching house data: {e}")
             return []
@@ -3190,7 +3178,7 @@ class MonopolyCog(commands.Cog):
                 await self.auto_post_show_drops_if_boss_tile(team_name, new_pos)
 
             elif card_name == "Lure":
-                all_teams_data = self.team_data_sheet.get_all_records()
+                all_teams_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
                 caster_pos = -1
                 opponents_ahead = []
 
@@ -3319,7 +3307,7 @@ class MonopolyCog(commands.Cog):
                     return
 
                 # 3. Execution
-                self.increment_rolls_available(team_name)
+                await asyncio.to_thread(self.increment_rolls_available, team_name)
                 # Clear the jail status after a successful escape
                 await asyncio.to_thread(self.set_jail_status, team_name, "no")
                 
@@ -4068,14 +4056,17 @@ class MonopolyCog(commands.Cog):
             if not is_status_activation:
                 if team_wildcard_value is not None:
                     wildcard_data.pop(team_name, None) 
-                    card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+                    await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
                     print(f"✅ Cleared wildcard for {team_name} from card {selected_card['name']}")
                 
-                cell_val = str(card_sheet.cell(card_row, 3).value or "")
+                cell_obj = await asyncio.to_thread(card_sheet.cell, card_row, 3)
+                cell_val = str(cell_obj.value or "")
+                
                 teams = [t.strip() for t in cell_val.split(',') if t.strip()]
                 if team_name in teams:
                     teams.remove(team_name)
-                card_sheet.update_cell(card_row, 3, ", ".join(teams))
+                
+                await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
                 
                 embed = discord.Embed(
                     title=f"{card_emoji} {team_name} used {card_name}!",
@@ -4093,7 +4084,7 @@ class MonopolyCog(commands.Cog):
                 )
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
-            self.set_used_card_flag(team_name, "yes")
+            await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
         
         except Exception as e:
             print(f"❌ Error in /use_card: {e}")
@@ -4696,18 +4687,21 @@ class MonopolyCog(commands.Cog):
         try:
             if team_wildcard_value is not None:
                 wildcard_data.pop(team_name, None) 
-                card_sheet.update_cell(card_row, 4, json.dumps(wildcard_data))
+                await asyncio.to_thread(card_sheet.update_cell, card_row, 4, json.dumps(wildcard_data))
                 print(f"✅ Cleared wildcard for {team_name} from card {card_name}")
             
-            cell_val = str(card_sheet.cell(card_row, 3).value or "")
+            cell_obj = await asyncio.to_thread(card_sheet.cell, card_row, 3)
+            cell_val = str(cell_obj.value or "")
+            
             teams = [t.strip() for t in cell_val.split(',') if t.strip()]
             if team_name in teams:
                 teams.remove(team_name)
-            card_sheet.update_cell(card_row, 3, ", ".join(teams))
+            
+            await asyncio.to_thread(card_sheet.update_cell, card_row, 3, ", ".join(teams))
         except Exception as e:
             print(f"❌ Error updating inventory for targeted card: {e}")
 
-        self.set_used_card_flag(team_name, "yes")
+        await asyncio.to_thread(self.set_used_card_flag, team_name, "yes")
 
         final_embed = discord.Embed(
             title=f"{card_emoji} {team_name} used {card_name}!",
