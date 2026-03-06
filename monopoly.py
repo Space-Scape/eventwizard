@@ -912,6 +912,15 @@ class MonopolyCog(commands.Cog):
                 else:
                     scavenger_reward = None
 
+               # --- SCAVENGER MUTUALLY EXCLUSIVE REWARD LOGIC ---
+                is_scavenger = self.boss in SCAVENGER_BOSSES
+                
+                if is_scavenger:
+                    # 90% chance for GP, 5% for Chest, 5% for Chance
+                    scavenger_reward = random.choices(["GP", "Chest", "Chance"], weights=[90, 5, 5], k=1)[0]
+                else:
+                    scavenger_reward = None
+
                 # --- GP CALCULATION LOGIC ---
                 if not is_scavenger or scavenger_reward == "GP":
                     try:
@@ -923,6 +932,7 @@ class MonopolyCog(commands.Cog):
                         base_gp_value = gp_lookup.get(self.drop, 0)
                         final_gp_value = base_gp_value * gp_multiplier
 
+                        # ---> NERF SCAVENGER GP BY 50% <---
                         if is_scavenger:
                             final_gp_value = final_gp_value // 2
                         
@@ -1456,7 +1466,6 @@ class MonopolyCog(commands.Cog):
             print(f"❌ Error during turn reset: {e}")
 
         # 2. Fetch Team Data (ONE call, consolidated)
-        # We fetch all records once and find our team locally to save API hits
         all_records = await asyncio.to_thread(self.team_data_sheet.get_all_records)
         headers = list(all_records[0].keys()) if all_records else []
         
@@ -1487,7 +1496,6 @@ class MonopolyCog(commands.Cog):
         is_halved = str(team_record.get("Roll Halved", "no")).strip().lower() == "yes"
         is_gp_halved = str(team_record.get("GP Halved", "no")).strip().lower() == "yes"
 
-        # Hardened integer extraction that automatically translates "yes" to 3
         try:
             rp_raw = str(team_record.get("Roll Penalty", "0")).strip().lower()
             roll_penalty = 3 if rp_raw == "yes" else (int(rp_raw) if rp_raw.isdigit() else 0)
@@ -1519,20 +1527,22 @@ class MonopolyCog(commands.Cog):
         await asyncio.to_thread(self.decrement_rolls_available, team_name)
 
         raw_pos = current_tile + result
-        new_pos = raw_pos % BOARD_SIZE
+        new_pos = raw_pos % 40 # Assuming BOARD_SIZE is 40
+        
+        # ---> RESET SCAVENGER SLOT FOR THE NEW TILE <---
+        self.team_scavenges_per_tile.pop(team_name, None)
+
         go_message = ""
         
         # 4. Standard Pass Go logic
-        if raw_pos >= BOARD_SIZE and new_pos != 30: 
+        if raw_pos >= 40 and new_pos != 30: 
             try:
                 pass_go_col = headers.index("Go Passes") + 1
                 gp_col = headers.index("GP") + 1
                 
-                # Use current record data instead of a new cell fetch
                 cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
                 cur_gp = int(str(all_records[team_row_index-2].get("GP", 0)).replace(',',''))
                 
-                # --- ADDED: Ents GP Halved Check ---
                 is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
                 go_reward = 10_000_000 if is_gp_halved else 20_000_000
 
@@ -1554,7 +1564,6 @@ class MonopolyCog(commands.Cog):
                 glider_fee = 8_000_000
                 
                 if cur_gp >= glider_fee:
-                    # Deduct the glider fee
                     cur_gp -= glider_fee
                     await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp)
                     glider_message = f"🪂 **Glider Flight:** The gnomes take an automatic payment of **8,000,000 GP** to use their glider!"
@@ -1566,22 +1575,15 @@ class MonopolyCog(commands.Cog):
                     elif new_pos == 38: 
                         if current_tile != 12:
                             new_pos = 12
-                            # Manual Glider 38 Go Bonus
                             try:
                                 pass_go_col = headers.index("Go Passes") + 1
                                 cur_passes = int(all_records[team_row_index-2].get("Go Passes", 0))
-                                
                                 is_gp_halved = str(all_records[team_row_index-2].get("GP Halved", "no")).strip().lower() == "yes"
                                 glider_reward = 10_000_000 if is_gp_halved else 20_000_000
-                                
                                 if is_gp_halved:
                                     asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
-
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
-                                
-                                # Add Go reward to the already fee-deducted cur_gp
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
-                                
                                 if is_gp_halved:
                                     go_message = f"🌳🪂 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
                                 else:
@@ -1591,16 +1593,14 @@ class MonopolyCog(commands.Cog):
                         else:
                             new_pos = 38
                 else:
-                    # Cannot afford the glider
                     glider_message = f"🚫💰 **You're Too Poor:** You cannot afford the gnome's **8,000,000 GP** glider fee! You stay on Tile {new_pos} and are granted a **Free Roll** instead!"
                     await asyncio.to_thread(self.increment_rolls_available, team_name)
-                    # new_pos remains unchanged (12, 28, or 38)
                     
             except Exception as e:
                 print(f"❌ Error processing glider fee: {e}")
 
         elif new_pos == 30:
-            new_pos = JAIL_TILE
+            new_pos = 10 # JAIL_TILE
             go_message = "⛓️ **GO TO JAIL!** You are immediately sent to prison."
             await asyncio.to_thread(self.set_jail_status, team_name, "yes")
 
