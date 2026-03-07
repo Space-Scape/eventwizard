@@ -1103,24 +1103,51 @@ class MonopolyCog(commands.Cog):
                     
                     if is_scavenger and current_tile is not None and target_record is not None:
                         headers = list(target_record.keys())
-                        if "Scavenge Progress" in headers:
-                            scavenge_col_idx = headers.index("Scavenge Progress") + 1
-                            current_progress = str(target_record.get("Scavenge Progress", ""))
+                        
+                        # Map the boss names to your new column headers
+                        boss_col_map = {
+                            "Vorkath": "Scavenged Vorkath",
+                            "Dagannoth Kings": "Scavenged DKS",
+                            "Sarachnis": "Scavenged Sarachnis",
+                            "Royal Titans": "Scavenged Titans"
+                        }
+                        
+                        # Make sure the columns exist in the sheet
+                        missing_cols = [col for col in boss_col_map.values() if col not in headers]
+                        if missing_cols:
+                            print(f"⚠️ Missing columns in Sheet: {missing_cols}")
+                        else:
+                            # Get the column index for all 4 bosses
+                            vork_idx = headers.index("Scavenged Vorkath") + 1
+                            dks_idx = headers.index("Scavenged DKS") + 1
+                            sara_idx = headers.index("Scavenged Sarachnis") + 1
+                            titan_idx = headers.index("Scavenged Titans") + 1
                             
-                            # Add the new boss to their progress if not already there
-                            if self.boss not in current_progress:
-                                new_progress = current_progress + f"{self.boss},"
-                            else:
-                                new_progress = current_progress
-                                
-                            # Check if they have all 4 unique bosses
-                            has_all_4 = all(b in new_progress for b in ["Vorkath", "Sarachnis", "Dagannoth Kings", "Royal Titans"])
+                            # Read their current completion status
+                            vork_done = str(target_record.get("Scavenged Vorkath", "")).strip().lower() in ["yes", "true", "1"]
+                            dks_done = str(target_record.get("Scavenged DKS", "")).strip().lower() in ["yes", "true", "1"]
+                            sara_done = str(target_record.get("Scavenged Sarachnis", "")).strip().lower() in ["yes", "true", "1"]
+                            titan_done = str(target_record.get("Scavenged Titans", "")).strip().lower() in ["yes", "true", "1"]
+                            
+                            # Mark the boss that was just approved as "done" in our local variables
+                            target_col_name = boss_col_map.get(self.boss)
+                            target_col_idx = headers.index(target_col_name) + 1
+                            
+                            if self.boss == "Vorkath": vork_done = True
+                            elif self.boss == "Dagannoth Kings": dks_done = True
+                            elif self.boss == "Sarachnis": sara_done = True
+                            elif self.boss == "Royal Titans": titan_done = True
+                            
+                            has_all_4 = vork_done and dks_done and sara_done and titan_done
                             
                             if has_all_4:
-                                # --- BINGO TRIGGERED! ---
                                 await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
-                                # Wipe the cell clean for the next tile
-                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, scavenge_col_idx, "")
+                                
+                                # Wipe all 4 cells clean for the next tile
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, vork_idx, "")
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, dks_idx, "")
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, sara_idx, "")
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, titan_idx, "")
                                 
                                 # --- EXECUTE THE SKIP TAX ---
                                 tax_msg = ""
@@ -1152,6 +1179,7 @@ class MonopolyCog(commands.Cog):
                                 else:
                                     # No houses at all
                                     tax_msg = "🏠 **Skip Tax:** You own zero houses, so the Bank couldn't repossess anything! (However, you permanently forfeit the right to build on this skipped tile)."
+
                                 bingo_embed = discord.Embed(
                                     title="🔥 SCAVENGER BINGO COMPLETED! 🔥",
                                     description=(
@@ -1161,17 +1189,16 @@ class MonopolyCog(commands.Cog):
                                     ),
                                     color=discord.Color.orange()
                                 )
-                                
                                 if team_chan:
                                     await team_chan.send(embed=bingo_embed)
                                     await self.cog.mirror_to_game_log(team_chan, embed=bingo_embed, team_name=team_name)
                             
                             else:
-                                # --- NOT BINGO YET: UPDATE PROGRESS ---
-                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, scavenge_col_idx, new_progress)
-                                boss_count = len([b for b in new_progress.split(",") if b])
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, target_col_idx, "Yes")
+                                
+                                boss_count = sum([vork_done, dks_done, sara_done, titan_done])
                                 if team_chan:
-                                    await team_chan.send(f"💀 **Scavenger Drop Approved!**\nYour team has completed **{boss_count}/4** Scavenger bosses for this tile.")
+                                    await team_chan.send(f"💀 **Scavenger Drop Approved!**\nYour team has completed **{boss_count}/4** Scavenger bosses for this tile. (**{self.boss}** marked as complete!)")
                         else:
                             print("⚠️ Scavenge Progress column not found in Google Sheet!")
 
