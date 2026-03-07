@@ -1090,42 +1090,93 @@ class MonopolyCog(commands.Cog):
                     records = await asyncio.to_thread(self.cog.team_data_sheet.get_all_records)
                     current_tile = None
                     is_in_jail = False
+                    team_row_idx = None
+                    target_record = None
                     
-                    for record in records:
+                    for idx, record in enumerate(records, start=2):
                         if record.get("Team") == team_name:
                             current_tile = int(record.get("Position", 0) or 0)
                             is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
+                            team_row_idx = idx
+                            target_record = record
                             break
                     
-                    if is_scavenger and current_tile is not None:
-                        tracker = self.cog.team_scavenges_per_tile.get(team_name, {"tile": -1, "bosses": []})
-                        if isinstance(tracker, int): tracker = {"tile": tracker, "bosses": []}
-                        
-                        if tracker.get("tile") != current_tile:
-                            tracker = {"tile": current_tile, "bosses": []}
+                    if is_scavenger and current_tile is not None and target_record is not None:
+                        headers = list(target_record.keys())
+                        if "Scavenge Progress" in headers:
+                            scavenge_col_idx = headers.index("Scavenge Progress") + 1
+                            current_progress = str(target_record.get("Scavenge Progress", ""))
                             
-                        if self.boss not in tracker["bosses"]:
-                            tracker["bosses"].append(self.boss)
+                            # Add the new boss to their progress if not already there
+                            if self.boss not in current_progress:
+                                new_progress = current_progress + f"{self.boss},"
+                            else:
+                                new_progress = current_progress
+                                
+                            # Check if they have all 4 unique bosses
+                            has_all_4 = all(b in new_progress for b in ["Vorkath", "Sarachnis", "Dagannoth Kings", "Royal Titans"])
                             
-                        self.cog.team_scavenges_per_tile[team_name] = tracker
-                        
-                        if len(tracker["bosses"]) == 4:
-                            await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
-                            if team_chan:
+                            if has_all_4:
+                                # --- BINGO TRIGGERED! ---
+                                await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
+                                # Wipe the cell clean for the next tile
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, scavenge_col_idx, "")
+                                
+                                # --- EXECUTE THE SKIP TAX ---
+                                tax_msg = ""
+                                house_records = await asyncio.to_thread(self.cog.house_data_sheet.get_all_records)
+                                
+                                house_on_current = None
+                                any_other_house = None
+                                
+                                # Search for houses owned by the team
+                                for h_idx, h_rec in enumerate(house_records, start=2):
+                                    if h_rec.get("OwnerTeam") == team_name and int(h_rec.get("HouseCount", 0) or 0) > 0:
+                                        if int(h_rec.get("Tile", 0) or 0) == current_tile:
+                                            house_on_current = (h_idx, int(h_rec.get("HouseCount", 0)))
+                                            break # Found the house on current tile, stop looking
+                                        elif any_other_house is None:
+                                            any_other_house = (h_idx, int(h_rec.get("HouseCount", 0)))
+                                            
+                                house_count_col = list(house_records[0].keys()).index("HouseCount") + 1 if house_records else 0
+                                
+                                if house_on_current:
+                                    # Destroy house on current tile
+                                    await asyncio.to_thread(self.cog.house_data_sheet.update_cell, house_on_current[0], house_count_col, 0)
+                                    tax_msg = f"🏠 **Skip Tax:** You forfeited your property rights here. The house you built on Tile {current_tile} was instantly **destroyed**!"
+                                elif any_other_house:
+                                    # Remove 1 house from another tile
+                                    new_count = any_other_house[1] - 1
+                                    await asyncio.to_thread(self.cog.house_data_sheet.update_cell, any_other_house[0], house_count_col, new_count)
+                                    tax_msg = "🏠 **Skip Tax:** Since you didn't have a house on this tile, the Bank **repossessed 1 house** from another property you own!"
+                                else:
+                                    # No houses at all
+                                    tax_msg = "🏠 **Skip Tax:** You own zero houses, so the Bank couldn't repossess anything! (However, you permanently forfeit the right to build on this skipped tile)."
                                 bingo_embed = discord.Embed(
                                     title="🔥 SCAVENGER BINGO COMPLETED! 🔥",
                                     description=(
                                         f"**{team_name}**'s scavengers have successfully hunted 1 drop from all 4 Scavenger Bosses on Tile {current_tile}!\n\n"
+                                        f"{tax_msg}\n\n"
                                         f"🎲 **The items surge and A FREE ROLL has been granted to the team!**"
                                     ),
                                     color=discord.Color.orange()
                                 )
-                                await team_chan.send(embed=bingo_embed)
-                                await self.cog.mirror_to_game_log(team_chan, embed=bingo_embed, team_name=team_name)
+                                
+                                if team_chan:
+                                    await team_chan.send(embed=bingo_embed)
+                                    await self.cog.mirror_to_game_log(team_chan, embed=bingo_embed, team_name=team_name)
+                            
+                            else:
+                                # --- NOT BINGO YET: UPDATE PROGRESS ---
+                                await asyncio.to_thread(self.cog.team_data_sheet.update_cell, team_row_idx, scavenge_col_idx, new_progress)
+                                boss_count = len([b for b in new_progress.split(",") if b])
+                                if team_chan:
+                                    await team_chan.send(f"💀 **Scavenger Drop Approved!**\nYour team has completed **{boss_count}/4** Scavenger bosses for this tile.")
+                        else:
+                            print("⚠️ Scavenge Progress column not found in Google Sheet!")
 
                     if not is_scavenger:
                         tile_boss_map = self.cog._get_tile_boss_map()
-                        # ... (the rest of the existing boss logic continues below) ...
                         bosses_for_tile = tile_boss_map.get(current_tile, [])
                         
                         if self.boss in bosses_for_tile:
@@ -1145,7 +1196,7 @@ class MonopolyCog(commands.Cog):
                                 await team_chan.send(embed=roll_grant_embed)
                                 await self.cog.mirror_to_game_log(team_chan, embed=roll_grant_embed, team_name=team_name)
                     else:
-                        # Scavenger Boss - Grant Card
+                        # Scavenger Boss - Grant Card (if they rolled it)
                         if scavenger_reward in ["Chest", "Chance"]:
                             if team_chan:
                                 scavenge_embed = discord.Embed(
@@ -1160,6 +1211,7 @@ class MonopolyCog(commands.Cog):
 
                 except Exception as roll_e:
                     print(f"❌ Error checking tile before granting roll/card: {roll_e}")
+                    traceback.print_exc()
 
                 await interaction.followup.send("✅ Drop approved and logged.", ephemeral=True)
                 
