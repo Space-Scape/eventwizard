@@ -1097,12 +1097,35 @@ class MonopolyCog(commands.Cog):
                             is_in_jail = str(record.get("In Jail", "no")).strip().lower() == "yes"
                             break
                     
-                    # 🛡️ Lock the scavenger slot only if we successfully found the tile
                     if is_scavenger and current_tile is not None:
-                        self.cog.team_scavenges_per_tile[team_name] = current_tile
+                        tracker = self.cog.team_scavenges_per_tile.get(team_name, {"tile": -1, "bosses": []})
+                        if isinstance(tracker, int): tracker = {"tile": tracker, "bosses": []}
+                        
+                        if tracker.get("tile") != current_tile:
+                            tracker = {"tile": current_tile, "bosses": []}
+                            
+                        if self.boss not in tracker["bosses"]:
+                            tracker["bosses"].append(self.boss)
+                            
+                        self.cog.team_scavenges_per_tile[team_name] = tracker
+                        
+                        if len(tracker["bosses"]) == 4:
+                            await asyncio.to_thread(self.cog.increment_rolls_available, team_name)
+                            if team_chan:
+                                bingo_embed = discord.Embed(
+                                    title="🔥 SCAVENGER BINGO COMPLETED! 🔥",
+                                    description=(
+                                        f"**{team_name}**'s scavengers have successfully hunted 1 drop from all 4 Scavenger Bosses on Tile {current_tile}!\n\n"
+                                        f"🎲 **The items surge and A FREE ROLL has been granted to the team!**"
+                                    ),
+                                    color=discord.Color.orange()
+                                )
+                                await team_chan.send(embed=bingo_embed)
+                                await self.cog.mirror_to_game_log(team_chan, embed=bingo_embed, team_name=team_name)
 
                     if not is_scavenger:
                         tile_boss_map = self.cog._get_tile_boss_map()
+                        # ... (the rest of the existing boss logic continues below) ...
                         bosses_for_tile = tile_boss_map.get(current_tile, [])
                         
                         if self.boss in bosses_for_tile:
