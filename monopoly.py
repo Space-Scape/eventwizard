@@ -1268,7 +1268,6 @@ class MonopolyCog(commands.Cog):
                 await interaction.response.edit_message(content=f"❌ **{self.submitted_for.display_name}** is not on a team.", view=None, embed=None)
                 return
 
-            # ---> NEW: LOCK THE STANCE NOW THAT THE DROP IS SELECTED <---
             is_scavenger = self.boss in SCAVENGER_BOSSES
             requested_stance = "scavenge" if is_scavenger else "main"
             
@@ -1312,12 +1311,6 @@ class MonopolyCog(commands.Cog):
                 embed=None,
                 view=None,
             )
-
-    class DropSelectView(ui.View):
-        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, boss: str):
-            super().__init__(timeout=180)
-            self.cog = cog
-            self.add_item(self.cog.DropSelect(cog, submitting_user, submitted_for, screenshot_url, boss))
 
     def get_teleblock_status(self, team_name):
         """Checks if a team is teleblocked. Returns 'yes' or 'no'."""
