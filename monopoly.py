@@ -4042,29 +4042,27 @@ class MonopolyCog(commands.Cog):
                 houses = self.get_houses()
                 closest_house_pos = -1
                 min_distance = float('inf')
-
-                # Find nearest house ahead
-                for house in houses:
-                    house_tile = house.get("tile", 0)
-                    if house_tile > caster_pos:
-                        distance = house_tile - caster_pos
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_house_pos = house_tile
-
-                # If no house ahead, check for nearest house after wrapping around GO
                 passed_go_on_tele = False
-                if closest_house_pos == -1:
-                    for house in houses:
-                        house_tile = house.get("tile", 0)
-                        distance = (house_tile - caster_pos) % BOARD_SIZE
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_house_pos = house_tile
-                            passed_go_on_tele = True
+
+                # ---> NEW: Circular distance calculation <---
+                for house in houses:
+                    house_tile = int(house.get("tile", 0))
+                    
+                    # Calculate forward distance, wrapping around the 40-tile board
+                    distance = (house_tile - caster_pos) % BOARD_SIZE
+                    
+                    # 🛡️ FIX: Exclude distance 0 (their current tile)
+                    if 0 < distance < min_distance:
+                        min_distance = distance
+                        closest_house_pos = house_tile
+
+                # If the destination tile number is lower than the current tile number, 
+                # they must have crossed 0 to get there.
+                if closest_house_pos != -1 and closest_house_pos < caster_pos:
+                    passed_go_on_tele = True
 
                 if closest_house_pos == -1:
-                    await interaction.followup.send("❌ Card effect failed: No house tiles exist on the board.", ephemeral=True)
+                    await interaction.followup.send("❌ Card effect failed: No other house tiles exist on the board.", ephemeral=True)
                     return
 
                 intended_pos = closest_house_pos
