@@ -115,7 +115,7 @@ boss_drops = {
     "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
     "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Saradomin's light"],
     "Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
-    "Dagannoth Kings": ["Berserker ring", "Warrior ring", "Archers ring", "Seers ring", "Dragon axe", "Mud battlestaff", "Pet dagannoth supreme", "Pet dagannoth prime", "Pet dagannoth rex"],
+    "Dagannoth Kings": ["Berserker ring", "Warrior ring", "Archers ring", "Seers ring", "Dragon axe", "Pet dagannoth supreme", "Pet dagannoth prime", "Pet dagannoth rex"],
     "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
     "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Magus vestige", "Eye of the duke", "Ice quartz"],
     "Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
@@ -2276,30 +2276,35 @@ class MonopolyCog(commands.Cog):
             return
 
         # 3. Route to the correct UI
+        warning_text = (
+            "⚠️ **Notice:** Submitting a drop here locks you into the **Main Fighter** role for this tile.\n"
+            "You will **NOT** be able to use `/scavenge` for off-board bosses until your team moves to a new tile.\n\n"
+        )
+
         if len(bosses_for_tile) == 1:
             selected_boss = bosses_for_tile[0]
             await interaction.followup.send(
-                content=f"Detected **{selected_boss}** (Tile {current_tile}). Select the drop:",
+                content=warning_text + f"Detected **{selected_boss}** (Tile {current_tile}). Select the drop:",
                 view=self.DropSelectView(
                     cog=self,
                     submitting_user=interaction.user,
                     submitted_for=submitted_for,
                     screenshot_url=screenshot.url,
                     boss=selected_boss,
-                    current_tile=current_tile # <--- ADDED
+                    current_tile=current_tile 
                 ),
                 ephemeral=True
             )
         else:
             await interaction.followup.send(
-                content=f"Multiple bosses found on Tile {current_tile}. Select the boss:",
+                content=warning_text + f"Multiple bosses found on Tile {current_tile}. Select the boss:",
                 view=self.RestrictedBossSelectView(
                     cog=self,
                     submitting_user=interaction.user,
                     submitted_for=submitted_for,
                     screenshot_url=screenshot.url,
                     valid_bosses=bosses_for_tile,
-                    current_tile=current_tile
+                    current_tile=current_tile 
                 ),
                 ephemeral=True
             )
@@ -2356,8 +2361,18 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
             return
 
-        if self.team_scavenges_per_tile.get(team_name) == current_tile:
-            await interaction.followup.send(content=f"❌ **{team_name}** has already used their 1 Scavenge allowance for Tile {current_tile}! You must wait until your team rolls.", ephemeral=True)
+        # ---> NEW: SCAVENGER BINGO PROGRESS CHECK <---
+        tracker = self.team_scavenges_per_tile.get(team_name, {"tile": -1, "bosses": []})
+        
+        # Safety catch in case old integer data is still in the bot's memory
+        if isinstance(tracker, int):
+            tracker = {"tile": tracker, "bosses": []}
+            
+        completed_bosses = tracker["bosses"] if tracker.get("tile") == current_tile else []
+        available_bosses = [b for b in SCAVENGER_BOSSES if b not in completed_bosses]
+        
+        if not available_bosses:
+            await interaction.followup.send(content=f"❌ **{team_name}** has already scavenged all 4 bosses for Tile {current_tile} and earned their Free Roll! You must wait until your team moves.", ephemeral=True)
             return
             
         # Dual-Box Check (Per Turn/Tile)
@@ -2366,11 +2381,10 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(content=error_msg, ephemeral=True)
             return
 
-        # 2. Inject the FULL warning text into the actual menu message!
         warning_text = (
             "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere.\n"
-            "If you Scavenge, you can **not** submit a drop for the **current tile** (meant for accounts that can not do certain content). *Use this wisely.*\n\n"
-            "**Select the Scavenger Boss you defeated:**"
+            f"🎰 **SCAVENGER BONUS:** Your team has scavenged **{len(completed_bosses)}/4** bosses on this tile. Scavenge all 4 for a **Free Roll**!\n\n"
+            "**Select the Scavenger Boss you defeated (already scavenged bosses are removed):**"
         )
 
         await interaction.followup.send(
@@ -2380,7 +2394,7 @@ class MonopolyCog(commands.Cog):
                 submitting_user=interaction.user,
                 submitted_for=submitted_for,
                 screenshot_url=screenshot.url,
-                valid_bosses=SCAVENGER_BOSSES,
+                valid_bosses=available_bosses, # <--- Only shows un-killed bosses!
                 current_tile=current_tile
             ),
             ephemeral=True
