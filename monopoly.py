@@ -1211,12 +1211,13 @@ class MonopolyCog(commands.Cog):
             await interaction.response.send_modal(self.cog.RejectModal(self.message, self.submitted_user))
 
     class RestrictedBossSelectView(ui.View):
-        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, valid_bosses: list):
+        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, valid_bosses: list, current_tile: int):
             super().__init__(timeout=180)
             self.cog = cog
             self.submitting_user = submitting_user
             self.submitted_for = submitted_for
             self.screenshot_url = screenshot_url
+            self.current_tile = current_tile
 
             options = [discord.SelectOption(label=boss) for boss in valid_bosses]
             self.boss_dropdown = ui.Select(
@@ -1238,16 +1239,24 @@ class MonopolyCog(commands.Cog):
                     submitted_for=self.submitted_for,
                     screenshot_url=self.screenshot_url,
                     boss=selected_boss,
+                    current_tile=self.current_tile
                 ),
             )
 
+    class DropSelectView(ui.View):
+        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, boss: str, current_tile: int):
+            super().__init__(timeout=180)
+            self.cog = cog
+            self.add_item(self.cog.DropSelect(cog, submitting_user, submitted_for, screenshot_url, boss, current_tile))
+
     class DropSelect(ui.Select):
-        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, boss: str):
+        def __init__(self, cog: 'MonopolyCog', submitting_user: discord.Member, submitted_for: discord.Member, screenshot_url: str, boss: str, current_tile: int):
             self.cog = cog
             self.submitting_user = submitting_user
             self.submitted_for = submitted_for
             self.screenshot_url = screenshot_url
             self.boss = boss
+            self.current_tile = current_tile
             options = [discord.SelectOption(label=drop) for drop in sorted(boss_drops[boss])]
             super().__init__(placeholder=f"Select the drop from {boss}", options=options, min_values=1, max_values=1)
 
@@ -1259,6 +1268,17 @@ class MonopolyCog(commands.Cog):
                 await interaction.response.edit_message(content=f"❌ **{self.submitted_for.display_name}** is not on a team.", view=None, embed=None)
                 return
 
+            # ---> NEW: LOCK THE STANCE NOW THAT THE DROP IS SELECTED <---
+            is_scavenger = self.boss in SCAVENGER_BOSSES
+            requested_stance = "scavenge" if is_scavenger else "main"
+            
+            allowed, error_msg = self.cog.check_turn_stance(self.submitted_for.id, team_name, self.current_tile, requested_stance)
+            if not allowed:
+                await interaction.response.edit_message(content=error_msg, view=None, embed=None)
+                return
+                
+            self.cog.lock_turn_stance(self.submitted_for.id, team_name, self.current_tile, requested_stance)
+
             embed = discord.Embed(title=f"Drop Submission: {self.boss}", colour=discord.Colour.blurple())
             embed.add_field(name="Review Status", value="Awaiting review...", inline=False)
             embed.add_field(name="Submitted For", value=f"{self.submitted_for.mention} `({self.submitted_for.id})`", inline=False)
@@ -1268,7 +1288,6 @@ class MonopolyCog(commands.Cog):
 
             review_channel = self.cog.bot.get_channel(int(REVIEW_CHANNEL))
             if not review_channel:
-                print(f"❌ Review channel {REVIEW_CHANNEL} not found")
                 await interaction.response.edit_message(content="❌ Review channel not found.", view=None, embed=None)
                 return
 
@@ -1287,7 +1306,6 @@ class MonopolyCog(commands.Cog):
 
             sent_msg = await review_channel.send(embed=embed, view=view)
             view.message = sent_msg
-            print(f"✅ Sent drop submission to review channel ({review_channel.name})")
 
             await interaction.response.edit_message(
                 content=f"✅ Drop submission for **{self.boss} - {selected_drop}** sent for review.",
@@ -2240,7 +2258,7 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(content=f"❌ Could not find data for **{team_name}**.", ephemeral=True)
             return
 
-        allowed, error_msg = self.check_and_update_turn_stance(interaction.user.id, team_name, current_tile, "main")
+        allowed, error_msg = self.check_turn_stance(submitted_for.id, team_name, current_tile, "main")
         if not allowed:
             await interaction.followup.send(content=error_msg, ephemeral=True)
             return
@@ -2266,7 +2284,6 @@ class MonopolyCog(commands.Cog):
 
         # 3. Route to the correct UI
         if len(bosses_for_tile) == 1:
-            # Skip Boss Selection! Go straight to your Drop Select View
             selected_boss = bosses_for_tile[0]
             await interaction.followup.send(
                 content=f"Detected **{selected_boss}** (Tile {current_tile}). Select the drop:",
@@ -2276,11 +2293,11 @@ class MonopolyCog(commands.Cog):
                     submitted_for=submitted_for,
                     screenshot_url=screenshot.url,
                     boss=selected_boss,
+                    current_tile=current_tile # <--- ADDED
                 ),
                 ephemeral=True
             )
         else:
-            # Show a specific mini-menu just for this tile's bosses
             await interaction.followup.send(
                 content=f"Multiple bosses found on Tile {current_tile}. Select the boss:",
                 view=self.RestrictedBossSelectView(
@@ -2288,15 +2305,14 @@ class MonopolyCog(commands.Cog):
                     submitting_user=interaction.user,
                     submitted_for=submitted_for,
                     screenshot_url=screenshot.url,
-                    valid_bosses=bosses_for_tile
+                    valid_bosses=bosses_for_tile,
+                    current_tile=current_tile
                 ),
                 ephemeral=True
             )
 
-    def check_and_update_turn_stance(self, user_id: int, team_name: str, current_tile: int, requested_stance: str) -> tuple[bool, str]:
-        """
-        Checks if a player is allowed to use the requested command type on the current tile.
-        """
+    def check_turn_stance(self, user_id: int, team_name: str, current_tile: int, requested_stance: str) -> tuple[bool, str]:
+        """Checks if a player is allowed to use the requested command type on the current tile."""
         data = self.player_stances.get(user_id)
         
         # If they have a saved stance AND their team is still on the exact same tile
@@ -2304,15 +2320,17 @@ class MonopolyCog(commands.Cog):
             if data["stance"] != requested_stance:
                 other_cmd = "/scavenge" if requested_stance == "main" else "/submitdrop"
                 stance_name = "Main Board" if data["stance"] == "main" else "Scavenger"
-                return False, f"⏳ **Dual-Prevention:** You are locked into the **{stance_name}** role for this tile (Tile {current_tile}). You can only use `{other_cmd}` until your team moves to a new tile!"
+                return False, f"⏳ **Dual-Prevention:** That player has already submitted a drop as a **{stance_name}** for this tile (Tile {current_tile}). They can only use `{other_cmd}` until the team moves!"
         
-        # If they moved to a new tile, changed teams, or are brand new: update and allow!
+        return True, ""
+
+    def lock_turn_stance(self, user_id: int, team_name: str, current_tile: int, requested_stance: str):
+        """Locks the player into their chosen stance for the current tile."""
         self.player_stances[user_id] = {
             "stance": requested_stance,
             "team": team_name,
             "tile": current_tile
         }
-        return True, ""
     
     @app_commands.command(name="scavenge", description="Locks you out of the current tile's submissions to scavenge elsewhere.")
     @app_commands.describe(
@@ -2350,7 +2368,7 @@ class MonopolyCog(commands.Cog):
             return
             
         # Dual-Box Check (Per Turn/Tile)
-        allowed, error_msg = self.check_and_update_turn_stance(interaction.user.id, team_name, current_tile, "scavenge")
+        allowed, error_msg = self.check_turn_stance(submitted_for.id, team_name, current_tile, "scavenge")
         if not allowed:
             await interaction.followup.send(content=error_msg, ephemeral=True)
             return
@@ -2369,7 +2387,8 @@ class MonopolyCog(commands.Cog):
                 submitting_user=interaction.user,
                 submitted_for=submitted_for,
                 screenshot_url=screenshot.url,
-                valid_bosses=SCAVENGER_BOSSES
+                valid_bosses=SCAVENGER_BOSSES,
+                current_tile=current_tile
             ),
             ephemeral=True
         )
