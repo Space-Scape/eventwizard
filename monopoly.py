@@ -1199,8 +1199,6 @@ class MonopolyCog(commands.Cog):
                                 boss_count = sum([vork_done, dks_done, sara_done, titan_done])
                                 if team_chan:
                                     await team_chan.send(f"💀 **Scavenger Drop Approved!**\nYour team has completed **{boss_count}/4** Scavenger bosses for this tile. (**{self.boss}** marked as complete!)")
-                        else:
-                            print("⚠️ Scavenge Progress column not found in Google Sheet!")
 
                     if not is_scavenger:
                         tile_boss_map = self.cog._get_tile_boss_map()
