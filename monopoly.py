@@ -1637,6 +1637,22 @@ class MonopolyCog(commands.Cog):
         
         # ---> RESET SCAVENGER SLOT FOR THE NEW TILE <---
         self.team_scavenges_per_tile.pop(team_name, None)
+        
+        try:
+            vork_idx = headers.index("Scavenged Vorkath") + 1
+            dks_idx = headers.index("Scavenged DKS") + 1
+            sara_idx = headers.index("Scavenged Sarachnis") + 1
+            titan_idx = headers.index("Scavenged Titans") + 1
+            
+            # Wipe all 4 columns clean for the new tile
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, vork_idx, "")
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, dks_idx, "")
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, sara_idx, "")
+            await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, titan_idx, "")
+        except ValueError:
+            print("⚠️ Could not clear Scavenge progress: Columns missing in Sheet.")
+        except Exception as e:
+            print(f"❌ Error clearing Scavenge progress on roll: {e}")
 
         go_message = ""
         
