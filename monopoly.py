@@ -2228,7 +2228,6 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ An error occurred while fetching leaderboard data.", ephemeral=True)
 
     @app_commands.command(name="buy_house", description="Attempt to buy a house on your current tile.")
-    @app_commands.command(name="buy_house", description="Buy a house on your current tile.")
     async def buy_house(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message("❌ You can only use this command in your team's channel.", ephemeral=True)
