@@ -2228,6 +2228,7 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send("❌ An error occurred while fetching leaderboard data.", ephemeral=True)
 
     @app_commands.command(name="buy_house", description="Attempt to buy a house on your current tile.")
+    @app_commands.command(name="buy_house", description="Buy a house on your current tile.")
     async def buy_house(self, interaction: discord.Interaction):
         if str(interaction.channel_id) not in TEAM_CHANNEL_IDS_AS_STR:
             await interaction.response.send_message("❌ You can only use this command in your team's channel.", ephemeral=True)
@@ -2243,24 +2244,22 @@ class MonopolyCog(commands.Cog):
             return
 
         try:
-            # 1. IMMEDIATE CHECK & LOCK
+            # 1. IMMEDIATE CHECK
             bought_flag = await asyncio.to_thread(self.get_bought_house_flag, team_name)
-            if bought_flag.lower() == "yes":
-                await interaction.followup.send("❌ You have already purchased a house this turn. Roll again to buy another.", ephemeral=True)
+            if bought_flag.strip().lower() in ["yes", "true", "1"]:
+                await interaction.followup.send("❌ You have already purchased a house this turn. Use `/roll` to move to a new tile before buying another.", ephemeral=True)
                 return
             
-            # Set flag to 'yes' immediately to block concurrent/spam clicks
-            await asyncio.to_thread(self.set_bought_house_flag, team_name, "yes")
-
             COST_MAP = {0: 25_000_000, 1: 50_000_000, 2: 100_000_000, 3: 200_000_000}
             
             # 2. DATA FETCHING
             team_data = await asyncio.to_thread(self.team_data_sheet.get_all_records)
             house_data = await asyncio.to_thread(self.house_data_sheet.get_all_records)
             
-            team_info = next((r for r in team_data if r.get("Team") == team_name), None)
+            # Safely skip the header row if needed, though get_all_records usually handles it
+            team_info = next((r for r in team_data if str(r.get("Team", "")).strip() == team_name.strip()), None)
+            
             if not team_info:
-                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
                 await interaction.followup.send("❌ Could not find team data.", ephemeral=True)
                 return
 
@@ -2277,19 +2276,16 @@ class MonopolyCog(commands.Cog):
                     break
 
             if not prop_data:
-                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
                 await interaction.followup.send("❌ This tile is not a buyable property.", ephemeral=True)
                 return
 
             owner = prop_data.get("OwnerTeam", "").strip()
             if owner and owner != team_name:
-                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
-                await interaction.followup.send(f"❌ This property is owned by **{owner}**.", ephemeral=True)
+                await interaction.followup.send(f"❌ This property is already owned by **{owner}**.", ephemeral=True)
                 return
 
             house_count = int(prop_data.get("HouseCount", 0) or 0)
             if house_count >= 4:
-                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
                 await interaction.followup.send("❌ Max houses (4) reached on this tile.", ephemeral=True)
                 return
 
@@ -2301,26 +2297,28 @@ class MonopolyCog(commands.Cog):
                 cost = cost // 2  # Apply 50% discount
 
             if current_gp < cost:
-                await asyncio.to_thread(self.set_bought_house_flag, team_name, "no") 
                 await interaction.followup.send(f"❌ Not enough GP. Need **{cost:,}**, but you have **{current_gp:,}**.", ephemeral=True)
                 return
 
-            # 4. EXECUTE PURCHASE
+            # 4. EXECUTE PURCHASE & SET LOCK FLAG
             headers = list(team_data[0].keys())
             gp_col = headers.index("GP") + 1
             team_row_in_sheet = team_data.index(team_info) + 2
 
-            # Perform the updates (background threads)
+            # Perform the updates
             await asyncio.to_thread(self.house_data_sheet.update_cell, prop_index, 3, team_name) 
             await asyncio.to_thread(self.house_data_sheet.update_cell, prop_index, 4, house_count + 1) 
             await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_in_sheet, gp_col, current_gp - cost)
 
             # --> NEW: Sync the Houses Owned column (Column M) <--
             await asyncio.to_thread(self.sync_houses_owned, team_name)
+            
+            # ---> THE FIX: Set the lock flag to "yes" ONLY after a successful purchase <---
+            await asyncio.to_thread(self.set_bought_house_flag, team_name, "yes")
 
             charos_msg = ""
             if has_charos:
-                await self.consume_charos(team_name)
+                await asyncio.to_thread(self.consume_charos, team_name)
                 charos_msg = f"\n\n💕 *Your **Ring of Charos** charmed the real estate agent, securing a 50% discount! The ring shatters!*"
 
             buy_msg = f"<:houseicon:1438085020156821555> **{team_name}** bought a house on tile **{current_pos}** for **{cost:,} GP**!{charos_msg}"
@@ -2329,9 +2327,8 @@ class MonopolyCog(commands.Cog):
 
         except Exception as e:
             print(f"❌ Error in /buy_house: {e}")
-            await asyncio.to_thread(self.set_bought_house_flag, team_name, "no")
             await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
-
+   
     @app_commands.command(name="submitdrop", description="Submit a boss drop for review")
     @app_commands.describe(
         screenshot="Attach a screenshot of the drop. Must be in boss room!",
