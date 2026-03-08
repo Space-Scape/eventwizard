@@ -2492,9 +2492,24 @@ class MonopolyCog(commands.Cog):
             await interaction.followup.send(content=error_msg, ephemeral=True)
             return
 
+        # ---> DYNAMIC SCAVENGE WARNING LOGIC <---
+        current_scavenges = len(completed_bosses)
+        
+        if current_scavenges == 3:
+            dynamic_warning = (
+                "🚨 **WARNING: 3/4 Scavenges Complete!** 🚨\n"
+                "*Submitting this 4th and final boss will instantly trigger Scavenger Bingo. "
+                "You will earn a **Free Roll**, but the Bank will execute the **Skip Tax** (destroying or repossessing 1 house)!*"
+            )
+        else:
+            dynamic_warning = (
+                f"🎰 **SCAVENGER BONUS:** Your team has scavenged **{current_scavenges}/4** bosses on this tile.\n"
+                "*(Note: The Free Roll and the House Repossession Penalty ONLY trigger when you complete your 4th unique boss!)*"
+            )
+
         warning_text = (
-            "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere.\n"
-            f"🎰 **SCAVENGER BONUS:** Your team has scavenged **{len(completed_bosses)}/4** bosses on this tile. Scavenge all 4 for a **Free Roll**!\n\n"
+            "⚠️ **Notice:** This forfeits all your drops for a **tile's boss**, but allows you to **Scavenge** for loot elsewhere.\n\n"
+            f"{dynamic_warning}\n\n"
             "**Select the Scavenger Boss you defeated (already scavenged bosses are removed):**"
         )
 
