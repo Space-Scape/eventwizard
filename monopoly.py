@@ -1294,7 +1294,6 @@ class MonopolyCog(commands.Cog):
                                 )
                                 if team_chan:
                                     await team_chan.send(embed=rdt_embed)
-                                    await self.cog.mirror_to_game_log(team_chan, embed=rdt_embed, team_name=team_name)
                 except Exception as rdt_err:
                     print(f"❌ Error during RDT roll: {rdt_err}")
 
