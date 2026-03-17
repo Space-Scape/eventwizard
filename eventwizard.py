@@ -123,6 +123,15 @@ async def post_todays_event_links(channel: discord.TextChannel):
         print("❌ post_todays_event_links: No channel provided.")
         return
 
+    # 🔹 FIXED: Clean up old bot messages (like previous daily links) before posting new ones
+    async for msg in channel.history(limit=50):
+        # Only delete messages authored by the bot, and DO NOT delete the main schedule embed
+        if msg.author == bot.user and msg.id != current_schedule_message_id:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+
     today = datetime.now(CST).date()
     guild_events = channel.guild.scheduled_events
 
@@ -166,7 +175,14 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
 
     embed = await generate_schedule_embed()
     
+    # 🔹 FIXED: Delete the old schedule message instead of just forgetting its ID
     if force_new and current_schedule_message_id:
+        try:
+            old_message = await channel.fetch_message(current_schedule_message_id)
+            await old_message.delete()
+            print("🗑️ Deleted old schedule message.")
+        except discord.NotFound:
+            pass # Message was already deleted manually
         current_schedule_message_id = None
 
     if current_schedule_message_id:
