@@ -3859,7 +3859,7 @@ class MonopolyCog(commands.Cog):
                     final_roll_val = (stored_roll // 2) if elder_maul_active else stored_roll
                     maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                     
-                    intended_rebound_pos = max(0, caster_pos - final_roll_val)
+                    intended_rebound_pos = max(0, target_pos - final_roll_val)
                     new_pos = self.resolve_nonroll_landing_tile(intended_rebound_pos)
                     destination_tile_name = self.get_tile_name_for_display(new_pos)
                     glider_note = self.get_glider_redirect_note(intended_rebound_pos, new_pos)
@@ -3868,8 +3868,8 @@ class MonopolyCog(commands.Cog):
                     await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": team_name, "tile": new_pos})
                     
                     embed_description += (
-                        f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was moved to the "
-                        f"**{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}.\n"
+                        f"> <:venge:1438084953559797884> **{target_team}** had Vengeance! Your team was rebounded and dragged "
+                        f"**{final_roll_val}** tiles behind them to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}.\n"
                     )
                     embed_description += glider_note
                     
@@ -3878,7 +3878,7 @@ class MonopolyCog(commands.Cog):
                     
                     skull_embed = discord.Embed(
                         title="<:venge:1438084953559797884> Vengeance Activated!", 
-                        description=(f"You activated **{target_team}**'s Vengeance!\nYour team was moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
+                        description=(f"You activated **{target_team}**'s Vengeance!\nYour team was dragged **{final_roll_val}** tiles behind them to the **{destination_tile_name}** tile (Tile **{new_pos}**)!" + glider_note_victim), 
                         color=discord.Color.dark_red()
                     )
                     await interaction.channel.send(embed=skull_embed)
@@ -3889,7 +3889,7 @@ class MonopolyCog(commands.Cog):
                             title="<:venge:1438084953559797884> Vengeance Activated!",
                             description=(
                                 f"**{team_name}** tried to use **Backstab** on your team, but your **Vengeance** rebounded the effect!\n"
-                                f"They were moved to the **{destination_tile_name}** tile (Tile **{new_pos}**)."
+                                f"They were dragged **{final_roll_val}** tiles behind your team to the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go)."
                                 + glider_note_victim
                             ),
                             color=discord.Color.dark_red()
@@ -3906,7 +3906,7 @@ class MonopolyCog(commands.Cog):
                     final_roll_val = (stored_roll // 2) if elder_maul_active else stored_roll 
                     maul_suffix = " (Halved by <:maul:1437979898865258668> **Elder Maul**!)" if elder_maul_active else ""
                     
-                    intended_backstab_pos = max(0, target_pos - final_roll_val) 
+                    intended_backstab_pos = max(0, caster_pos - final_roll_val) 
                     new_pos = self.resolve_nonroll_landing_tile(intended_backstab_pos)
                     glider_note = self.get_glider_redirect_note(intended_backstab_pos, new_pos)
                     glider_note_victim = self.get_glider_redirect_note(intended_backstab_pos, new_pos, second_person=True, quoted=False)
@@ -3916,8 +3916,8 @@ class MonopolyCog(commands.Cog):
                     await asyncio.to_thread(self.log_command, team_name, "/card_effect_set_tile", {"team": target_team, "tile": new_pos})
                     
                     embed_description += (
-                        f"> **{target_team}** was moved back **{final_roll_val}** tiles from the **{source_tile_name}** tile "
-                        f"(Tile **{target_pos}**) to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                        f"> **{target_team}** was pulled from the **{source_tile_name}** tile (Tile **{target_pos}**) "
+                        f"and placed **{final_roll_val}** tiles behind your team on the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
                     )
                     embed_description += glider_note
 
@@ -3929,7 +3929,7 @@ class MonopolyCog(commands.Cog):
                             title="<:boner:1438085053102948383> You Were Backstabbed!",
                             description=(
                                 f"**{team_name}** used **Backstab** on your team.\n"
-                                f"You were moved back **{final_roll_val}** tiles to the **{destination_tile_name}** tile (Tile **{new_pos}**){maul_suffix}."
+                                f"You were dragged from Tile **{target_pos}** to **{final_roll_val}** tiles behind them, landing on the **{destination_tile_name}** tile (Tile **{new_pos}**) (stops at Go){maul_suffix}."
                                 + glider_note_victim
                             ),
                             color=discord.Color.dark_red()
