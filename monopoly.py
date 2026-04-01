@@ -650,12 +650,19 @@ class MonopolyCog(commands.Cog):
             await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, pass_go_col, cur_passes + 1)
             await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_idx, gp_col, cur_gp + go_reward)
             
+            # ---> ADDED THIS BLOCK: Deal 3 random cards for passing GO! <---
+            team_chan = self.get_team_channel(team_name)
+            if team_chan:
+                for _ in range(3):
+                    card_type = random.choice(["Chest", "Chance"])
+                    await self.team_receives_card(team_name, card_type, team_chan)
+            
             if is_gp_halved:
                 # Clear the flag after the penalty is applied
                 asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
-                return f"\n\n💰 **PASS GO!** You crossed GO and received **10,000,000 GP** (Halved by 🌳 **The Ents**!)."
+                return f"\n\n💰 **PASS GO!** You crossed GO and received **10,000,000 GP** (Halved by 🌳 **The Ents**!) and **3 Random Cards**!"
             
-            return f"\n\n💰 **PASS GO!** You crossed GO and received **20,000,000 GP**!"
+            return f"\n\n💰 **PASS GO!** You crossed GO and received **20,000,000 GP** and **3 Random Cards**!"
             
         except Exception as e:
             print(f"❌ Error processing manual Pass Go: {e}")
@@ -1436,6 +1443,24 @@ class MonopolyCog(commands.Cog):
         except Exception as e:
             print(f"Error setting teleblock status for {team_name}: {e}")
 
+    @app_commands.command(name="start_game", description="[Staff] Start the game and deal 3 random cards to all active teams.")
+    async def start_game(self, interaction: discord.Interaction):
+        if not self.has_event_staff_role(interaction.user):
+            await interaction.response.send_message("❌ Only Event Staff can use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+        
+        for team_name in ACTIVE_TEAMS:
+            team_chan = self.get_team_channel(team_name)
+            if team_chan:
+                await team_chan.send(f"🎉 **The game has begun!** Here are your 3 starting cards:")
+                for _ in range(3):
+                    card_type = random.choice(["Chest", "Chance"])
+                    await self.team_receives_card(team_name, card_type, team_chan)
+                    
+        await interaction.followup.send("✅ Game started! 3 random cards have been dealt to all active teams.")
+    
     @app_commands.command(name="signup", description="Submit your signup with RSN and a screenshot")
     @app_commands.describe(rsn="Your RSN (RuneScape name)", screenshot="Upload a screenshot for your signup")
     async def signup(self, interaction: discord.Interaction, rsn: str, screenshot: discord.Attachment):
@@ -1670,7 +1695,15 @@ class MonopolyCog(commands.Cog):
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + go_reward)
             
-                go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP**!"
+                if is_gp_halved:
+                    go_message = f"💰 **PASS GO!** You passed **GO** and received **10,000,000 GP** (Halved by 🌳 **The Ents**!) and **3 Random Cards**!"
+                else:
+                    go_message = f"💰 **CONGRATULATIONS!** You passed **GO** and received **20,000,000 GP** and **3 Random Cards**!"
+                
+                # ---> ADDED THIS LOOP <---
+                for _ in range(3):
+                    card_type = random.choice(["Chest", "Chance"])
+                    await self.team_receives_card(team_name, card_type, team_chan)
             
             except Exception as e:
                 print(f"❌ Error updating Pass Go: {e}")
@@ -1705,10 +1738,16 @@ class MonopolyCog(commands.Cog):
                                     asyncio.create_task(asyncio.to_thread(self.clear_flag_column, team_name, "GP Halved"))
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, pass_go_col, cur_passes + 1)
                                 await asyncio.to_thread(self.team_data_sheet.update_cell, team_row_index, gp_col, cur_gp + glider_reward)
+                                
                                 if is_gp_halved:
-                                    go_message = f"🌳🪂 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP**!"
+                                    go_message = f"🌳🪂 **GLIDER BONUS REDUCED!** You flew over **GO**, but the Ents damaged your glider. You only received **10,000,000 GP** and **3 Random Cards**!"
                                 else:
-                                    go_message = "💰🪂 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP**!"
+                                    go_message = "💰🪂 **GLIDER BONUS!** You flew over **GO** and received **20,000,000 GP** and **3 Random Cards**!"
+                                
+                                for _ in range(3):
+                                    card_type = random.choice(["Chest", "Chance"])
+                                    await self.team_receives_card(team_name, card_type, team_chan)
+                                    
                             except Exception as e:
                                 print(f"❌ Error updating Glider Go Bonus: {e}")
                         else:
