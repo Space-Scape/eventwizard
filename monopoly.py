@@ -106,21 +106,25 @@ SCAVENGER_BOSSES = [
 ]
 
 boss_drops = {
+    "Abyssal Sire": ["Abyssal dagger", "Abyssal head", "Abyssal orphan", "Abyssal whip", "Bludgeon claw", "Bludgeon spine", "Bludgeon axon", "Jar of miasma"],
+    "Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals", "Alchemical hydra heads", "Dragon knife", "Dragon thrownaxe"],
     "Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Jar of venom", "Nid"],
     "Corp": ["Spectral sigil", "Arcane sigil", "Elysian sigil", "Holy elixir", "Jar of spirits", "Pet dark core", "Spirit shield"],
     "Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Dragon 2h sword", "Claws of callisto", "Voidwaker hilt"],
     "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls", "Smouldering stone"],
-    "Chaos Fanatic": ["Pet chaos elemental", "Odium shard 1", "Malediction shard 1"],
     "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
-    "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    "Colosseum": ["Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
     "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Saradomin's light"],
-    "Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
-    "Dagannoth Kings": ["Berserker ring", "Warrior ring", "Archers ring", "Seers ring", "Dragon axe", "Pet dagannoth supreme", "Pet dagannoth prime", "Pet dagannoth rex"],
+    "Dagannoth Kings": ["Berserker ring", "Warrior ring", "Archers ring", "Seers ring", "Dragon axe", "Pet dagannoth supreme", "Pet dagannoth prime", "Pet dagannoth rex", "Seercull", "Mud Battlestaff", "Fremennik shield", "Fremennik helm", "Fremennik blade", "Rock-shell plate", "Rock-shell legs", "Farseer helm", "Skeletal top", "Skeletal bottoms", "Archer helm", "Spined body", "Spined chaps"],
     "Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
     "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Magus vestige", "Eye of the duke", "Ice quartz"],
     "Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
     "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots"],
+    "Grotesque Guardians": ["Noon", "Black tourmaline core", "Granite gloves", "Granite ring", "Granite hammer", "Jar of stone"]
     "Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
+    "Kalphite Queen": ["Kalphite princess", "Kq head", "Jar of sand", "Dragon 2h sword", "Dragon chainbody", "Dragon pickaxe"],
+    "King Black Dragon": ["Prince black dragon", "Kbd heads", "Dragon pickaxe", "Draconic visage"],
+    "Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
     "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt"],
     "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff"],
     "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
@@ -129,16 +133,20 @@ boss_drops = {
     "Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon"],
     "Royal Titans": ["Fire element staff crown", "Mystic vigour prayer scroll", "Bran", "Ice element staff crown", "Deadeye prayer scroll"],
     "Sarachnis": ["Sarachnis cudgel", "Sraracha", "Pristine spider silk"],
-    "Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
+    "Scorpia": ["Scorpia's offspring", "Odium shard 3", "Malediction shard 3", "Dragon 2h sword"],
+    "Tempoross": ["Tiny tempor", "Big harpoonfish", "Tome of water (empty)", "Tackle box", "Fish barrel", "Dragon harpoon"]
     "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Venator vestige", "Leviathan's lure", "Smoke quartz"],
     "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Bellator vestige", "Siren's staff", "Shadow quartz"],
     "Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
-    "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)", "Cursed phalanx"],
+    "Thermonuclear smoke devil": ["Pet smoke devil", "Occult necklace", "Smoke battlestaff", "Dragon chainbody", "Jar of smoke"],
+    "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
     "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Chromium ingot", "Ultor vestige", "Executioner's axe head", "Blood quartz"],
     "Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
     "Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon 2h sword", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
     "Vorkath": ["Vorki", "Vorkath's head", "Draconic visage", "Skeletal visage", "Dragonbone necklace", "Jar of decay"],
+    "Wintertodt": ["Phoenix", "Tome of fire (empty)", "Pyromancer hood", "Pyromancer garb", "Pyromancer robe", "Pyromancer boots", "Warm gloves", "Bruma Torch"],
     "Yama": ["Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
+    "Zalcano": ["Smolcano", "Crystal tool seed", "Zalcano shard", "Uncut onyx"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"]
 }
 
@@ -1852,15 +1860,15 @@ class MonopolyCog(commands.Cog):
 
     def _get_tile_boss_map(self) -> dict[int, list[str]]:
         return {
-            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
-            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            1: ["Zulrah"], 3: ["General Graardor"],
+            4: ["Phantom Muspah"], 5: ["The Whisperer"], 6: ["Callisto"],
+            8: ["Vet'ion"], 9: ["Venenatis"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
+            13: ["Moons of Peril"], 14: ["Hueycoatl"], 15: ["Duke Sucellus"], 16: ["Wintertodt", "Zalcano", "Tempoross"],
+            18: ["K'ril Tsutsaroth"], 19: ["Abyssal Sire", "Alchemical Hydra", "Araxxor", "Cerberus", "Grotesque Guardians", "Kraken", "Thermonuclear Smoke Devil"],
             21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+            25: ["Vardorvis"], 26: ["Yama"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Kree'arra"], 32: ["Kalphite Queen"], 34: ["Nightmare"],
+            35: ["The Leviathan"], 37: ["Zilyana"], 39: ["Scorpia, King Black Dragon"]
         }
 
 
@@ -2408,15 +2416,15 @@ class MonopolyCog(commands.Cog):
         
         # 2. Boss Map
         tile_boss_map = {
-            1: ["Zulrah"], 3: ["General Graardor", "K'ril Tsutsaroth", "Kree'arra", "Commander Zilyana"],
-            4: ["Vet'ion", "Venenatis", "Callisto"], 5: ["The Whisperer"], 6: ["Tombs of Amascut"],
-            8: ["Theatre of Blood"], 9: ["Chambers of Xeric"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
-            13: ["Moons of Peril"], 14: ["Nightmare"], 15: ["The Leviathan"], 16: ["Yama"],
-            18: ["Scorpia", "Chaos Fanatic", "Crazy Archaeologist"], 19: ["Cerberus"],
+            1: ["Zulrah"], 3: ["General Graardor"],
+            4: ["Phantom Muspah"], 5: ["The Whisperer"], 6: ["Callisto"],
+            8: ["Vet'ion"], 9: ["Venenatis"], 10: ["Gauntlet", "Nex"], 11: ["Corp"],
+            13: ["Moons of Peril"], 14: ["Hueycoatl"], 15: ["Duke Sucellus"], 16: ["Wintertodt", "Zalcano", "Tempoross"],
+            18: ["K'ril Tsutsaroth"], 19: ["Abyssal Sire", "Alchemical Hydra", "Araxxor", "Cerberus", "Grotesque Guardians", "Kraken", "Thermonuclear Smoke Devil"],
             21: ["Tombs of Amascut"], 23: ["Theatre of Blood"], 24: ["Chambers of Xeric"],
-            25: ["Vardorvis"], 26: ["Hueycoatl"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
-            31: ["Tombs of Amascut"], 32: ["Theatre of Blood"], 34: ["Chambers of Xeric"],
-            35: ["Duke Sucellus"], 37: ["Phantom Muspah"], 39: ["Araxxor"]
+            25: ["Vardorvis"], 26: ["Yama"], 27: ["Colosseum"], 29: ["Doom of Mokhaiotl"],
+            31: ["Kree'arra"], 32: ["Kalphite Queen"], 34: ["Nightmare"],
+            35: ["The Leviathan"], 37: ["Zilyana"], 39: ["Scorpia, King Black Dragon"]
         }
 
         bosses_for_tile = tile_boss_map.get(current_tile, [])
