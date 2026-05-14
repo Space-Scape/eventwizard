@@ -256,6 +256,7 @@ class BingoCog(commands.Cog):
 
         # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
+        self.bot.add_view(BackupListView(self))
 
         if self.backups_sheet is not None and not self.backup_list_updater.is_running():
             self.backup_list_updater.change_interval(seconds=self.BACKUP_LIST_POLL_SECONDS)
@@ -296,16 +297,21 @@ class BingoCog(commands.Cog):
         await self.bot.wait_until_ready()
 
     def read_backup_names_from_sheet(self) -> list[str]:
-        """Read backup names from column A, starting at row 2."""
+        """Read backup display names starting at row 2.
+
+        The backup signup sheet uses the same basic columns as solo signups, so
+        the player's public name is normally the RSN in column C. For older or
+        manual entries, column A is used as a fallback.
+        """
         if self.backups_sheet is None:
             return []
 
-        values = self.backups_sheet.get("A2:A")
+        values = self.backups_sheet.get("A2:H")
         names = []
         for row in values:
-            if not row:
-                continue
-            name = str(row[0] or "").strip()
+            rsn = str(row[2] if len(row) > 2 else "").strip()
+            discord_name = str(row[0] if len(row) > 0 else "").strip()
+            name = rsn or discord_name
             if name:
                 names.append(name)
         return names
@@ -357,11 +363,13 @@ class BingoCog(commands.Cog):
         embed = self.build_backup_list_embed(names)
         message = await self.find_existing_backup_list_message(channel)
 
+        view = BackupListView(self)
+
         if message is not None:
-            await message.edit(embed=embed)
+            await message.edit(embed=embed, view=view)
             return
 
-        message = await channel.send(embed=embed)
+        message = await channel.send(embed=embed, view=view)
         self.backup_list_message_id = message.id
         print(f"Bingo Cog: Posted backup list message {message.id} in channel {self.BACKUP_LIST_CHANNEL_ID}.")
 
@@ -1218,6 +1226,176 @@ class BingoCog(commands.Cog):
         return row
 
 
+    def get_backup_row_values(self, row: int) -> list[str]:
+        """Read columns A-H for a backup row and pad missing cells."""
+        values = self.backups_sheet.get(f"A{row}:H{row}")
+        row_values = values[0] if values else []
+        while len(row_values) < 8:
+            row_values.append("")
+        return row_values[:8]
+
+    def find_next_backup_row(self) -> int:
+        """Find the next open row in the Backups worksheet, starting at row 2."""
+        if self.backups_sheet is None:
+            raise RuntimeError("Backups worksheet is not configured.")
+
+        start_row = int(os.getenv("BINGO_BACKUP_START_ROW", "2"))
+        end_row = int(os.getenv("BINGO_BACKUP_END_ROW", "1000"))
+
+        try:
+            values = self.backups_sheet.get(f"A{start_row}:H{end_row}")
+        except Exception:
+            values = []
+
+        for offset in range(end_row - start_row + 1):
+            row_values = values[offset] if offset < len(values) else []
+            has_content = any(str(cell).strip() for cell in row_values[:8])
+            if not has_content:
+                return start_row + offset
+
+        raise RuntimeError(f"No open backup rows are available between rows {start_row} and {end_row}.")
+
+    def find_backup_row_by_discord_id(self, discord_id: int) -> Optional[int]:
+        """Find an existing backup row by Discord ID."""
+        if self.backups_sheet is None:
+            return None
+
+        start_row = int(os.getenv("BINGO_BACKUP_START_ROW", "2"))
+        end_row = int(os.getenv("BINGO_BACKUP_END_ROW", "1000"))
+        wanted_id = str(discord_id)
+
+        try:
+            values = self.backups_sheet.get(f"A{start_row}:H{end_row}")
+        except Exception:
+            return None
+
+        for offset, row_values in enumerate(values):
+            row_discord_id = str(row_values[1]).strip() if len(row_values) > 1 else ""
+            if row_discord_id == wanted_id:
+                return start_row + offset
+        return None
+
+    def find_backup_row_by_rsn(self, rsn: str) -> Optional[int]:
+        """Find an existing backup row by RSN in column C."""
+        if self.backups_sheet is None:
+            return None
+
+        start_row = int(os.getenv("BINGO_BACKUP_START_ROW", "2"))
+        end_row = int(os.getenv("BINGO_BACKUP_END_ROW", "1000"))
+        wanted_rsn = self.normalize_signup_value(rsn)
+        if not wanted_rsn:
+            return None
+
+        try:
+            values = self.backups_sheet.get(f"A{start_row}:H{end_row}")
+        except Exception:
+            return None
+
+        for offset, row_values in enumerate(values):
+            row_rsn = self.normalize_signup_value(row_values[2] if len(row_values) > 2 else "")
+            if row_rsn == wanted_rsn:
+                return start_row + offset
+        return None
+
+    def find_existing_backup_row(self, member: discord.Member, data: dict, registered_info: Optional[dict] = None) -> Optional[int]:
+        """Find the backup row to update, prioritizing the submitted RSN identity."""
+        tracker_id = str((registered_info or {}).get("discord_id", "")).strip()
+        if tracker_id.isdigit():
+            row = self.find_backup_row_by_discord_id(int(tracker_id))
+            if row:
+                return row
+
+        row = self.find_backup_row_by_rsn(data.get("RSN", ""))
+        if row:
+            return row
+
+        if member is not None:
+            row = self.find_backup_row_by_discord_id(member.id)
+            if row:
+                return row
+
+        return None
+
+    def build_backup_row_values(
+        self,
+        member: Optional[discord.Member],
+        data: dict,
+        registered_info: Optional[dict] = None,
+    ) -> list[str]:
+        """Build columns A-H for a backup row.
+
+        Backups columns: A Discord Nickname, B Discord ID, C RSN, D Playtime,
+        E Timezone/Location, F Comments, G Ironman, H Rank.
+        """
+        if registered_info and (registered_info.get("discord_name") or registered_info.get("discord_id")):
+            discord_name = registered_info.get("discord_name", "")
+            discord_id = registered_info.get("discord_id", "")
+        elif member is not None:
+            discord_name = self.get_member_signup_name(member)
+            discord_id = str(member.id)
+        else:
+            discord_name = data.get("Discord Nickname", "")
+            discord_id = data.get("Discord ID", "")
+
+        return [
+            discord_name,
+            discord_id,
+            data.get("RSN", ""),
+            data.get("Playtime", ""),
+            data.get("Timezone/Location", ""),
+            data.get("Comments", ""),
+            data.get("Ironman", ""),
+            data.get("Rank", ""),
+        ]
+
+    def merge_blank_backup_fields(self, row: int, new_values: list[str]) -> None:
+        """Fill only blank backup cells, refreshing the visible Discord nickname."""
+        current_values = self.get_backup_row_values(row)
+        merged = []
+
+        for index, new_value in enumerate(new_values):
+            current_value = str(current_values[index]).strip() if index < len(current_values) else ""
+            new_value = str(new_value or "").strip()
+
+            # Rank only fills if blank so manual ranking stays safe.
+            if index == 7:
+                merged.append(new_value if not current_value and new_value else current_value)
+                continue
+
+            if index == 0 and new_value:
+                merged.append(new_value)
+                continue
+
+            if not current_value and new_value:
+                merged.append(new_value)
+            else:
+                merged.append(current_value)
+
+        self.backups_sheet.update(f"A{row}:H{row}", [merged])
+
+    def write_or_update_backup_to_sheet(self, member: discord.Member, data: dict, registered_info: Optional[dict] = None) -> int:
+        """Create a new backup row or fill blanks in an existing row."""
+        if self.backups_sheet is None:
+            raise RuntimeError("Backups worksheet is not configured.")
+
+        row = self.find_existing_backup_row(member, data, registered_info=registered_info)
+        if row is None:
+            row = self.find_next_backup_row()
+
+        row_values = self.build_backup_row_values(member, data, registered_info=registered_info)
+        self.merge_blank_backup_fields(row, row_values)
+        return row
+
+    def build_backup_signup_embed(self, member: discord.Member, data: dict) -> discord.Embed:
+        """Build the public embed after a backup signup is saved."""
+        backup_name = str(data.get("RSN", "")).strip() or self.get_member_signup_name(member)
+        embed = discord.Embed(
+            title=f"New Backup! {backup_name} has signed up as a backup!",
+            description=member.mention,
+            colour=discord.Colour.gold(),
+        )
+        return embed
+
     def get_signup_link_text(self) -> str:
         """Return a clickable signup-panel jump link when known."""
         if self.signup_panel_jump_url:
@@ -1318,6 +1496,46 @@ class BingoCog(commands.Cog):
     def can_capture_signup_screenshots(self) -> bool:
         """Discord only sends attachment data to bots with Message Content Intent enabled."""
         return bool(getattr(self.bot.intents, "message_content", False))
+
+    async def save_backup_signup(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
+        """Save a backup signup immediately. Backups do not require buy-in screenshots."""
+        member = await self.resolve_guild_member(channel, member)
+
+        registered_info = self.find_registered_rsn_info(data.get("RSN", ""))
+        if registered_info is None:
+            print(f"Bingo Cog: Backup RSN not found in Tracker; using submitter identity: {data.get('RSN', '')}")
+
+        if self.is_banned_event_participant(data.get("RSN", ""), str(member.id), registered_info):
+            try:
+                await channel.send(f"{member.mention}, {self.banned_signup_error_message()}", delete_after=45)
+            except Exception:
+                pass
+            return
+
+        registered_info = await self.enrich_registered_info_for_guild(channel, registered_info) if registered_info else None
+
+        try:
+            await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
+            row = self.write_or_update_backup_to_sheet(member, data, registered_info=registered_info)
+
+            embed = self.build_backup_signup_embed(member, data)
+            embed.set_footer(text=f"Saved to backup row {row}.")
+            await channel.send(embed=embed)
+
+            # Refresh the list immediately instead of waiting for the next poll.
+            names = await asyncio.to_thread(self.read_backup_names_from_sheet)
+            self._backup_list_last_signature = "\n".join(names)
+            await self.post_or_update_backup_list(names)
+
+        except Exception as e:
+            print(f"Bingo Cog: Failed while saving backup signup: {e}")
+            try:
+                await channel.send(
+                    f"{member.mention}, something went wrong while saving your backup signup. Please contact an administrator.",
+                    delete_after=25,
+                )
+            except Exception:
+                pass
 
     async def collect_signup_screenshots(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
         """Wait for one required screenshot, then optionally a second duo screenshot."""
@@ -1575,6 +1793,106 @@ class BingoCog(commands.Cog):
             view=BossView(self, interaction.user, target_user, screenshot),
             ephemeral=True
         )
+
+
+class BackupListView(discord.ui.View):
+    def __init__(self, cog: BingoCog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(
+        label="Sign Up as Backup",
+        style=discord.ButtonStyle.green,
+        custom_id="bingo_backup_signup:open",
+    )
+    async def backup_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.cog.backups_sheet is None:
+            await interaction.response.send_message(
+                "The backup signup sheet is not configured. Please contact an administrator.",
+                ephemeral=True,
+            )
+            return
+
+        if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
+            await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
+            return
+
+        await interaction.response.send_modal(BackupSignupModal(self.cog))
+
+
+class BackupSignupModal(discord.ui.Modal, title="Backup Signup"):
+    def __init__(self, cog: BingoCog):
+        super().__init__()
+        self.cog = cog
+
+        self.rsn = discord.ui.TextInput(
+            label="RSN",
+            placeholder="The account you are signing up on.",
+            required=True,
+            max_length=50,
+        )
+        self.playtime = discord.ui.TextInput(
+            label="Playtime",
+            placeholder="Estimated playtime for the event duration. Please be accurate.",
+            required=True,
+            max_length=100,
+        )
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+            required=True,
+            max_length=100,
+        )
+        self.comments = discord.ui.TextInput(
+            label="Comments",
+            placeholder="Anything you would like captains to know.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500,
+        )
+        self.ironman = discord.ui.TextInput(
+            label="Ironman?",
+            placeholder="Yes or No",
+            required=True,
+            max_length=25,
+        )
+
+        self.add_item(self.rsn)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+        self.add_item(self.comments)
+        self.add_item(self.ironman)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "signup_type": "Backup",
+            "RSN": str(self.rsn.value).strip(),
+            "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
+            "Comments": str(self.comments.value).strip(),
+            "Ironman": str(self.ironman.value).strip(),
+            "_submitter_discord_id": str(interaction.user.id),
+        }
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, data)
+        if not valid:
+            await interaction.followup.send(error_message, ephemeral=True)
+            return
+
+        try:
+            await self.cog.save_backup_signup(interaction.channel, interaction.user, data)
+            await interaction.followup.send(
+                "Your backup signup has been submitted.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            print(f"Bingo Cog: Backup signup modal failed: {e}")
+            await interaction.followup.send(
+                "Something went wrong while saving your backup signup. Please contact an administrator.",
+                ephemeral=True,
+            )
 
 
 class BingoSignupPanelView(discord.ui.View):
