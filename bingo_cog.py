@@ -400,12 +400,25 @@ class BingoCog(commands.Cog):
         return lookup
 
     def find_registered_rsn_info(self, rsn: str) -> Optional[dict]:
-        """Find Discord info for an RSN from the RSN Tracker sheet."""
+        """Find Discord info for an RSN from the RSN Tracker sheet.
+
+        The tracker cache is refreshed once on a miss. This matters when an RSN
+        was just added to Old RSN / New RSN while the bot is already running.
+        """
         normalized = self.normalize_rsn_for_lookup(rsn)
         if not normalized:
             return None
+
         if self._rsn_lookup_cache is None:
             self._rsn_lookup_cache = self.build_rsn_lookup_cache()
+
+        info = self._rsn_lookup_cache.get(normalized)
+        if info is not None:
+            return info
+
+        # Refresh once on miss so recent Tracker edits are picked up without a
+        # full bot restart. This also helps Old RSN lookups added during tests.
+        self._rsn_lookup_cache = self.build_rsn_lookup_cache()
         return self._rsn_lookup_cache.get(normalized)
 
     async def enrich_registered_info_for_guild(self, channel: discord.abc.Messageable, info: Optional[dict]) -> Optional[dict]:
@@ -674,13 +687,16 @@ class BingoCog(commands.Cog):
             if isinstance(boss, dict) and isinstance(boss.get("kills"), (int, float))
         )
 
-        # Hard C gates.
+        # Hard C gate. Under 92 Slayer is automatically C.
         if slayer and slayer < 92:
             return "C"
-        if combat and combat < 115:
-            return "C"
 
-        # A: hard minimums plus a clear high-end raid KC signal. "Very close" is allowed.
+        # Under 115 combat is below even the C minimum, so it is a Wild Card /
+        # manual review rather than an automatic C.
+        if combat and combat < 115:
+            return ""
+
+        # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
         a_raid_ready = hmt >= 48 and cm >= 48 and toa_expert >= 98
         if slayer >= 95 and combat >= 125 and sol >= 1 and zuk >= 1 and a_raid_ready:
             # A/B-quality iron accounts can be hard to compare if this is an alt/iron.
@@ -689,7 +705,7 @@ class BingoCog(commands.Cog):
             return "A"
 
         # Clear B: nearly 300 combined raids, or at least 25 HMT/CM, with minimum stats.
-        if slayer >= 93 and combat >= 120 and (hmt >= 25 or cm >= 25 and raids_total >= 280):
+        if slayer >= 93 and combat >= 120 and (hmt >= 25 or cm >= 25 or raids_total >= 280):
             if "iron" in str(submitted_ironman).casefold() or "yes" in str(submitted_ironman).casefold():
                 return ""
             return "B"
@@ -933,23 +949,28 @@ class BingoCog(commands.Cog):
         if not partner_rsn:
             raise RuntimeError("Duo partner RSN is missing.")
 
-        partner_info = partner_info or self.find_registered_rsn_info(partner_rsn) or {}
-        if not partner_info and submitting_member is not None:
-            # Fallback for unregistered alts: use the submitter's Discord identity.
-            partner_info = {
+        tracker_partner_info = partner_info or self.find_registered_rsn_info(partner_rsn)
+        identity_info = tracker_partner_info
+        if identity_info is None and submitting_member is not None:
+            # Fallback for unregistered alts: use the submitter's Discord identity
+            # for columns A/B, but do NOT use that Discord ID to find the partner
+            # row. Otherwise the partner can collapse into the submitter's row.
+            identity_info = {
                 "discord_id": str(submitting_member.id),
                 "discord_name": self.get_member_signup_name(submitting_member),
                 "tracker_row": "fallback_submitter",
             }
 
         partner_row = None
-        partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
+        partner_discord_id = str((tracker_partner_info or {}).get("discord_id", "")).strip()
         if partner_discord_id.isdigit():
             partner_row = self.find_signup_row_by_discord_id(int(partner_discord_id), "Duo")
         if partner_row is None:
             partner_row = self.find_signup_row_by_rsn(partner_rsn, "Duo")
         if partner_row is None:
             partner_row = self.find_next_signup_row("Duo")
+
+        partner_info = identity_info or {}
 
         placeholder_data = {
             "signup_type": "Duo",
