@@ -527,13 +527,13 @@ async def on_ready():
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
 
-    if "monopoly" not in bot.extensions:
-        try:
-            await bot.load_extension("monopoly")
-            print("✅ Loaded extension: monopoly")
-        except Exception as e:
-            print(f"❌ Failed to load extension: monopoly - {e}")
-            traceback.print_exc()
+#    if "monopoly" not in bot.extensions:
+#        try:
+#            await bot.load_extension("monopoly")
+#            print("✅ Loaded extension: monopoly")
+#        except Exception as e:
+#            print(f"❌ Failed to load extension: monopoly - {e}")
+#            traceback.print_exc()
 
     if "bingo_cog" not in bot.extensions:
         try:
@@ -542,7 +542,6 @@ async def on_ready():
         except Exception as e:
             print(f"❌ Failed to load extension: bingo_cog - {e}")
             traceback.print_exc()
-
     try:
         synced = await tree.sync()
         print(f"✅ Synced {len(synced)} slash commands.")
