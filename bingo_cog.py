@@ -184,8 +184,6 @@ class BingoCog(commands.Cog):
         self.sheet = main_spreadsheet.sheet1
 
         # Bingo signup sheet.
-        # Set BINGO_SIGNUP_SHEET_ID to the Google Sheet ID for the signup sheet.
-        # If it is not set, the cog uses the same spreadsheet as the drop submission sheet.
         signup_sheet_id = os.getenv("BINGO_SIGNUP_SHEET_ID", sheet_id)
         signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
         try:
@@ -202,8 +200,6 @@ class BingoCog(commands.Cog):
         self.signup_panel_jump_url = None
 
         # Players who cannot participate in this event.
-        # These are checked by Discord ID from the RSN tracker, by the user pressing
-        # the button, and by normalized RSN/name so partner signups are also blocked.
         self.BANNED_EVENT_DISCORD_IDS = {
             "162068110516420608": "99 mage",
             "314953972278362112": "CoriSlayer",
@@ -217,8 +213,6 @@ class BingoCog(commands.Cog):
         self.REGISTERED_ROLE_NAME = "Registered"
 
         # Signup sheet layout based on the displayed signup spreadsheet.
-        # Solo signups begin under the Solo Signups header at row 18.
-        # Duo signups begin under the Duo Signups header at row 132.
         self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
         self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
@@ -463,8 +457,6 @@ class BingoCog(commands.Cog):
             return False, self.banned_signup_error_message()
 
         if data.get("signup_type") == "Duo":
-            # Signing up the duo partner is optional. Only validate the partner RSN
-            # if the user chose to add partner details on the optional second page.
             partner_rsn = str(data.get("Duo Partner", "")).strip()
             if partner_rsn:
                 partner_info = self.find_registered_rsn_info(partner_rsn)
@@ -561,18 +553,14 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
-            # Rank is a manual A-Wildcard captain field, not a Discord role. Always leave it blank.
             if index == 11:
                 merged.append("")
                 continue
 
-            # Keep the visible Discord nickname current when the user is the owner of this row.
             if index == 0 and new_value:
                 merged.append(new_value)
                 continue
 
-            # Fill blanks only. This lets someone who was placeholder-signed-up complete missing fields
-            # without accidentally overwriting information captains may already have reviewed.
             if not current_value and new_value:
                 merged.append(new_value)
             else:
@@ -869,7 +857,6 @@ class BingoCog(commands.Cog):
             if not is_duo:
                 return
 
-            # Optional partner screenshot. The signup is already submitted after the first screenshot.
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=300)
             except asyncio.TimeoutError:
@@ -923,7 +910,7 @@ class BingoCog(commands.Cog):
                 "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
                 "You may submit both buy-ins for yourself and your duo partner. "
                 "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate."
-                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events. If you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
+                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events.\nIf you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
             ),
             colour=discord.Colour.gold()
         )
@@ -1172,9 +1159,9 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             return
 
         await interaction.followup.send(
-            "**Step 2/2: Post Buy In Screenshot**\n"
-            "Post an image of your buy-in in this channel now to complete your signup. "
-            "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
+            "# **Step 2/2: Post Buy In Screenshot**\n\n"
+            "Post an image of your buy-in in this channel now to complete your signup.\n\n"
+            "If you are also signing up a duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
             view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
@@ -1236,8 +1223,6 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Duo Ironman": str(self.duo_ironman.value).strip(),
         })
 
-        # Respond immediately so Discord does not expire the modal interaction
-        # while the Google Sheet / RSN tracker lookup runs.
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, self.data)
@@ -1245,10 +1230,6 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             await interaction.followup.send(error_message, ephemeral=True)
             return
 
-        # If the user already posted the screenshot before filling the optional
-        # partner page, update the existing submitter row and create/fill the
-        # partner row now. Otherwise, the in-memory data will be picked up by
-        # the screenshot collector when the user posts their image.
         buyin_screenshot = str(self.data.get("_buyin_screenshot", "")).strip()
         if buyin_screenshot:
             try:
