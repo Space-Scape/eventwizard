@@ -603,13 +603,13 @@ class BingoCog(commands.Cog):
         placeholder_data = {
             "signup_type": "Duo",
             "RSN": partner_rsn,
-            "Playtime": "",
-            "Timezone/Location": "",
+            "Playtime": data.get("Duo Playtime", ""),
+            "Timezone/Location": data.get("Duo Timezone/Location", ""),
             "Buy In Screenshot": buyin_screenshot,
             "Comments": "",
             "Duo Partner": data.get("RSN", ""),
             "Duo Buy In Screenshot": data.get("Duo Buy In Screenshot", ""),
-            "Ironman": "",
+            "Ironman": data.get("Duo Ironman", ""),
         }
         self.merge_blank_signup_fields(
             partner_row,
@@ -991,33 +991,50 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             required=True,
             max_length=50
         )
-        self.duo_partner = discord.ui.TextInput(
-            label="Duo RSN",
-            placeholder="The RSN of your duo partner.",
-            required=True,
-            max_length=50
-        )
         self.playtime = discord.ui.TextInput(
             label="Playtime",
-            placeholder="Estimated playtime for the event duration. Please be accurate.",
+            placeholder="Your estimated playtime for the event duration.",
             required=True,
             max_length=100
         )
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+            required=True,
+            max_length=100
+        )
+        self.comments = discord.ui.TextInput(
+            label="Comments",
+            placeholder="Anything you would like captains to know.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500
+        )
+        self.ironman = discord.ui.TextInput(
+            label="Ironman?",
+            placeholder="Yes or No",
+            required=True,
+            max_length=25
+        )
 
         self.add_item(self.rsn)
-        self.add_item(self.duo_partner)
         self.add_item(self.playtime)
+        self.add_item(self.timezone)
+        self.add_item(self.comments)
+        self.add_item(self.ironman)
 
     async def on_submit(self, interaction: discord.Interaction):
         data = {
             "signup_type": "Duo",
             "RSN": str(self.rsn.value).strip(),
-            "Duo Partner": str(self.duo_partner.value).strip(),
             "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
+            "Comments": str(self.comments.value).strip(),
+            "Ironman": str(self.ironman.value).strip(),
         }
 
         await interaction.response.send_message(
-            "Page 1 saved. Press **Continue to Page 2** to finish your duo signup details.",
+            "Page 1 saved. Press **Continue to Page 2** to add your duo partner's details.",
             view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
@@ -1040,35 +1057,42 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
         self.cog = cog
         self.data = data
 
-        self.timezone = discord.ui.TextInput(
-            label="Timezone/Location",
-            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+        self.duo_partner = discord.ui.TextInput(
+            label="Duo RSN",
+            placeholder="The RSN of your duo partner.",
+            required=True,
+            max_length=50
+        )
+        self.duo_playtime = discord.ui.TextInput(
+            label="Duo Playtime",
+            placeholder="Your partner's estimated playtime for the event duration.",
             required=True,
             max_length=100
         )
-        self.comments = discord.ui.TextInput(
-            label="Comments",
-            placeholder="Anything you would like captains to know.",
-            style=discord.TextStyle.paragraph,
-            required=False,
-            max_length=500
+        self.duo_timezone = discord.ui.TextInput(
+            label="Duo Timezone",
+            placeholder="Your partner's timezone/location or active hours.",
+            required=True,
+            max_length=100
         )
-        self.ironman = discord.ui.TextInput(
-            label="Ironman?",
+        self.duo_ironman = discord.ui.TextInput(
+            label="Duo Ironman Status",
             placeholder="Yes or No",
             required=True,
             max_length=25
         )
 
-        self.add_item(self.timezone)
-        self.add_item(self.comments)
-        self.add_item(self.ironman)
+        self.add_item(self.duo_partner)
+        self.add_item(self.duo_playtime)
+        self.add_item(self.duo_timezone)
+        self.add_item(self.duo_ironman)
 
     async def on_submit(self, interaction: discord.Interaction):
         self.data.update({
-            "Timezone/Location": str(self.timezone.value).strip(),
-            "Comments": str(self.comments.value).strip(),
-            "Ironman": str(self.ironman.value).strip(),
+            "Duo Partner": str(self.duo_partner.value).strip(),
+            "Duo Playtime": str(self.duo_playtime.value).strip(),
+            "Duo Timezone/Location": str(self.duo_timezone.value).strip(),
+            "Duo Ironman": str(self.duo_ironman.value).strip(),
         })
 
         # Respond to the modal immediately so Discord does not expire the interaction
@@ -1091,10 +1115,10 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
 
         await interaction.followup.send(
             "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
-            "Post a screenshot showing your duo buy-in in this channel now. If you are paying for both players, "
-            "one screenshot showing both deposits is enough and the signup submits after that first screenshot. "
-            "If you post a second screenshot, I will also save it into the Duo Buy In Screenshot field for both duo rows. "
-            "I will save the image links, delete the screenshot messages, and post a public signup embed.",
+            "Post a screenshot showing the duo buy-ins in this channel now. Ideally, this should be one screenshot "
+            "showing both deposits. The signup submits after the first screenshot. If you post a second screenshot, "
+            "I will also save it into the Duo Buy In Screenshot field for both duo rows. I will save the image links, "
+            "delete the screenshot messages, and post a public signup embed.",
             ephemeral=True
         )
         asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, self.data))
