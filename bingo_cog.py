@@ -689,7 +689,7 @@ class BingoCog(commands.Cog):
     def get_signup_followup_message(self) -> str:
         """Return the large public signup prompt shown after each new-signup embed."""
         if self.signup_panel_jump_url:
-            return f"# Want to sign up as well? [Click here]({self.signup_panel_jump_url}) to go to the signup."
+            return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})!"
         return "# Want to sign up as well? Please scroll to the signup panel above or ask staff to repost it."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
@@ -722,6 +722,31 @@ class BingoCog(commands.Cog):
             embeds.append(second_embed)
 
         return embeds
+
+    def build_duo_partner_signup_embed(self, data: dict, partner_info: Optional[dict], image_url: str) -> discord.Embed:
+        """Build the public New Signup embed for the duo partner row.
+
+        When one player signs up both members of a duo, the partner also gets
+        their own visible New Signup post. The same first buy-in screenshot is
+        used because one screenshot may show both buy-ins.
+        """
+        submitter_rsn = str(data.get("RSN", "")).strip()
+        partner_rsn = str(data.get("Duo Partner", "")).strip()
+        partner_display = partner_rsn or str((partner_info or {}).get("discord_name", "")).strip() or "Duo Partner"
+
+        embed = discord.Embed(
+            title=f"New Signup! {partner_display} has signed up as a duo with {submitter_rsn}!",
+            colour=discord.Colour.blue(),
+        )
+
+        partner_id = str((partner_info or {}).get("discord_id", "")).strip()
+        if partner_id.isdigit():
+            embed.description = f"<@{partner_id}>"
+
+        if image_url:
+            embed.set_image(url=image_url)
+
+        return embed
 
     async def safe_delete_message(self, message: discord.Message) -> None:
         try:
@@ -812,6 +837,10 @@ class BingoCog(commands.Cog):
             first_attachment = first_message.attachments[0]
             first_url = first_attachment.url
             first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
+            partner_file = None
+            partner_filename = None
+            if is_duo and partner_info is not None:
+                partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
 
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
             data["_submitter_row"] = submitter_row
@@ -824,6 +853,16 @@ class BingoCog(commands.Cog):
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=first_embed, file=first_file)
+
+            if is_duo and partner_row and partner_file and partner_filename:
+                partner_embed = self.build_duo_partner_signup_embed(
+                    data,
+                    partner_info,
+                    f"attachment://{partner_filename}",
+                )
+                partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
+                await channel.send(embed=partner_embed, file=partner_file)
+
             await channel.send(self.get_signup_followup_message())
             await self.safe_delete_message(first_message)
 
