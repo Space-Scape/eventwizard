@@ -9,6 +9,10 @@ import asyncio
 from typing import Optional
 import random
 
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------------------
 # Boss-Drop Mapping
@@ -143,7 +147,7 @@ class BingoCog(commands.Cog):
             return
 
         print("Bingo Cog: All required environment variables are present.")
-
+        
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -206,7 +210,7 @@ class BingoCog(commands.Cog):
         self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
         self.DUO_SIGNUP_END_ROW = int(os.getenv("BINGO_DUO_SIGNUP_END_ROW", "232"))
-
+        
         # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
         
