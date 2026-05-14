@@ -811,12 +811,13 @@ class BingoCog(commands.Cog):
         embed = discord.Embed(
             title="Bingo Signups",
             description=(
-                "Press one of the buttons below to sign up for the Spring Bingo. You can also use `/signup` at any time if the buttons are no longer nearby.\n\n"
+                "Press one of the buttons below to sign up for the Spring Bingo.\n\n"
                 "**Solo Signup** - Sign up by yourself.\n"
                 "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
                 "You may submit both buy-ins for yourself and your duo partner. "
-                "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate."
-                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events. If you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
+                "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate.\n"
+                "Post a picture in the channel after the bot message to complete your signup."
+                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events.\nIf you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner.*"
             ),
             colour=discord.Colour.gold()
         )
