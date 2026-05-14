@@ -54,8 +54,11 @@ events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs
 # ---------------------------
 # 🔹 Discord Bot Setup
 # ---------------------------
+bot = commands.Bot(command_prefix="!", intents=intents)
+
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
