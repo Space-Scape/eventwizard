@@ -639,11 +639,19 @@ class BingoCog(commands.Cog):
         self.merge_blank_signup_fields(row, row_values)
         return row
 
-    def ensure_duo_partner_row(self, submitting_member: discord.Member, data: dict, buyin_screenshot: str, partner_info: dict) -> int:
-        """Make sure the duo partner has their own row, including Discord info and the shared buy-in screenshot."""
-        partner_rsn = data.get("Duo Partner", "").strip()
+    def ensure_duo_partner_row(self, submitting_member: discord.Member, data: dict, buyin_screenshot: str, partner_info: Optional[dict]) -> int:
+        """Make sure the duo partner has their own row in the Duo section.
+
+        The partner row should be created even if the first screenshot arrives
+        before the optional partner modal has fully settled. RSN tracker data is
+        used when available, but the row still gets created from the submitted
+        partner fields so captains do not lose the signup.
+        """
+        partner_rsn = str(data.get("Duo Partner", "")).strip()
         if not partner_rsn:
             raise RuntimeError("Duo partner RSN is missing.")
+
+        partner_info = partner_info or self.find_registered_rsn_info(partner_rsn) or {}
 
         partner_row = None
         partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
@@ -664,7 +672,10 @@ class BingoCog(commands.Cog):
             "Duo Partner": data.get("RSN", ""),
             "Duo Buy In Screenshot": data.get("Duo Buy In Screenshot", ""),
             "Ironman": data.get("Duo Ironman", ""),
+            "Discord Nickname": str((partner_info or {}).get("discord_name", "")).strip(),
+            "Discord ID": partner_discord_id,
         }
+
         self.merge_blank_signup_fields(
             partner_row,
             self.build_signup_row_values(None, placeholder_data, buyin_screenshot=buyin_screenshot, registered_info=partner_info),
@@ -867,23 +878,6 @@ class BingoCog(commands.Cog):
 
         submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info)
 
-        partner_info = None
-        if is_duo and str(data.get("Duo Partner", "")).strip():
-            partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
-            if partner_info is None:
-                try:
-                    await channel.send(f"{member.mention}, {self.registered_rsn_error_message(data.get('Duo Partner', ''))}", delete_after=45)
-                except Exception:
-                    pass
-                return
-            if self.is_banned_event_participant(data.get("Duo Partner", ""), "", partner_info):
-                try:
-                    await channel.send(f"{member.mention}, {self.banned_signup_error_message()}", delete_after=45)
-                except Exception:
-                    pass
-                return
-            partner_info = await self.enrich_registered_info_for_guild(channel, partner_info)
-
         def check(message: discord.Message) -> bool:
             return (
                 message.author.id == member.id
@@ -896,18 +890,36 @@ class BingoCog(commands.Cog):
             first_attachment = first_message.attachments[0]
             first_url = first_attachment.url
             first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
-            partner_file = None
-            partner_filename = None
-            if is_duo and partner_info is not None:
-                partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
 
+            # Save the submitter immediately after the required screenshot.
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
             data["_submitter_row"] = submitter_row
             data["_buyin_screenshot"] = first_url
+
+            partner_info = None
             partner_row = None
-            if is_duo and partner_info is not None:
+            partner_file = None
+            partner_filename = None
+
+            # If optional partner details are already present, create/fill the partner row now.
+            # If the user submits Page 2 slightly after the screenshot, the Page 2 modal handler
+            # will update/create the partner row using _buyin_screenshot.
+            if is_duo and str(data.get("Duo Partner", "")).strip():
+                partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
+                if partner_info is not None:
+                    if self.is_banned_event_participant(data.get("Duo Partner", ""), "", partner_info):
+                        try:
+                            await channel.send(f"{member.mention}, {self.banned_signup_error_message()}", delete_after=45)
+                        except Exception:
+                            pass
+                        return
+                    partner_info = await self.enrich_registered_info_for_guild(channel, partner_info)
+                else:
+                    print(f"Bingo Cog: Duo partner RSN was not found in tracker while saving row: {data.get('Duo Partner', '')}")
+
                 partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
                 data["_partner_row"] = partner_row
+                partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
 
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
@@ -922,16 +934,18 @@ class BingoCog(commands.Cog):
                 partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
                 await channel.send(embed=partner_embed, file=partner_file)
 
-            await channel.send(self.get_signup_followup_message())
             await self.safe_delete_message(first_message)
 
             if not is_duo:
+                await channel.send(self.get_signup_followup_message())
                 return
 
-            # Optional partner screenshot. The signup is already submitted after the first screenshot.
+            # Optional partner screenshot. Wait briefly so the public signup link does not appear
+            # between the required signup embed(s) and the optional second-screenshot embed.
             try:
-                second_message = await self.bot.wait_for("message", check=check, timeout=300)
+                second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
+                await channel.send(self.get_signup_followup_message())
                 return
 
             second_attachment = second_message.attachments[0]
@@ -939,12 +953,21 @@ class BingoCog(commands.Cog):
             second_file, second_filename = await self.attachment_to_discord_file(second_attachment, "partner_buy_in.png")
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
+            partner_target = None
+            partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
+            if partner_discord_id.isdigit():
+                partner_target = f"<@{partner_discord_id}>"
+            else:
+                partner_rsn = str(data.get("Duo Partner", "")).strip()
+                partner_target = partner_rsn or member.mention
+
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
-            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
+            second_embed.description = f"Additional buy-in screenshot for {partner_target}."
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=second_embed, file=second_file)
             await self.safe_delete_message(second_message)
+            await channel.send(self.get_signup_followup_message())
 
         except asyncio.TimeoutError:
             try:
@@ -1312,7 +1335,8 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
         if buyin_screenshot:
             try:
                 partner_info = self.cog.find_registered_rsn_info(self.data.get("Duo Partner", ""))
-                partner_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, partner_info)
+                if partner_info is not None:
+                    partner_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, partner_info)
                 submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot)
                 partner_row = self.cog.ensure_duo_partner_row(interaction.user, self.data, buyin_screenshot, partner_info)
                 self.data["_submitter_row"] = submitter_row
