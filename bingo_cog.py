@@ -182,7 +182,9 @@ class BingoCog(commands.Cog):
         self.sheet = main_spreadsheet.sheet1
 
         # Bingo signup sheet.
-        signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET")
+        # Defaults to the visible signup worksheet tab named "Buy ins".
+        # You can override this in Railway with BINGO_SIGNUP_WORKSHEET if needed.
+        signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins").strip() or "Buy ins"
         try:
             self.signup_sheet = main_spreadsheet.worksheet(signup_worksheet_name)
             print(f"Bingo Cog: Signup worksheet loaded: {signup_worksheet_name}")
@@ -190,6 +192,7 @@ class BingoCog(commands.Cog):
             print(f"Bingo Cog: Could not load signup worksheet '{signup_worksheet_name}': {e}")
             print("Bingo Cog: Falling back to the first worksheet for signup submissions.")
             self.signup_sheet = main_spreadsheet.sheet1
+            print(f"Bingo Cog: Fallback signup worksheet loaded: {self.signup_sheet.title}")
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
@@ -272,19 +275,24 @@ class BingoCog(commands.Cog):
         row_values = [
             member.display_name,
             str(member.id),
-            data.get("RSN", ""),
-            data.get("Playtime", ""),
-            data.get("Timezone/Location", ""),
-            data.get("Buy In Screenshot", ""),
-            data.get("Comments", ""),
+            data.get("RSN") or data.get("rsn", ""),
+            data.get("Playtime") or data.get("playtime", ""),
+            data.get("Timezone/Location") or data.get("timezone", ""),
+            data.get("Buy In Screenshot") or data.get("buyin_screenshot", ""),
+            data.get("Comments") or data.get("comments", ""),
             "Yes" if is_duo else "No",
-            data.get("Duo Partner", "") if is_duo else "",
-            data.get("Duo Buy In Screenshot", "") if is_duo else "",
-            data.get("Ironman", ""),
+            (data.get("Duo Partner") or data.get("duo_partner", "")) if is_duo else "",
+            (data.get("Duo Buy In Screenshot") or data.get("duo_buyin_screenshot", "")) if is_duo else "",
+            data.get("Ironman") or data.get("ironman", ""),
             self.get_member_rank_name(member),
         ]
 
-        self.signup_sheet.update(f"A{row}:L{row}", [row_values])
+        print(f"Bingo Cog: Writing {signup_type} signup to worksheet '{self.signup_sheet.title}' row {row}: {row_values}")
+        self.signup_sheet.update(
+            range_name=f"A{row}:L{row}",
+            values=[row_values],
+            value_input_option="USER_ENTERED"
+        )
         return row
 
     @app_commands.command(name="signup_panel", description="Post the bingo signup panel in this channel")
@@ -425,9 +433,9 @@ class SoloSignupPageOneModal(discord.ui.Modal, title="Solo Signup - Page 1 of 2"
     async def on_submit(self, interaction: discord.Interaction):
         data = {
             "signup_type": "Solo",
-            "rsn": str(self.rsn.value).strip(),
-            "playtime": str(self.playtime.value).strip(),
-            "timezone": str(self.timezone.value).strip(),
+            "RSN": str(self.rsn.value).strip(),
+            "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
         }
 
         await interaction.response.send_message(
@@ -469,9 +477,9 @@ class SoloSignupPageTwoModal(discord.ui.Modal, title="Solo Signup - Page 2 of 2"
 
     async def on_submit(self, interaction: discord.Interaction):
         self.data.update({
-            "buyin_screenshot": str(self.buyin_screenshot.value).strip(),
-            "comments": str(self.comments.value).strip(),
-            "ironman": str(self.ironman.value).strip(),
+            "Buy In Screenshot": str(self.buyin_screenshot.value).strip(),
+            "Comments": str(self.comments.value).strip(),
+            "Ironman": str(self.ironman.value).strip(),
         })
 
         try:
@@ -526,10 +534,10 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
     async def on_submit(self, interaction: discord.Interaction):
         data = {
             "signup_type": "Duo",
-            "rsn": str(self.rsn.value).strip(),
-            "duo_partner": str(self.duo_partner.value).strip(),
-            "playtime": str(self.playtime.value).strip(),
-            "timezone": str(self.timezone.value).strip(),
+            "RSN": str(self.rsn.value).strip(),
+            "Duo Partner": str(self.duo_partner.value).strip(),
+            "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
         }
 
         await interaction.response.send_message(
