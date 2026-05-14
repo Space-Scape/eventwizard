@@ -199,6 +199,7 @@ class BingoCog(commands.Cog):
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
         self._rsn_lookup_cache = None
+        self.signup_panel_jump_url = None
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
@@ -387,6 +388,10 @@ class BingoCog(commands.Cog):
             row_values.append("")
         return row_values[:12]
 
+    def format_signup_row(self, row: int) -> None:
+        """Leave signup row formatting alone; the sheet template controls visibility/style."""
+        return
+
     def find_next_signup_row(self, signup_type: str) -> int:
         """Find the next open row in the correct signup section of the signup sheet."""
         start_row, end_row = self.get_signup_bounds(signup_type)
@@ -473,6 +478,7 @@ class BingoCog(commands.Cog):
                 merged.append(current_value)
 
         self.signup_sheet.update(f"A{row}:L{row}", [merged])
+        self.format_signup_row(row)
 
     def build_signup_row_values(
         self,
@@ -570,13 +576,21 @@ class BingoCog(commands.Cog):
             current_values = self.get_signup_row_values(row)
             if not str(current_values[9]).strip():
                 self.signup_sheet.update_cell(row, 10, screenshot_url)
+                self.format_signup_row(row)
+
+
+    def get_signup_link_text(self) -> str:
+        """Return a clickable signup-panel jump link when known, otherwise point users to /signup."""
+        if self.signup_panel_jump_url:
+            return f"[Click here to sign up]({self.signup_panel_jump_url})"
+        return "Use `/signup` to open the signup buttons."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
         is_duo = data.get("signup_type") == "Duo"
         colour = discord.Colour.blue() if is_duo else discord.Colour.green()
 
-        signup_name = self.get_member_signup_name(member)
+        signup_name = data.get("RSN", "").strip() or self.get_member_signup_name(member)
 
         if is_duo:
             partner_text = data.get("Duo Partner", "your duo partner")
@@ -586,7 +600,7 @@ class BingoCog(commands.Cog):
 
         embeds = []
         first_embed = discord.Embed(title=title, colour=colour)
-        first_embed.description = member.mention
+        first_embed.description = f"{member.mention}\n\n{self.get_signup_link_text()}"
         if image_urls:
             first_embed.set_image(url=image_urls[0])
         embeds.append(first_embed)
@@ -680,7 +694,7 @@ class BingoCog(commands.Cog):
 
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
-            await channel.send(embed=first_embed, file=first_file, view=BingoSignupPanelView(self))
+            await channel.send(embed=first_embed, file=first_file)
             await self.safe_delete_message(first_message)
 
             if not is_duo:
@@ -698,10 +712,10 @@ class BingoCog(commands.Cog):
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
-            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
+            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup.\n\n{self.get_signup_link_text()}"
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
-            await channel.send(embed=second_embed, file=second_file, view=BingoSignupPanelView(self))
+            await channel.send(embed=second_embed, file=second_file)
             await self.safe_delete_message(second_message)
 
         except asyncio.TimeoutError:
@@ -745,7 +759,8 @@ class BingoCog(commands.Cog):
             colour=discord.Colour.gold()
         )
 
-        await interaction.channel.send(embed=embed, view=BingoSignupPanelView(self))
+        panel_message = await interaction.channel.send(embed=embed, view=BingoSignupPanelView(self))
+        self.signup_panel_jump_url = panel_message.jump_url
         await interaction.response.send_message("Signup panel posted.", ephemeral=True)
 
     @signup_panel.error
@@ -819,6 +834,7 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:solo"
     )
     async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.cog.signup_panel_jump_url = interaction.message.jump_url
         await interaction.response.send_modal(SoloSignupModal(self.cog))
 
     @discord.ui.button(
@@ -827,6 +843,7 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:duo"
     )
     async def duo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.cog.signup_panel_jump_url = interaction.message.jump_url
         await interaction.response.send_modal(DuoSignupPageOneModal(self.cog))
 
 
