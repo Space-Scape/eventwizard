@@ -1,6 +1,6 @@
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import gspread
 from google.oauth2.service_account import Credentials
@@ -192,6 +192,7 @@ class BingoCog(commands.Cog):
         # If it is not set, the cog uses the same spreadsheet as the drop submission sheet.
         signup_sheet_id = os.getenv("BINGO_SIGNUP_SHEET_ID", sheet_id)
         signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
+        signup_spreadsheet = None
         try:
             signup_spreadsheet = sheet_client.open_by_key(signup_sheet_id)
             self.signup_sheet = signup_spreadsheet.worksheet(signup_worksheet_name)
@@ -200,6 +201,23 @@ class BingoCog(commands.Cog):
         except Exception as e:
             print(f"Bingo Cog: Could not load signup spreadsheet/tab '{signup_sheet_id}' / '{signup_worksheet_name}': {e}")
             self.signup_sheet = None
+
+        # Backup list sheet. This is read by a polling task and mirrored into
+        # one edited embed in the configured Discord channel.
+        self.backups_sheet = None
+        self.BACKUP_LIST_CHANNEL_ID = int(os.getenv("BINGO_BACKUP_LIST_CHANNEL_ID", "1504316523571839156"))
+        self.BACKUP_LIST_WORKSHEET = os.getenv("BINGO_BACKUP_LIST_WORKSHEET", "Backups")
+        self.BACKUP_LIST_POLL_SECONDS = int(os.getenv("BINGO_BACKUP_LIST_POLL_SECONDS", "30"))
+        self.backup_list_message_id = int(os.getenv("BINGO_BACKUP_LIST_MESSAGE_ID", "0") or "0")
+        self._backup_list_last_signature = None
+
+        try:
+            backup_spreadsheet = signup_spreadsheet or main_spreadsheet
+            self.backups_sheet = backup_spreadsheet.worksheet(self.BACKUP_LIST_WORKSHEET)
+            print(f"Bingo Cog: Backups worksheet loaded: {backup_spreadsheet.title} / {self.BACKUP_LIST_WORKSHEET}")
+        except Exception as e:
+            print(f"Bingo Cog: Could not load Backups worksheet '{self.BACKUP_LIST_WORKSHEET}': {e}")
+            self.backups_sheet = None
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
         self._rsn_lookup_cache = None
@@ -239,6 +257,10 @@ class BingoCog(commands.Cog):
         # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
 
+        if self.backups_sheet is not None and not self.backup_list_updater.is_running():
+            self.backup_list_updater.change_interval(seconds=self.BACKUP_LIST_POLL_SECONDS)
+            self.backup_list_updater.start()
+
         if not getattr(self.bot.intents, "message_content", False):
             print(
                 "Bingo Cog WARNING: message_content intent is disabled. "
@@ -247,6 +269,101 @@ class BingoCog(commands.Cog):
             )
         
         print("Bingo Cog: Initialized successfully.")
+
+    def cog_unload(self):
+        if hasattr(self, "backup_list_updater") and self.backup_list_updater.is_running():
+            self.backup_list_updater.cancel()
+
+    @tasks.loop(seconds=30)
+    async def backup_list_updater(self):
+        """Mirror the Backups worksheet into a single edited Discord embed."""
+        if self.backups_sheet is None:
+            return
+
+        try:
+            names = await asyncio.to_thread(self.read_backup_names_from_sheet)
+            signature = "\n".join(names)
+            if signature == self._backup_list_last_signature:
+                return
+
+            await self.post_or_update_backup_list(names)
+            self._backup_list_last_signature = signature
+        except Exception as e:
+            print(f"Bingo Cog: Backup list update failed: {e}")
+
+    @backup_list_updater.before_loop
+    async def before_backup_list_updater(self):
+        await self.bot.wait_until_ready()
+
+    def read_backup_names_from_sheet(self) -> list[str]:
+        """Read backup names from column A, starting at row 2."""
+        if self.backups_sheet is None:
+            return []
+
+        values = self.backups_sheet.get("A2:A")
+        names = []
+        for row in values:
+            if not row:
+                continue
+            name = str(row[0] or "").strip()
+            if name:
+                names.append(name)
+        return names
+
+    def build_backup_list_embed(self, names: list[str]) -> discord.Embed:
+        if names:
+            description = "\n".join(f"**{index}.** {name}" for index, name in enumerate(names, start=1))
+        else:
+            description = "No backups are currently listed."
+
+        embed = discord.Embed(
+            title="Bingo Backup List",
+            description=description,
+            colour=discord.Colour.gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text="Automatically updates from the Backups worksheet.")
+        return embed
+
+    async def find_existing_backup_list_message(self, channel: discord.TextChannel) -> Optional[discord.Message]:
+        if self.backup_list_message_id:
+            try:
+                return await channel.fetch_message(self.backup_list_message_id)
+            except Exception:
+                self.backup_list_message_id = 0
+
+        try:
+            async for message in channel.history(limit=50):
+                if message.author.id != self.bot.user.id:
+                    continue
+                for embed in message.embeds:
+                    if embed.title == "Bingo Backup List":
+                        self.backup_list_message_id = message.id
+                        return message
+        except Exception as e:
+            print(f"Bingo Cog: Could not search for existing backup list message: {e}")
+
+        return None
+
+    async def post_or_update_backup_list(self, names: list[str]) -> None:
+        channel = self.bot.get_channel(self.BACKUP_LIST_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(self.BACKUP_LIST_CHANNEL_ID)
+            except Exception as e:
+                print(f"Bingo Cog: Backup list channel not found ({self.BACKUP_LIST_CHANNEL_ID}): {e}")
+                return
+
+        embed = self.build_backup_list_embed(names)
+        message = await self.find_existing_backup_list_message(channel)
+
+        if message is not None:
+            await message.edit(embed=embed)
+            return
+
+        message = await channel.send(embed=embed)
+        self.backup_list_message_id = message.id
+        print(f"Bingo Cog: Posted backup list message {message.id} in channel {self.BACKUP_LIST_CHANNEL_ID}.")
 
     # --- Helpers ---
 
@@ -1398,6 +1515,33 @@ class BingoCog(commands.Cog):
             view=BingoSignupPanelView(self),
             ephemeral=True
         )
+
+    @app_commands.command(name="backup_list", description="Post or refresh the bingo backup list embed")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def backup_list(self, interaction: discord.Interaction):
+        if self.backups_sheet is None:
+            await interaction.response.send_message(
+                "Backups worksheet is not configured or could not be loaded.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        names = await asyncio.to_thread(self.read_backup_names_from_sheet)
+        self._backup_list_last_signature = None
+        await self.post_or_update_backup_list(names)
+        self._backup_list_last_signature = "\n".join(names)
+        await interaction.followup.send("Backup list posted/refreshed.", ephemeral=True)
+
+    @backup_list.error
+    async def backup_list_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                "You need Administrator permission to refresh the backup list.",
+                ephemeral=True
+            )
+        else:
+            raise error
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
