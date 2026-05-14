@@ -642,7 +642,7 @@ class BingoCog(commands.Cog):
     def get_signup_followup_message(self) -> str:
         """Return the large public signup prompt shown after each new-signup embed."""
         if self.signup_panel_jump_url:
-            return f"# Want to sign up as well? [Click here]({self.signup_panel_jump_url}) to go to the signup."
+            return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})."
         return "# Want to sign up as well? Please scroll to the signup panel above or ask staff to repost it."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
