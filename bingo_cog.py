@@ -467,8 +467,8 @@ class BingoCog(commands.Cog):
         """Validate that signup RSNs exist in the RSN Tracker and are allowed to participate."""
         submitter_rsn = str(data.get("RSN", "")).strip()
         submitter_info = self.find_registered_rsn_info(submitter_rsn)
-        if not submitter_info:
-            return False, self.registered_rsn_error_message(submitter_rsn)
+        # Missing submitter RSN can be an unregistered alt; the row will fall
+        # back to the submitter's Discord nickname/ID.
 
         submitter_discord_id = str(data.get("_submitter_discord_id", "")).strip()
         if self.is_banned_event_participant(submitter_rsn, submitter_discord_id, submitter_info):
@@ -480,8 +480,11 @@ class BingoCog(commands.Cog):
             partner_rsn = str(data.get("Duo Partner", "")).strip()
             if partner_rsn:
                 partner_info = self.find_registered_rsn_info(partner_rsn)
+                # If the partner RSN is not in the Tracker, allow it as a possible
+                # submitter alt. The partner row will fall back to the submitter's
+                # Discord nickname/ID instead of blocking the signup.
                 if not partner_info:
-                    return False, self.registered_rsn_error_message(partner_rsn)
+                    print(f"Bingo Cog: Duo partner RSN not found in Tracker; using submitter fallback if row is created: {partner_rsn}")
                 if self.is_banned_event_participant(partner_rsn, "", partner_info):
                     return False, self.banned_signup_error_message()
 
@@ -796,13 +799,31 @@ class BingoCog(commands.Cog):
                 return start_row + offset
         return None
 
-    def find_existing_signup_row(self, member: discord.Member, data: dict) -> Optional[int]:
-        """Find the row this user should update, prioritizing Discord ID, then RSN."""
+    def find_existing_signup_row(self, member: discord.Member, data: dict, registered_info: Optional[dict] = None) -> Optional[int]:
+        """Find the row this signup should update, prioritizing the submitted RSN's tracker ID, then RSN, then submitter ID.
+
+        This prevents a user who signs up someone else from overwriting or creating
+        rows under their own Discord nickname/ID when the submitted RSN is already
+        registered to another Discord account.
+        """
         signup_type = data.get("signup_type", "Solo")
-        row = self.find_signup_row_by_discord_id(member.id, signup_type)
+
+        tracker_id = str((registered_info or {}).get("discord_id", "")).strip()
+        if tracker_id.isdigit():
+            row = self.find_signup_row_by_discord_id(int(tracker_id), signup_type)
+            if row:
+                return row
+
+        row = self.find_signup_row_by_rsn(data.get("RSN", ""), signup_type)
         if row:
             return row
-        return self.find_signup_row_by_rsn(data.get("RSN", ""), signup_type)
+
+        if member is not None:
+            row = self.find_signup_row_by_discord_id(member.id, signup_type)
+            if row:
+                return row
+
+        return None
 
     def merge_blank_signup_fields(self, row: int, new_values: list[str]) -> None:
         """Fill only blank cells in A-L, except Discord nickname may refresh and screenshot cells may be filled when empty."""
@@ -854,12 +875,15 @@ class BingoCog(commands.Cog):
         discord_name = ""
         discord_id = ""
 
-        if member is not None:
-            discord_name = self.get_member_signup_name(member)
-            discord_id = str(member.id)
-        elif registered_info:
+        # Prefer the identity attached to the submitted RSN in the RSN Tracker.
+        # If that RSN is not in the tracker, fall back to the person who pressed
+        # the button; this covers alts that were not registered separately.
+        if registered_info and (registered_info.get("discord_name") or registered_info.get("discord_id")):
             discord_name = registered_info.get("discord_name", "")
             discord_id = registered_info.get("discord_id", "")
+        elif member is not None:
+            discord_name = self.get_member_signup_name(member)
+            discord_id = str(member.id)
         else:
             discord_name = data.get("Discord Nickname", "")
             discord_id = data.get("Discord ID", "")
@@ -879,16 +903,21 @@ class BingoCog(commands.Cog):
             data.get("Rank", ""),
         ]
 
-    def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str) -> int:
-        """Create a new signup row or fill blanks in an existing row."""
+    def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str, registered_info: Optional[dict] = None) -> int:
+        """Create a new signup row or fill blanks in an existing row.
+
+        registered_info should be the RSN Tracker record for data["RSN"]. When
+        present, it controls Discord Nickname/ID so signing up another player
+        records that player's identity rather than the submitter's.
+        """
         if self.signup_sheet is None:
             raise RuntimeError("Signup sheet is not configured.")
 
-        row = self.find_existing_signup_row(member, data)
+        row = self.find_existing_signup_row(member, data, registered_info=registered_info)
         if row is None:
             row = self.find_next_signup_row(data.get("signup_type", "Solo"))
 
-        row_values = self.build_signup_row_values(member, data, buyin_screenshot)
+        row_values = self.build_signup_row_values(member, data, buyin_screenshot, registered_info=registered_info)
         self.merge_blank_signup_fields(row, row_values)
         return row
 
@@ -905,6 +934,13 @@ class BingoCog(commands.Cog):
             raise RuntimeError("Duo partner RSN is missing.")
 
         partner_info = partner_info or self.find_registered_rsn_info(partner_rsn) or {}
+        if not partner_info and submitting_member is not None:
+            # Fallback for unregistered alts: use the submitter's Discord identity.
+            partner_info = {
+                "discord_id": str(submitting_member.id),
+                "discord_name": self.get_member_signup_name(submitting_member),
+                "tracker_row": "fallback_submitter",
+            }
 
         partner_row = None
         partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
@@ -1117,11 +1153,9 @@ class BingoCog(commands.Cog):
 
         submitter_info = self.find_registered_rsn_info(data.get("RSN", ""))
         if submitter_info is None:
-            try:
-                await channel.send(f"{member.mention}, {self.registered_rsn_error_message(data.get('RSN', ''))}", delete_after=45)
-            except Exception:
-                pass
-            return
+            # The RSN may be an unregistered alt. Allow the signup and use the
+            # submitter's Discord nickname/ID as a fallback identity.
+            print(f"Bingo Cog: RSN not found in Tracker for submitter; using submitter identity: {data.get('RSN', '')}")
 
         if self.is_banned_event_participant(data.get("RSN", ""), str(member.id), submitter_info):
             try:
@@ -1130,7 +1164,7 @@ class BingoCog(commands.Cog):
                 pass
             return
 
-        submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info)
+        submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info) if submitter_info else None
 
         def check(message: discord.Message) -> bool:
             return (
@@ -1147,7 +1181,7 @@ class BingoCog(commands.Cog):
 
             # Save the submitter immediately after the required screenshot.
             await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
-            submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
+            submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url, registered_info=submitter_info)
             data["_submitter_row"] = submitter_row
             data["_buyin_screenshot"] = first_url
 
@@ -1595,7 +1629,10 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
                     partner_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, partner_info)
                 await self.cog.add_auto_rank_to_signup_data(self.data, "RSN", "Rank", "Ironman")
                 await self.cog.add_auto_rank_to_signup_data(self.data, "Duo Partner", "Duo Rank", "Duo Ironman")
-                submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot)
+                submitter_info = self.cog.find_registered_rsn_info(self.data.get("RSN", ""))
+                if submitter_info is not None:
+                    submitter_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, submitter_info)
+                submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot, registered_info=submitter_info)
                 partner_row = self.cog.ensure_duo_partner_row(interaction.user, self.data, buyin_screenshot, partner_info)
                 self.data["_submitter_row"] = submitter_row
                 self.data["_partner_row"] = partner_row
