@@ -178,16 +178,37 @@ class BingoCog(commands.Cog):
         sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
         main_spreadsheet = sheet_client.open_by_key(sheet_id)
         
-        # Primary submission sheet
+        # Primary drop submission sheet
         self.sheet = main_spreadsheet.sheet1
+
+        # Bingo signup sheet.
+        signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET")
+        try:
+            self.signup_sheet = main_spreadsheet.worksheet(signup_worksheet_name)
+            print(f"Bingo Cog: Signup worksheet loaded: {signup_worksheet_name}")
+        except Exception as e:
+            print(f"Bingo Cog: Could not load signup worksheet '{signup_worksheet_name}': {e}")
+            print("Bingo Cog: Falling back to the first worksheet for signup submissions.")
+            self.signup_sheet = main_spreadsheet.sheet1
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
-        self.REVIEW_CHANNEL_ID = 1447066849291272446
-        self.LOG_CHANNEL_ID = 1447083513168924713
+        self.REVIEW_CHANNEL_ID = 1504315926017867847
+        self.LOG_CHANNEL_ID = 1504315879431864372
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
+
+        # Signup sheet layout based on the displayed signup spreadsheet.
+        # Solo signups begin under the Solo Signups header at row 18.
+        # Duo signups begin under the Duo Signups header at row 132.
+        self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
+        self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
+        self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
+        self.DUO_SIGNUP_END_ROW = int(os.getenv("BINGO_DUO_SIGNUP_END_ROW", "232"))
+
+        # Re-register the persistent panel buttons after bot restarts.
+        self.bot.add_view(BingoSignupPanelView(self))
         
         print("Bingo Cog: Initialized successfully.")
 
@@ -199,6 +220,108 @@ class BingoCog(commands.Cog):
             if role.name.startswith("Team "):
                 return role.mention
         return "*No team*"
+
+    def get_member_rank_name(self, member: discord.Member) -> str:
+        """Best-effort rank helper for the signup sheet Rank column."""
+        ignored_names = {"@everyone", self.REQUIRED_ROLE_NAME, self.REGISTERED_ROLE_NAME}
+        ignored_prefixes = ("Team ",)
+
+        for role in sorted(member.roles, key=lambda r: r.position, reverse=True):
+            if role.name in ignored_names:
+                continue
+            if any(role.name.startswith(prefix) for prefix in ignored_prefixes):
+                continue
+            if getattr(role, "is_bot_managed", lambda: False)():
+                continue
+            if getattr(role, "is_integration", lambda: False)():
+                continue
+            return role.name
+        return ""
+
+    def find_next_signup_row(self, signup_type: str) -> int:
+        """Find the next open row in the correct signup section of the signup sheet."""
+        if signup_type == "Duo":
+            start_row = self.DUO_SIGNUP_START_ROW
+            end_row = self.DUO_SIGNUP_END_ROW
+        else:
+            start_row = self.SOLO_SIGNUP_START_ROW
+            end_row = self.SOLO_SIGNUP_END_ROW
+
+        try:
+            values = self.signup_sheet.get(f"A{start_row}:L{end_row}")
+        except Exception:
+            values = []
+
+        for offset in range(end_row - start_row + 1):
+            row_values = values[offset] if offset < len(values) else []
+            has_content = any(str(cell).strip() for cell in row_values[:11])
+            if not has_content:
+                return start_row + offset
+
+        raise RuntimeError(f"No open {signup_type.lower()} signup rows are available between rows {start_row} and {end_row}.")
+
+    def write_signup_to_sheet(self, member: discord.Member, data: dict) -> int:
+        """Write a solo or duo signup to columns A-L and return the row used."""
+        if self.signup_sheet is None:
+            raise RuntimeError("Signup sheet is not configured.")
+
+        signup_type = data.get("signup_type", "Solo")
+        is_duo = signup_type == "Duo"
+
+        row = self.find_next_signup_row(signup_type)
+        row_values = [
+            member.display_name,
+            str(member.id),
+            data.get("RSN", ""),
+            data.get("Playtime", ""),
+            data.get("Timezone/Location", ""),
+            data.get("Buy In Screenshot", ""),
+            data.get("Comments", ""),
+            "Yes" if is_duo else "No",
+            data.get("Duo Partner", "") if is_duo else "",
+            data.get("Duo Buy In Screenshot", "") if is_duo else "",
+            data.get("Ironman", ""),
+            self.get_member_rank_name(member),
+        ]
+
+        self.signup_sheet.update(f"A{row}:L{row}", [row_values])
+        return row
+
+    @app_commands.command(name="signup_panel", description="Post the bingo signup panel in this channel")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def signup_panel(self, interaction: discord.Interaction):
+        if self.signup_sheet is None:
+            await interaction.response.send_message(
+                "Bingo signup system is not properly configured. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="Bingo Signups",
+            description=(
+                "Press one of the buttons below to sign up for the Spring Bingo.\n\n"
+                "**Solo Signup** - Sign up by yourself.\n"
+                "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
+                "You may submit both buy-ins for yourself and your duo partner. "
+                "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate."
+                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events. If you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
+            ),
+            colour=discord.Colour.gold()
+        )
+
+        await interaction.channel.send(embed=embed, view=BingoSignupPanelView(self))
+        await interaction.response.send_message("Signup panel posted.", ephemeral=True)
+
+    @signup_panel.error
+    async def signup_panel_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                "You need Administrator permission to post the signup panel.",
+                ephemeral=True
+            )
+        else:
+            raise error
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
@@ -232,6 +355,247 @@ class BingoCog(commands.Cog):
             view=BossView(self, interaction.user, target_user, screenshot),
             ephemeral=True
         )
+
+
+class BingoSignupPanelView(discord.ui.View):
+    def __init__(self, cog: BingoCog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(
+        label="Solo Signup",
+        style=discord.ButtonStyle.green,
+        custom_id="bingo_signup:solo"
+    )
+    async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SoloSignupPageOneModal(self.cog))
+
+    @discord.ui.button(
+        label="Duo Signup",
+        style=discord.ButtonStyle.blurple,
+        custom_id="bingo_signup:duo"
+    )
+    async def duo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(DuoSignupPageOneModal(self.cog))
+
+
+class ContinueSignupView(discord.ui.View):
+    def __init__(self, cog: BingoCog, signup_type: str, data: dict):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.signup_type = signup_type
+        self.data = data
+
+    @discord.ui.button(label="Continue to Page 2", style=discord.ButtonStyle.green)
+    async def continue_to_page_two(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.signup_type == "Solo":
+            await interaction.response.send_modal(SoloSignupPageTwoModal(self.cog, self.data))
+        else:
+            await interaction.response.send_modal(DuoSignupPageTwoModal(self.cog, self.data))
+
+
+class SoloSignupPageOneModal(discord.ui.Modal, title="Solo Signup - Page 1 of 2"):
+    def __init__(self, cog: BingoCog):
+        super().__init__()
+        self.cog = cog
+
+        self.rsn = discord.ui.TextInput(
+            label="RSN",
+            placeholder="The account you are signing up on.",
+            required=True,
+            max_length=50
+        )
+        self.playtime = discord.ui.TextInput(
+            label="Playtime",
+            placeholder="Estimated playtime for the event duration. Please be accurate.",
+            required=True,
+            max_length=100
+        )
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+            required=True,
+            max_length=100
+        )
+
+        self.add_item(self.rsn)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "signup_type": "Solo",
+            "rsn": str(self.rsn.value).strip(),
+            "playtime": str(self.playtime.value).strip(),
+            "timezone": str(self.timezone.value).strip(),
+        }
+
+        await interaction.response.send_message(
+            "Page 1 saved. Press **Continue to Page 2** to finish your solo signup.",
+            view=ContinueSignupView(self.cog, "Solo", data),
+            ephemeral=True
+        )
+
+
+class SoloSignupPageTwoModal(discord.ui.Modal, title="Solo Signup - Page 2 of 2"):
+    def __init__(self, cog: BingoCog, data: dict):
+        super().__init__()
+        self.cog = cog
+        self.data = data
+
+        self.buyin_screenshot = discord.ui.TextInput(
+            label="Buy-in screenshot URL",
+            placeholder="Paste a Discord image link or uploaded screenshot URL.",
+            required=True,
+            max_length=500
+        )
+        self.comments = discord.ui.TextInput(
+            label="Comments",
+            placeholder="Anything you would like captains to know.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500
+        )
+        self.ironman = discord.ui.TextInput(
+            label="Ironman?",
+            placeholder="Yes or No",
+            required=True,
+            max_length=25
+        )
+
+        self.add_item(self.buyin_screenshot)
+        self.add_item(self.comments)
+        self.add_item(self.ironman)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.data.update({
+            "buyin_screenshot": str(self.buyin_screenshot.value).strip(),
+            "comments": str(self.comments.value).strip(),
+            "ironman": str(self.ironman.value).strip(),
+        })
+
+        try:
+            row = self.cog.write_signup_to_sheet(interaction.user, self.data)
+            await interaction.response.send_message(
+                f"Your solo signup has been submitted. You were added to row {row}.",
+                ephemeral=True
+            )
+        except Exception as e:
+            print(f"Bingo Cog: Failed to submit solo signup: {e}")
+            await interaction.response.send_message(
+                "Something went wrong while submitting your signup. Please contact an administrator.",
+                ephemeral=True
+            )
+
+
+class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
+    def __init__(self, cog: BingoCog):
+        super().__init__()
+        self.cog = cog
+
+        self.rsn = discord.ui.TextInput(
+            label="RSN",
+            placeholder="The account you are signing up on.",
+            required=True,
+            max_length=50
+        )
+        self.duo_partner = discord.ui.TextInput(
+            label="Duo RSN",
+            placeholder="The RSN of your duo partner.",
+            required=True,
+            max_length=50
+        )
+        self.playtime = discord.ui.TextInput(
+            label="Playtime",
+            placeholder="Estimated playtime for the event duration. Please be accurate.",
+            required=True,
+            max_length=100
+        )
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+            required=True,
+            max_length=100
+        )
+
+        self.add_item(self.rsn)
+        self.add_item(self.duo_partner)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "signup_type": "Duo",
+            "rsn": str(self.rsn.value).strip(),
+            "duo_partner": str(self.duo_partner.value).strip(),
+            "playtime": str(self.playtime.value).strip(),
+            "timezone": str(self.timezone.value).strip(),
+        }
+
+        await interaction.response.send_message(
+            "Page 1 saved. Press **Continue to Page 2** to finish your duo signup.",
+            view=ContinueSignupView(self.cog, "Duo", data),
+            ephemeral=True
+        )
+
+
+class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
+    def __init__(self, cog: BingoCog, data: dict):
+        super().__init__()
+        self.cog = cog
+        self.data = data
+
+        self.buyin_screenshot = discord.ui.TextInput(
+            label="Buy-in screenshot URL",
+            placeholder="Paste a Discord image link or uploaded screenshot URL.",
+            required=True,
+            max_length=500
+        )
+        self.duo_buyin_screenshot = discord.ui.TextInput(
+            label="Duo buy-in screenshot URL",
+            placeholder="(Optional) Paste your duo partner's buy-in screenshot URL, if submitting it.",
+            required=False,
+            max_length=500
+        )
+        self.comments = discord.ui.TextInput(
+            label="Comments",
+            placeholder="Anything you would like captains to know.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500
+        )
+        self.ironman = discord.ui.TextInput(
+            label="Ironman?",
+            placeholder="Yes or No",
+            required=True,
+            max_length=25
+        )
+
+        self.add_item(self.buyin_screenshot)
+        self.add_item(self.duo_buyin_screenshot)
+        self.add_item(self.comments)
+        self.add_item(self.ironman)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.data.update({
+            "Buy In Screenshot": str(self.buyin_screenshot.value).strip(),
+            "Duo Buy In Screenshot": str(self.duo_buyin_screenshot.value).strip(),
+            "Comments": str(self.comments.value).strip(),
+            "Ironman": str(self.ironman.value).strip(),
+        })
+
+        try:
+            row = self.cog.write_signup_to_sheet(interaction.user, self.data)
+            await interaction.response.send_message(
+                f"Your duo signup has been submitted. You were added to row {row}.",
+                ephemeral=True
+            )
+        except Exception as e:
+            print(f"Bingo Cog: Failed to submit duo signup: {e}")
+            await interaction.response.send_message(
+                "Something went wrong while submitting your signup. Please contact an administrator.",
+                ephemeral=True
+            )
 
 
 class BossSelect(discord.ui.Select):
