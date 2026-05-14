@@ -20,7 +20,109 @@ import urllib.error
 # Boss-Drop Mapping
 # ---------------------------
 
-BOSS_DROPS = {}
+#Master List
+    #"Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
+    #"Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
+    #"Amoxliatl": ["Moxi"],
+    #"Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Aranea boots", "Jar of venom", "Coagulated venom", "Nid"],
+    #"Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    #"Bryophyta": ["Bryophyta's essence"],
+    #"Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Claws of callisto", "Voidwaker hilt"],
+    #"Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    #"Chaos Fanatic": ["Odium shard 1", "Malediction shard 1"],
+    #"Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    #"Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    #"Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
+    #"Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    #"Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
+    #"Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    #"Demonic Gorilla": ["Zenyte shard", "Ballista limbs", "Ballista spring", "Light frame", "Heavy frame", "Monkey tail"],
+    #"Deranged Archaeologist": ["Steel ring"],
+    #"Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    #"Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
+    #"Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    #"General Graardor": ["Pet general graardor", "	Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Giant Mole": ["Baby mole"],
+    #"Grotesque Guardians": ["Noon/midnight", "Granite gloves", "Granite hammer", "Granite ring", "Black tourmaline core", "Jar of stone"],
+    #"Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
+    #"Inferno": ["Infernal cape"],
+    #"Jad": ["Fire cape"],
+    #"Kalphite Queen": ["Kalphite princess", "Dragon chainbody", "Dragon pickaxe", "Jar of sand", "Kq head"],
+    #"Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
+    #"Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    #"King black dragon": ["Prince black dragon"],
+    #"Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    #"Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    #"Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon", "Charged ice", "Frozen cache", "Ancient essence"],
+    #"Royal Titans": ["Bran", "Deadeye prayer scroll", "Mystic vigour prayer scroll", "Fire element staff crown", "Ice element staff crown"],
+    #"Revenants": ["Thammaron's sceptre", "Viggora's chainmace", "Craw's bow", "Ancient relic", "Ancient effigy", "Ancient medallion", "Ancient statuette", "Ancient totem"],
+    #"Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    #"Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
+    #"Scurrius": ["Scurry"],
+    #"Tempoross": ["Tome of water (empty)"],
+    #"The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
+    #"Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
+    #"The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Bellator vestige", "Siren's staff"],
+    #"Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    #"Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    #"Tormented Demons": ["Tormented synapse", "Burning claw"],
+    #"Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Ultor vestige", "Executioner's axe head"],
+    #"Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
+    #"Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
+    #"Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
+    #"Wintertodt": ["Tome of fire (empty)"],
+    #"Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
+    #"Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
+    #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
+
+BOSS_DROPS = {
+    "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
+    "Alchemical Hydra": ["Ikkle hydra", "Jar of chemicals"],
+    "Araxxor": ["Araxyte fang", "Nid", "Jar of venom"],
+    "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    "Callisto": ["Callisto cub", "Voidwaker hilt"],
+    "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Kodai insignia", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Elder maul", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin's light"],
+    "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    "Demonic Gorilla": ["Zenyte shard"],
+    "Doom of Mokhaiotl": ["Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Eye of the duke"],
+    "Gauntlet": ["Youngllef", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots"],
+    "Giant Mole": ["Baby mole"],
+    "Grotesque Guardians": ["Noon/midnight", "Jar of stone"],
+    "Hueycoatl": ["Huberte", "Dragon hunter wand"],
+    "Kalphite Queen": ["Kalphite princess", "Jar of sand"],
+    "Kraken": ["Pet kraken", "Jar of Dirt"],
+    "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt"],
+    "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Staff of the dead", "Zamorak hilt"],
+    "King black dragon": ["Prince black dragon"],
+    "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    "Royal Titans": ["Bran", "Fire element staff crown", "Ice element staff crown"],
+    "Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    "Scorpia": ["Scorpia's Offspring"],
+    "Scurrius": ["Scurry"],
+    "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Leviathan's lure"],
+    "Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
+    "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Siren's staff"],
+    "Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    "Tormented Demons": ["Tormented synapse", "Burning claw"],
+    "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Executioner's axe head"],
+    "Venenatis": ["Venenatis spiderling", "Voidwaker gem"],
+    "Vet'ion": ["Vet'ion jr.", "Voidwaker blade"],
+    "Vorkath": ["Vorki", "Jar of decay"],
+    "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
+    "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
+    "Misc": ["Gull", "Muphin", "Smolcano", "Pet Drop", "Moxi", "Jar of feathers", "Prince black dragon", "Abyssal orphan"]
+}
 
 class BingoCog(commands.Cog):
     """Cog for handling bingo drop submissions, reviews, and player rolls."""
@@ -143,10 +245,13 @@ class BingoCog(commands.Cog):
         self.LOG_CHANNEL_ID = 1504315879431864372
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
+        self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
         # Solo signups begin under the Solo Signups header at row 18.
         # Duo signups begin under the Duo Signups header at row 132.
+        self.CAPTAIN_SIGNUP_START_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_START_ROW", "3"))
+        self.CAPTAIN_SIGNUP_END_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_END_ROW", "16"))
         self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
         self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
@@ -279,6 +384,19 @@ class BingoCog(commands.Cog):
             if role.name.startswith("Team "):
                 return role.mention
         return "*No team*"
+
+    def has_captain_signup_access(self, member: discord.Member) -> bool:
+        """Return True if a member may use the Captain Signup button."""
+        return any(role.name in self.CAPTAIN_SIGNUP_ROLE_NAMES for role in getattr(member, "roles", []))
+
+    def update_captain_co_captain(self, row: int, co_captain: str) -> None:
+        """Write the optional co-captain value into column H for a captain signup row."""
+        if not row or not co_captain:
+            return
+        current_values = self.get_signup_row_values(row)
+        if not str(current_values[7]).strip():
+            self.signup_sheet.update_cell(row, 8, co_captain)
+            self.format_signup_row(row)
 
     def get_member_signup_name(self, member: Optional[discord.Member]) -> str:
         """Return the member's server nickname for signup display/storage."""
@@ -818,7 +936,9 @@ class BingoCog(commands.Cog):
             data[rank_key] = ""
 
     def get_signup_bounds(self, signup_type: str) -> tuple[int, int]:
-        """Return the configured row range for Solo or Duo signups."""
+        """Return the configured row range for Captain, Solo, or Duo signups."""
+        if signup_type == "Captain":
+            return self.CAPTAIN_SIGNUP_START_ROW, self.CAPTAIN_SIGNUP_END_ROW
         if signup_type == "Duo":
             return self.DUO_SIGNUP_START_ROW, self.DUO_SIGNUP_END_ROW
         return self.SOLO_SIGNUP_START_ROW, self.SOLO_SIGNUP_END_ROW
@@ -958,6 +1078,8 @@ class BingoCog(commands.Cog):
         """
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
+        is_captain = signup_type == "Captain"
+        is_captain = signup_type == "Captain"
 
         discord_name = ""
         discord_id = ""
@@ -983,11 +1105,11 @@ class BingoCog(commands.Cog):
             data.get("Timezone/Location", ""),
             buyin_screenshot or data.get("Buy In Screenshot", ""),
             data.get("Comments", ""),
-            "Yes" if is_duo else "No",
+            data.get("Co-Captain", "") if is_captain else ("Yes" if is_duo else "No"),
             data.get("Duo Partner", "") if is_duo else "",
             data.get("Duo Buy In Screenshot", "") if is_duo else "",
             data.get("Ironman", ""),
-            data.get("Rank", ""),
+            "" if is_captain else data.get("Rank", ""),
         ]
 
     def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str, registered_info: Optional[dict] = None) -> int:
@@ -1308,12 +1430,20 @@ class BingoCog(commands.Cog):
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
-        is_duo = data.get("signup_type") == "Duo"
-        colour = discord.Colour.blue() if is_duo else discord.Colour.green()
+        signup_type = data.get("signup_type")
+        is_duo = signup_type == "Duo"
+        is_captain = signup_type == "Captain"
+        colour = discord.Colour.blue() if is_duo else (discord.Colour.gold() if is_captain else discord.Colour.green())
 
         signup_name = data.get("RSN", "").strip() or self.get_member_signup_name(member)
 
-        if is_duo:
+        if is_captain:
+            co_captain = str(data.get("Co-Captain", "")).strip()
+            if co_captain:
+                title = f"New Signup! {signup_name} has signed up as a captain with {co_captain}!"
+            else:
+                title = f"New Signup! {signup_name} has signed up as a captain!"
+        elif is_duo:
             partner_text = str(data.get("Duo Partner", "")).strip()
             if partner_text:
                 title = f"New Signup! {signup_name} has signed up as a duo with {partner_text}!"
@@ -1481,7 +1611,9 @@ class BingoCog(commands.Cog):
             first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
 
             # Save the submitter immediately after the required screenshot.
-            await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
+            # Captain rows keep their pre-filled crown rank, so they are not WOM-ranked.
+            if not is_captain:
+                await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url, registered_info=submitter_info)
             data["_submitter_row"] = submitter_row
             data["_buyin_screenshot"] = first_url
@@ -1820,6 +1952,156 @@ class BingoSignupPanelView(discord.ui.View):
             await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
             return
         await interaction.response.send_modal(DuoSignupPageOneModal(self.cog))
+
+    @discord.ui.button(
+        label="Captain Signup",
+        style=discord.ButtonStyle.secondary,
+        custom_id="bingo_signup:captain"
+    )
+    async def captain_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.has_captain_signup_access(interaction.user):
+            await interaction.response.send_message(
+                "Only Event Staff, Clan Staff, Senior Staff, or Event Captains can use Captain Signup.",
+                ephemeral=True,
+            )
+            return
+        if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
+            await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
+            return
+        await interaction.response.send_modal(CaptainSignupModal(self.cog))
+
+
+class CaptainSignupModal(discord.ui.Modal, title="Captain Signup - Step 1 of 2"):
+    def __init__(self, cog: BingoCog):
+        super().__init__()
+        self.cog = cog
+
+        self.rsn = discord.ui.TextInput(
+            label="RSN",
+            placeholder="The account you are signing up on.",
+            required=True,
+            max_length=50
+        )
+        self.playtime = discord.ui.TextInput(
+            label="Playtime",
+            placeholder="Estimated playtime for the event duration. Please be accurate.",
+            required=True,
+            max_length=100
+        )
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
+            required=True,
+            max_length=100
+        )
+        self.comments = discord.ui.TextInput(
+            label="Comments",
+            placeholder="Anything you would like captains to know.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500
+        )
+        self.ironman = discord.ui.TextInput(
+            label="Ironman?",
+            placeholder="Yes or No",
+            required=True,
+            max_length=25
+        )
+
+        self.add_item(self.rsn)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
+        self.add_item(self.comments)
+        self.add_item(self.ironman)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not self.cog.has_captain_signup_access(interaction.user):
+            await interaction.response.send_message(
+                "Only Event Staff, Clan Staff, Senior Staff, or Event Captains can use Captain Signup.",
+                ephemeral=True,
+            )
+            return
+
+        data = {
+            "signup_type": "Captain",
+            "RSN": str(self.rsn.value).strip(),
+            "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
+            "Comments": str(self.comments.value).strip(),
+            "Ironman": str(self.ironman.value).strip(),
+            "Rank": "",
+            "_submitter_discord_id": str(interaction.user.id),
+        }
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, data)
+        if not valid:
+            await interaction.followup.send(error_message, ephemeral=True)
+            return
+
+        if not self.cog.can_capture_signup_screenshots():
+            await interaction.followup.send(
+                "I saved your form information, but I cannot detect uploaded screenshots yet. "
+                "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
+                "After that is enabled, run the signup again and post the screenshot after the prompt.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            "**Step 2/2: Post Buy In Screenshot**\n"
+            "Post your buy-in screenshot in this channel now. "
+            "If you want to link a co-captain, press **Optional: Enter Co-Captain ➔** before posting your screenshot.",
+            view=CaptainCoCaptainView(self.cog, data),
+            ephemeral=True
+        )
+        asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, data))
+
+
+class CaptainCoCaptainView(discord.ui.View):
+    def __init__(self, cog: BingoCog, data: dict):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.data = data
+
+    @discord.ui.button(label="Optional: Enter Co-Captain ➔", style=discord.ButtonStyle.secondary)
+    async def enter_co_captain(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CaptainCoCaptainModal(self.cog, self.data))
+
+
+class CaptainCoCaptainModal(discord.ui.Modal, title="Captain Signup - Co-Captain"):
+    def __init__(self, cog: BingoCog, data: dict):
+        super().__init__()
+        self.cog = cog
+        self.data = data
+
+        self.co_captain = discord.ui.TextInput(
+            label="Co-Captain",
+            placeholder="Enter the co-captain name to link with this signup.",
+            required=True,
+            max_length=100,
+        )
+        self.add_item(self.co_captain)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        co_captain = str(self.co_captain.value).strip()
+        self.data["Co-Captain"] = co_captain
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        row = self.data.get("_submitter_row")
+        if row:
+            try:
+                self.cog.update_captain_co_captain(int(row), co_captain)
+            except Exception as e:
+                print(f"Bingo Cog: Failed to update captain co-captain field: {e}")
+
+        await interaction.followup.send(
+            f"Co-captain saved as **{co_captain}**. Post your buy-in screenshot when ready.",
+            ephemeral=True,
+        )
 
 
 class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
