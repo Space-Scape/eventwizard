@@ -20,7 +20,108 @@ import urllib.error
 # Boss-Drop Mapping
 # ---------------------------
 
+#Master List
+    #"Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
+    #"Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
+    #"Amoxliatl": ["Moxi"],
+    #"Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Aranea boots", "Jar of venom", "Coagulated venom", "Nid"],
+    #"Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    #"Bryophyta": ["Bryophyta's essence"],
+    #"Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Claws of callisto", "Voidwaker hilt"],
+    #"Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    #"Chaos Fanatic": ["Odium shard 1", "Malediction shard 1"],
+    #"Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    #"Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    #"Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
+    #"Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    #"Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
+    #"Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    #"Demonic Gorilla": ["Zenyte shard", "Ballista limbs", "Ballista spring", "Light frame", "Heavy frame", "Monkey tail"],
+    #"Deranged Archaeologist": ["Steel ring"],
+    #"Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    #"Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
+    #"Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    #"General Graardor": ["Pet general graardor", "	Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Giant Mole": ["Baby mole"],
+    #"Grotesque Guardians": ["Noon/midnight", "Granite gloves", "Granite hammer", "Granite ring", "Black tourmaline core", "Jar of stone"],
+    #"Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
+    #"Inferno": ["Infernal cape"],
+    #"Jad": ["Fire cape"],
+    #"Kalphite Queen": ["Kalphite princess", "Dragon chainbody", "Dragon pickaxe", "Jar of sand", "Kq head"],
+    #"Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
+    #"Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    #"King black dragon": ["Prince black dragon"],
+    #"Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    #"Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    #"Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon", "Charged ice", "Frozen cache", "Ancient essence"],
+    #"Royal Titans": ["Bran", "Deadeye prayer scroll", "Mystic vigour prayer scroll", "Fire element staff crown", "Ice element staff crown"],
+    #"Revenants": ["Thammaron's sceptre", "Viggora's chainmace", "Craw's bow", "Ancient relic", "Ancient effigy", "Ancient medallion", "Ancient statuette", "Ancient totem"],
+    #"Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    #"Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
+    #"Scurrius": ["Scurry"],
+    #"Tempoross": ["Tome of water (empty)"],
+    #"The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
+    #"Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
+    #"The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Bellator vestige", "Siren's staff"],
+    #"Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    #"Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    #"Tormented Demons": ["Tormented synapse", "Burning claw"],
+    #"Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Ultor vestige", "Executioner's axe head"],
+    #"Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
+    #"Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
+    #"Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
+    #"Wintertodt": ["Tome of fire (empty)"],
+    #"Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
+    #"Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
+    #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
+
 BOSS_DROPS = {
+    "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
+    "Alchemical Hydra": ["Ikkle hydra", "Jar of chemicals"],
+    "Araxxor": ["Araxyte fang", "Nid", "Jar of venom"],
+    "Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    "Callisto": ["Callisto cub", "Voidwaker hilt"],
+    "Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    "Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Kodai insignia", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Elder maul", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    "Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    "Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin's light"],
+    "Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    "Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    "Demonic Gorilla": ["Zenyte shard"],
+    "Doom of Mokhaiotl": ["Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    "Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Eye of the duke"],
+    "Gauntlet": ["Youngllef", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots"],
+    "Giant Mole": ["Baby mole"],
+    "Grotesque Guardians": ["Noon/midnight", "Jar of stone"],
+    "Hueycoatl": ["Huberte", "Dragon hunter wand"],
+    "Kalphite Queen": ["Kalphite princess", "Jar of sand"],
+    "Kraken": ["Pet kraken", "Jar of Dirt"],
+    "Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt"],
+    "K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Staff of the dead", "Zamorak hilt"],
+    "King black dragon": ["Prince black dragon"],
+    "Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    "Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    "Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    "Royal Titans": ["Bran", "Fire element staff crown", "Ice element staff crown"],
+    "Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    "Scorpia": ["Scorpia's Offspring"],
+    "Scurrius": ["Scurry"],
+    "The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Leviathan's lure"],
+    "Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
+    "The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Siren's staff"],
+    "Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    "Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    "Tormented Demons": ["Tormented synapse", "Burning claw"],
+    "Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Executioner's axe head"],
+    "Venenatis": ["Venenatis spiderling", "Voidwaker gem"],
+    "Vet'ion": ["Vet'ion jr.", "Voidwaker blade"],
+    "Vorkath": ["Vorki", "Jar of decay"],
+    "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
+    "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
+    "Misc": ["Gull", "Muphin", "Smolcano", "Pet Drop", "Moxi", "Jar of feathers", "Prince black dragon", "Abyssal orphan"]
 }
 
 class BingoCog(commands.Cog):
@@ -289,12 +390,12 @@ class BingoCog(commands.Cog):
         return any(role.name in self.CAPTAIN_SIGNUP_ROLE_NAMES for role in getattr(member, "roles", []))
 
     def update_captain_co_captain(self, row: int, co_captain: str) -> None:
-        """Write the optional co-captain value into column H for a captain signup row."""
+        """Write the optional co-captain value into column I for a captain signup row."""
         if not row or not co_captain:
             return
         current_values = self.get_signup_row_values(row)
-        if not str(current_values[7]).strip():
-            self.signup_sheet.update_cell(row, 8, co_captain)
+        if not str(current_values[8]).strip():
+            self.signup_sheet.update_cell(row, 9, co_captain)
             self.format_signup_row(row)
 
     def get_member_signup_name(self, member: Optional[discord.Member]) -> str:
@@ -978,7 +1079,6 @@ class BingoCog(commands.Cog):
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
         is_captain = signup_type == "Captain"
-        is_captain = signup_type == "Captain"
 
         discord_name = ""
         discord_id = ""
@@ -1004,8 +1104,8 @@ class BingoCog(commands.Cog):
             data.get("Timezone/Location", ""),
             buyin_screenshot or data.get("Buy In Screenshot", ""),
             data.get("Comments", ""),
-            data.get("Co-Captain", "") if is_captain else ("Yes" if is_duo else "No"),
-            data.get("Duo Partner", "") if is_duo else "",
+            "" if is_captain else ("Yes" if is_duo else "No"),
+            data.get("Co-Captain", "") if is_captain else (data.get("Duo Partner", "") if is_duo else ""),
             data.get("Duo Buy In Screenshot", "") if is_duo else "",
             data.get("Ironman", ""),
             "" if is_captain else data.get("Rank", ""),
