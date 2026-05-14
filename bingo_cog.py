@@ -288,11 +288,16 @@ class BingoCog(commands.Cog):
         return ""
 
     def build_rsn_lookup_cache(self) -> dict[str, dict]:
-        """Build a flexible RSN lookup from the Tracker sheet.
+        """Build an RSN -> Discord info lookup from the RSN Tracker sheet.
 
-        The registration sheet has changed shapes over time, so this lookup searches
-        common header names and also scans cells that contain multiple RSNs separated
-        by characters like |, /, comma, or newlines.
+        Expected Tracker headers from your sheet:
+        A: Discord Username
+        B: Discord ID
+        C: Old RSN
+        D: New RSN
+
+        The lookup still supports alternate header names and cells with multiple
+        names separated by |, /, commas, semicolons, or new lines.
         """
         lookup: dict[str, dict] = {}
         if self.rsn_sheet is None:
@@ -305,58 +310,72 @@ class BingoCog(commands.Cog):
             return lookup
 
         if not values:
+            print("Bingo Cog: RSN tracker sheet is empty.")
             return lookup
 
-        headers = values[0]
+        headers = [str(header or "").strip() for header in values[0]]
+        normalized_headers = [header.casefold().replace(" ", "_") for header in headers]
         data_rows = values[1:]
 
-        for row in data_rows:
-            discord_id = self.get_cell_by_possible_headers(
-                row,
-                headers,
-                ["discord_id", "discord id", "user_id", "user id", "id"],
-            )
-            discord_name = self.get_cell_by_possible_headers(
-                row,
-                headers,
-                [
-                    "discord_nickname",
-                    "discord nickname",
-                    "discord_name",
-                    "discord name",
-                    "nickname",
-                    "name",
-                    "username",
-                    "discord_username",
-                    "discord username",
-                ],
-            )
-            rsn_cells = []
-            for index, header in enumerate(headers):
-                header_text = str(header or "").strip().casefold()
-                if index < len(row) and ("rsn" in header_text or "runescape" in header_text or "iron" in header_text or "main" in header_text):
-                    rsn_cells.append(row[index])
+        def find_header_index(possible_names: list[str], fallback_index: Optional[int] = None) -> Optional[int]:
+            wanted = {name.casefold().replace(" ", "_") for name in possible_names}
+            for index, header in enumerate(normalized_headers):
+                if header in wanted:
+                    return index
+            for index, header in enumerate(normalized_headers):
+                if any(name in header for name in wanted):
+                    return index
+            return fallback_index
 
-            # Fallback: scan the whole row too. This makes names like "Joe | Mama" work
-            # even if the Tracker sheet headers are not exactly what this cog expects.
-            rsn_cells.extend(row)
+        username_index = find_header_index([
+            "discord_username", "discord username", "discord_nickname", "discord nickname",
+            "discord_name", "discord name", "username", "nickname", "name"
+        ], 0)
+        discord_id_index = find_header_index([
+            "discord_id", "discord id", "user_id", "user id", "id"
+        ], 1)
 
-            for cell in rsn_cells:
+        rsn_indexes = []
+        for possible_names, fallback in (
+            (["old_rsn", "old rsn", "previous_rsn", "previous rsn"], 2),
+            (["new_rsn", "new rsn", "current_rsn", "current rsn", "rsn"], 3),
+        ):
+            index = find_header_index(possible_names, fallback)
+            if index is not None and index not in rsn_indexes:
+                rsn_indexes.append(index)
+
+        # Also include any header with RSN/main/iron/runescape so future sheet tweaks still work.
+        for index, header in enumerate(normalized_headers):
+            if any(token in header for token in ("rsn", "runescape", "main", "iron")) and index not in rsn_indexes:
+                rsn_indexes.append(index)
+
+        for row_number, row in enumerate(data_rows, start=2):
+            discord_name = str(row[username_index]).strip() if username_index is not None and username_index < len(row) else ""
+            discord_id = str(row[discord_id_index]).strip() if discord_id_index is not None and discord_id_index < len(row) else ""
+
+            if not discord_id:
+                for candidate in row:
+                    candidate_text = str(candidate or "").strip()
+                    if re.fullmatch(r"\d{15,22}", candidate_text):
+                        discord_id = candidate_text
+                        break
+
+            rsn_values = []
+            for index in rsn_indexes:
+                if index < len(row):
+                    rsn_values.append(row[index])
+
+            for cell in rsn_values:
                 for normalized_rsn in self.split_possible_rsns(cell):
-                    if not normalized_rsn or normalized_rsn in lookup:
+                    if not normalized_rsn:
                         continue
-                    fallback_id = discord_id
-                    if not fallback_id:
-                        for candidate in row:
-                            candidate_text = str(candidate or "").strip()
-                            if re.fullmatch(r"\d{15,22}", candidate_text):
-                                fallback_id = candidate_text
-                                break
                     lookup[normalized_rsn] = {
-                        "discord_id": fallback_id,
+                        "discord_id": discord_id,
                         "discord_name": discord_name,
+                        "tracker_row": row_number,
                     }
 
+        print(f"Bingo Cog: Loaded {len(lookup)} RSN lookup entries from Tracker.")
         return lookup
 
     def find_registered_rsn_info(self, rsn: str) -> Optional[dict]:
@@ -367,6 +386,26 @@ class BingoCog(commands.Cog):
         if self._rsn_lookup_cache is None:
             self._rsn_lookup_cache = self.build_rsn_lookup_cache()
         return self._rsn_lookup_cache.get(normalized)
+
+    async def enrich_registered_info_for_guild(self, channel: discord.abc.Messageable, info: Optional[dict]) -> Optional[dict]:
+        """Use the Discord ID from Tracker to get the member's current server nickname when possible."""
+        if not info:
+            return info
+
+        enriched = dict(info)
+        guild = getattr(channel, "guild", None)
+        discord_id = str(enriched.get("discord_id", "")).strip()
+        if not guild or not discord_id.isdigit():
+            return enriched
+
+        try:
+            member = guild.get_member(int(discord_id)) or await guild.fetch_member(int(discord_id))
+            if member is not None:
+                enriched["discord_name"] = self.get_member_signup_name(member)
+        except Exception as e:
+            print(f"Bingo Cog: Could not fetch Tracker member {discord_id}: {e}")
+
+        return enriched
 
     def registered_rsn_error_message(self, rsn: str) -> str:
         return (
@@ -683,6 +722,8 @@ class BingoCog(commands.Cog):
                 pass
             return
 
+        submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info)
+
         partner_info = None
         if is_duo:
             partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
@@ -692,6 +733,7 @@ class BingoCog(commands.Cog):
                 except Exception:
                     pass
                 return
+            partner_info = await self.enrich_registered_info_for_guild(channel, partner_info)
 
         def check(message: discord.Message) -> bool:
             return (
@@ -1029,13 +1071,17 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Ironman": str(self.ironman.value).strip(),
         })
 
+        # Respond to the modal immediately so Discord does not expire the interaction
+        # while the Google Sheet / RSN tracker lookup runs.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, self.data)
         if not valid:
-            await interaction.response.send_message(error_message, ephemeral=True)
+            await interaction.followup.send(error_message, ephemeral=True)
             return
 
         if not self.cog.can_capture_signup_screenshots():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I saved your form information, but I cannot detect uploaded screenshots yet. "
                 "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
                 "After that is enabled, run the signup again and post the screenshot after the prompt.",
@@ -1043,7 +1089,7 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             )
             return
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
             "Post a screenshot showing your duo buy-in in this channel now. If you are paying for both players, "
             "one screenshot showing both deposits is enough and the signup submits after that first screenshot. "
