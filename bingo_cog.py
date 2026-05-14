@@ -868,7 +868,7 @@ class BingoCog(commands.Cog):
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
-            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
+            second_embed.description = f"Additional buy-in screenshot for {partner_text}."
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=second_embed, file=second_file)
