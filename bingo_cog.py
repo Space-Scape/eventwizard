@@ -198,6 +198,7 @@ class BingoCog(commands.Cog):
             self.signup_sheet = None
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
+        self._rsn_lookup_cache = None
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
@@ -234,26 +235,143 @@ class BingoCog(commands.Cog):
                 return role.mention
         return "*No team*"
 
-    def get_member_rank_name(self, member: discord.Member) -> str:
-        """Best-effort rank helper for the signup sheet Rank column."""
-        ignored_names = {"@everyone", self.REQUIRED_ROLE_NAME, self.REGISTERED_ROLE_NAME}
-        ignored_prefixes = ("Team ",)
+    def get_member_signup_name(self, member: Optional[discord.Member]) -> str:
+        """Return the member's server nickname for signup display/storage."""
+        if member is None:
+            return ""
+        return getattr(member, "nick", None) or getattr(member, "display_name", None) or getattr(member, "name", "")
 
-        for role in sorted(member.roles, key=lambda r: r.position, reverse=True):
-            if role.name in ignored_names:
-                continue
-            if any(role.name.startswith(prefix) for prefix in ignored_prefixes):
-                continue
-            if getattr(role, "is_bot_managed", lambda: False)():
-                continue
-            if getattr(role, "is_integration", lambda: False)():
-                continue
-            return role.name
+    async def resolve_guild_member(self, channel: discord.abc.Messageable, member: discord.abc.User) -> discord.abc.User:
+        """Best effort to convert a User into a guild Member so server nicknames are available."""
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return member
+
+        cached_member = guild.get_member(member.id)
+        if cached_member is not None:
+            return cached_member
+
+        try:
+            return await guild.fetch_member(member.id)
+        except Exception:
+            return member
+
+    def get_member_rank_name(self, member: discord.Member) -> str:
+        """Rank is assigned manually by captains and should stay blank on signup."""
         return ""
 
     def normalize_signup_value(self, value) -> str:
         """Normalize values for matching signup rows."""
         return str(value or "").strip().casefold()
+
+    def normalize_rsn_for_lookup(self, value) -> str:
+        """Normalize RSNs so "Joe | Mama" style cells can be matched reliably."""
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+    def split_possible_rsns(self, value) -> list[str]:
+        """Split a cell that may contain multiple registered names like "Main | Alt"."""
+        text = str(value or "")
+        parts = re.split(r"[|,/;\n\r]+", text)
+        return [self.normalize_rsn_for_lookup(part) for part in parts if self.normalize_rsn_for_lookup(part)]
+
+    def get_cell_by_possible_headers(self, row: list[str], headers: list[str], wanted_headers: list[str]) -> str:
+        """Return a row cell using several possible Google Sheet header names."""
+        normalized_headers = [str(header or "").strip().casefold().replace(" ", "_") for header in headers]
+        wanted = {str(header or "").strip().casefold().replace(" ", "_") for header in wanted_headers}
+        for index, header in enumerate(normalized_headers):
+            if header in wanted and index < len(row):
+                return str(row[index]).strip()
+        for index, header in enumerate(normalized_headers):
+            if any(wanted_header in header for wanted_header in wanted) and index < len(row):
+                return str(row[index]).strip()
+        return ""
+
+    def build_rsn_lookup_cache(self) -> dict[str, dict]:
+        """Build a flexible RSN lookup from the Tracker sheet.
+
+        The registration sheet has changed shapes over time, so this lookup searches
+        common header names and also scans cells that contain multiple RSNs separated
+        by characters like |, /, comma, or newlines.
+        """
+        lookup: dict[str, dict] = {}
+        if self.rsn_sheet is None:
+            return lookup
+
+        try:
+            values = self.rsn_sheet.get_all_values()
+        except Exception as e:
+            print(f"Bingo Cog: Failed to read RSN tracker sheet: {e}")
+            return lookup
+
+        if not values:
+            return lookup
+
+        headers = values[0]
+        data_rows = values[1:]
+
+        for row in data_rows:
+            discord_id = self.get_cell_by_possible_headers(
+                row,
+                headers,
+                ["discord_id", "discord id", "user_id", "user id", "id"],
+            )
+            discord_name = self.get_cell_by_possible_headers(
+                row,
+                headers,
+                [
+                    "discord_nickname",
+                    "discord nickname",
+                    "discord_name",
+                    "discord name",
+                    "nickname",
+                    "name",
+                    "username",
+                    "discord_username",
+                    "discord username",
+                ],
+            )
+            rsn_cells = []
+            for index, header in enumerate(headers):
+                header_text = str(header or "").strip().casefold()
+                if index < len(row) and ("rsn" in header_text or "runescape" in header_text or "iron" in header_text or "main" in header_text):
+                    rsn_cells.append(row[index])
+
+            # Fallback: scan the whole row too. This makes names like "Joe | Mama" work
+            # even if the Tracker sheet headers are not exactly what this cog expects.
+            rsn_cells.extend(row)
+
+            for cell in rsn_cells:
+                for normalized_rsn in self.split_possible_rsns(cell):
+                    if not normalized_rsn or normalized_rsn in lookup:
+                        continue
+                    fallback_id = discord_id
+                    if not fallback_id:
+                        for candidate in row:
+                            candidate_text = str(candidate or "").strip()
+                            if re.fullmatch(r"\d{15,22}", candidate_text):
+                                fallback_id = candidate_text
+                                break
+                    lookup[normalized_rsn] = {
+                        "discord_id": fallback_id,
+                        "discord_name": discord_name,
+                    }
+
+        return lookup
+
+    def find_registered_rsn_info(self, rsn: str) -> Optional[dict]:
+        """Find Discord info for an RSN from the RSN Tracker sheet."""
+        normalized = self.normalize_rsn_for_lookup(rsn)
+        if not normalized:
+            return None
+        if self._rsn_lookup_cache is None:
+            self._rsn_lookup_cache = self.build_rsn_lookup_cache()
+        return self._rsn_lookup_cache.get(normalized)
+
+    def registered_rsn_error_message(self, rsn: str) -> str:
+        return (
+            f'Username not found for **{rsn}**. Make sure the player with that RSN has registered via `/register` '
+            'with their main, their iron, or both names with a separator in-between, such as "Joe | Mama".'
+        )
 
     def get_signup_bounds(self, signup_type: str) -> tuple[int, int]:
         """Return the configured row range for Solo or Duo signups."""
@@ -337,6 +455,11 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
+            # Rank is a manual A-Wildcard captain field, not a Discord role. Always leave it blank.
+            if index == 11:
+                merged.append("")
+                continue
+
             # Keep the visible Discord nickname current when the user is the owner of this row.
             if index == 0 and new_value:
                 merged.append(new_value)
@@ -351,14 +474,39 @@ class BingoCog(commands.Cog):
 
         self.signup_sheet.update(f"A{row}:L{row}", [merged])
 
-    def build_signup_row_values(self, member: Optional[discord.Member], data: dict, buyin_screenshot: str = "") -> list[str]:
-        """Build columns A-L for a signup row."""
+    def build_signup_row_values(
+        self,
+        member: Optional[discord.Member],
+        data: dict,
+        buyin_screenshot: str = "",
+        registered_info: Optional[dict] = None,
+    ) -> list[str]:
+        """Build columns A-L for a signup row.
+
+        Sheet columns: A Discord Nickname, B Discord ID, C RSN, D Playtime,
+        E Timezone/Location, F Buy In Screenshot, G Comments, H Duo,
+        I Duo Partner, J Duo Buy In Screenshot, K Ironman, L Rank.
+        Rank is intentionally blank because captains rank players manually.
+        """
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
 
+        discord_name = ""
+        discord_id = ""
+
+        if member is not None:
+            discord_name = self.get_member_signup_name(member)
+            discord_id = str(member.id)
+        elif registered_info:
+            discord_name = registered_info.get("discord_name", "")
+            discord_id = registered_info.get("discord_id", "")
+        else:
+            discord_name = data.get("Discord Nickname", "")
+            discord_id = data.get("Discord ID", "")
+
         return [
-            member.display_name if member else data.get("Discord Nickname", ""),
-            str(member.id) if member else data.get("Discord ID", ""),
+            discord_name,
+            discord_id,
             data.get("RSN", ""),
             data.get("Playtime", ""),
             data.get("Timezone/Location", ""),
@@ -368,7 +516,7 @@ class BingoCog(commands.Cog):
             data.get("Duo Partner", "") if is_duo else "",
             data.get("Duo Buy In Screenshot", "") if is_duo else "",
             data.get("Ironman", ""),
-            self.get_member_rank_name(member) if member else data.get("Rank", ""),
+            "",
         ]
 
     def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str) -> int:
@@ -384,8 +532,8 @@ class BingoCog(commands.Cog):
         self.merge_blank_signup_fields(row, row_values)
         return row
 
-    def ensure_duo_partner_row(self, submitting_member: discord.Member, data: dict) -> int:
-        """Make sure the duo partner has their own row, even if most fields are blank."""
+    def ensure_duo_partner_row(self, submitting_member: discord.Member, data: dict, buyin_screenshot: str, partner_info: dict) -> int:
+        """Make sure the duo partner has their own row, including Discord info and the shared buy-in screenshot."""
         partner_rsn = data.get("Duo Partner", "").strip()
         if not partner_rsn:
             raise RuntimeError("Duo partner RSN is missing.")
@@ -396,19 +544,19 @@ class BingoCog(commands.Cog):
 
         placeholder_data = {
             "signup_type": "Duo",
-            "Discord Nickname": "",
-            "Discord ID": "",
             "RSN": partner_rsn,
             "Playtime": "",
             "Timezone/Location": "",
-            "Buy In Screenshot": "",
+            "Buy In Screenshot": buyin_screenshot,
             "Comments": "",
             "Duo Partner": data.get("RSN", ""),
             "Duo Buy In Screenshot": data.get("Duo Buy In Screenshot", ""),
             "Ironman": "",
-            "Rank": "",
         }
-        self.merge_blank_signup_fields(partner_row, self.build_signup_row_values(None, placeholder_data))
+        self.merge_blank_signup_fields(
+            partner_row,
+            self.build_signup_row_values(None, placeholder_data, buyin_screenshot=buyin_screenshot, registered_info=partner_info),
+        )
         return partner_row
 
     def update_duo_second_screenshot(self, submitter_row: int, partner_row: Optional[int], screenshot_url: str) -> None:
@@ -428,11 +576,13 @@ class BingoCog(commands.Cog):
         is_duo = data.get("signup_type") == "Duo"
         colour = discord.Colour.blue() if is_duo else discord.Colour.green()
 
+        signup_name = self.get_member_signup_name(member)
+
         if is_duo:
             partner_text = data.get("Duo Partner", "your duo partner")
-            title = f"New Signup! {member.display_name} has signed up as a duo with {partner_text}!"
+            title = f"New Signup! {signup_name} has signed up as a duo with {partner_text}!"
         else:
-            title = f"New Signup! {member.display_name} has signed up solo!"
+            title = f"New Signup! {signup_name} has signed up solo!"
 
         embeds = []
         first_embed = discord.Embed(title=title, colour=colour)
@@ -476,6 +626,8 @@ class BingoCog(commands.Cog):
 
     async def collect_signup_screenshots(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
         """Wait for one required screenshot, then optionally a second duo screenshot."""
+        member = await self.resolve_guild_member(channel, member)
+
         if not self.can_capture_signup_screenshots():
             try:
                 await channel.send(
@@ -489,6 +641,24 @@ class BingoCog(commands.Cog):
 
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
+
+        submitter_info = self.find_registered_rsn_info(data.get("RSN", ""))
+        if submitter_info is None:
+            try:
+                await channel.send(f"{member.mention}, {self.registered_rsn_error_message(data.get('RSN', ''))}", delete_after=45)
+            except Exception:
+                pass
+            return
+
+        partner_info = None
+        if is_duo:
+            partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
+            if partner_info is None:
+                try:
+                    await channel.send(f"{member.mention}, {self.registered_rsn_error_message(data.get('Duo Partner', ''))}", delete_after=45)
+                except Exception:
+                    pass
+                return
 
         def check(message: discord.Message) -> bool:
             return (
@@ -506,11 +676,11 @@ class BingoCog(commands.Cog):
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
             partner_row = None
             if is_duo:
-                partner_row = self.ensure_duo_partner_row(member, data)
+                partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
 
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
-            first_embed.set_footer(text=f"Saved to signup row {submitter_row}.")
-            await channel.send(embed=first_embed, file=first_file)
+            first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
+            await channel.send(embed=first_embed, file=first_file, view=BingoSignupPanelView(self))
             await self.safe_delete_message(first_message)
 
             if not is_duo:
@@ -531,7 +701,7 @@ class BingoCog(commands.Cog):
             second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
-            await channel.send(embed=second_embed, file=second_file)
+            await channel.send(embed=second_embed, file=second_file, view=BingoSignupPanelView(self))
             await self.safe_delete_message(second_message)
 
         except asyncio.TimeoutError:
@@ -565,7 +735,7 @@ class BingoCog(commands.Cog):
         embed = discord.Embed(
             title="Bingo Signups",
             description=(
-                "Press one of the buttons below to sign up for the Spring Bingo.\n\n"
+                "Press one of the buttons below to sign up for the Spring Bingo. You can also use `/signup` at any time if the buttons are no longer nearby.\n\n"
                 "**Solo Signup** - Sign up by yourself.\n"
                 "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
                 "You may submit both buy-ins for yourself and your duo partner. "
@@ -587,6 +757,22 @@ class BingoCog(commands.Cog):
             )
         else:
             raise error
+
+    @app_commands.command(name="signup", description="Open the bingo signup buttons")
+    async def signup(self, interaction: discord.Interaction):
+        """Let users open signup buttons without scrolling back to the original panel."""
+        if self.signup_sheet is None:
+            await interaction.response.send_message(
+                "Bingo signup system is not properly configured. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            "Choose a signup type below.",
+            view=BingoSignupPanelView(self),
+            ephemeral=True
+        )
 
     @app_commands.command(name="submitdrop", description="Submit a boss drop for bingo review")
     @app_commands.describe(
@@ -806,6 +992,11 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Ironman": str(self.ironman.value).strip(),
         })
 
+        valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, self.data)
+        if not valid:
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
+
         if not self.cog.can_capture_signup_screenshots():
             await interaction.response.send_message(
                 "I saved your form information, but I cannot detect uploaded screenshots yet. "
@@ -817,8 +1008,9 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
 
         await interaction.response.send_message(
             "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
-            "Post your buy-in screenshot in this channel now. The signup submits after the first screenshot. "
-            "If you are submitting your partner's buy-in too, post the second screenshot after the first one. "
+            "Post a screenshot showing your duo buy-in in this channel now. If you are paying for both players, "
+            "one screenshot showing both deposits is enough and the signup submits after that first screenshot. "
+            "If you post a second screenshot, I will also save it into the Duo Buy In Screenshot field for both duo rows. "
             "I will save the image links, delete the screenshot messages, and post a public signup embed.",
             ephemeral=True
         )
