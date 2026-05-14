@@ -420,8 +420,10 @@ class BingoCog(commands.Cog):
             return False, self.registered_rsn_error_message(submitter_rsn)
 
         if data.get("signup_type") == "Duo":
+            # Signing up the duo partner is optional. Only validate the partner RSN
+            # if the user chose to add partner details on the optional second page.
             partner_rsn = str(data.get("Duo Partner", "")).strip()
-            if not self.find_registered_rsn_info(partner_rsn):
+            if partner_rsn and not self.find_registered_rsn_info(partner_rsn):
                 return False, self.registered_rsn_error_message(partner_rsn)
 
         return True, ""
@@ -632,16 +634,16 @@ class BingoCog(commands.Cog):
 
 
     def get_signup_link_text(self) -> str:
-        """Return a clickable signup-panel jump link when known, otherwise point users to /signup."""
+        """Return a clickable signup-panel jump link when known."""
         if self.signup_panel_jump_url:
             return f"[Click here]({self.signup_panel_jump_url})"
-        return "Use `/signup`"
+        return "Scroll to the signup panel above"
 
     def get_signup_followup_message(self) -> str:
         """Return the large public signup prompt shown after each new-signup embed."""
         if self.signup_panel_jump_url:
             return f"# Want to sign up as well? [Click here]({self.signup_panel_jump_url}) to go to the signup."
-        return "# Want to sign up as well? Use `/signup` to open the signup."
+        return "# Want to sign up as well? Please scroll to the signup panel above or ask staff to repost it."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
@@ -651,8 +653,11 @@ class BingoCog(commands.Cog):
         signup_name = data.get("RSN", "").strip() or self.get_member_signup_name(member)
 
         if is_duo:
-            partner_text = data.get("Duo Partner", "your duo partner")
-            title = f"New Signup! {signup_name} has signed up as a duo with {partner_text}!"
+            partner_text = str(data.get("Duo Partner", "")).strip()
+            if partner_text:
+                title = f"New Signup! {signup_name} has signed up as a duo with {partner_text}!"
+            else:
+                title = f"New Signup! {signup_name} has signed up as a duo!"
         else:
             title = f"New Signup! {signup_name} has signed up solo!"
 
@@ -725,7 +730,7 @@ class BingoCog(commands.Cog):
         submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info)
 
         partner_info = None
-        if is_duo:
+        if is_duo and str(data.get("Duo Partner", "")).strip():
             partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
             if partner_info is None:
                 try:
@@ -749,9 +754,12 @@ class BingoCog(commands.Cog):
             first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
 
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
+            data["_submitter_row"] = submitter_row
+            data["_buyin_screenshot"] = first_url
             partner_row = None
-            if is_duo:
+            if is_duo and partner_info is not None:
                 partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
+                data["_partner_row"] = partner_row
 
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
@@ -815,9 +823,8 @@ class BingoCog(commands.Cog):
                 "**Solo Signup** - Sign up by yourself.\n"
                 "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
                 "You may submit both buy-ins for yourself and your duo partner. "
-                "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate.\n"
-                "Post a picture in the channel after the bot message to complete your signup."
-                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events.\nIf you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner.*"
+                "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate."
+                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events. If you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
             ),
             colour=discord.Colour.gold()
         )
@@ -1034,11 +1041,23 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             "Ironman": str(self.ironman.value).strip(),
         }
 
+        if not self.cog.can_capture_signup_screenshots():
+            await interaction.response.send_message(
+                "I saved your form information, but I cannot detect uploaded screenshots yet. "
+                "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
+                "After that is enabled, run the signup again and post the screenshot after the prompt.",
+                ephemeral=True
+            )
+            return
+
         await interaction.response.send_message(
-            "Page 1 saved. Press **Continue to Page 2** to add your duo partner's details.",
+            "**Step 2/2: Post Buy In Screenshot**\n"
+            "Post an image of your buy-in in this channel now to complete your signup. "
+            "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
             view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
+        asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, data))
 
 
 class DuoContinueSignupView(discord.ui.View):
@@ -1047,7 +1066,7 @@ class DuoContinueSignupView(discord.ui.View):
         self.cog = cog
         self.data = data
 
-    @discord.ui.button(label="Continue to Page 2", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Optional: Page 2 ➜", style=discord.ButtonStyle.blurple)
     async def continue_to_page_two(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(DuoSignupPageTwoModal(self.cog, self.data))
 
@@ -1096,7 +1115,7 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Duo Ironman": str(self.duo_ironman.value).strip(),
         })
 
-        # Respond to the modal immediately so Discord does not expire the interaction
+        # Respond immediately so Discord does not expire the modal interaction
         # while the Google Sheet / RSN tracker lookup runs.
         await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -1105,24 +1124,36 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             await interaction.followup.send(error_message, ephemeral=True)
             return
 
-        if not self.cog.can_capture_signup_screenshots():
-            await interaction.followup.send(
-                "I saved your form information, but I cannot detect uploaded screenshots yet. "
-                "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
-                "After that is enabled, run the signup again and post the screenshot after the prompt.",
-                ephemeral=True
-            )
+        # If the user already posted the screenshot before filling the optional
+        # partner page, update the existing submitter row and create/fill the
+        # partner row now. Otherwise, the in-memory data will be picked up by
+        # the screenshot collector when the user posts their image.
+        buyin_screenshot = str(self.data.get("_buyin_screenshot", "")).strip()
+        if buyin_screenshot:
+            try:
+                partner_info = self.cog.find_registered_rsn_info(self.data.get("Duo Partner", ""))
+                partner_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, partner_info)
+                submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot)
+                partner_row = self.cog.ensure_duo_partner_row(interaction.user, self.data, buyin_screenshot, partner_info)
+                self.data["_submitter_row"] = submitter_row
+                self.data["_partner_row"] = partner_row
+                await interaction.followup.send(
+                    f"Partner details saved and added to signup row {partner_row}.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                print(f"Bingo Cog: Failed to update optional duo partner details: {e}")
+                await interaction.followup.send(
+                    "Partner details were saved, but I could not update the sheet. Please contact an administrator.",
+                    ephemeral=True
+                )
             return
 
         await interaction.followup.send(
-            "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
-            "Post a screenshot showing the duo buy-ins in this channel now. Ideally, this should be one screenshot "
-            "showing both deposits. The signup submits after the first screenshot. If you post a second screenshot, "
-            "I will also save it into the Duo Buy In Screenshot field for both duo rows. I will save the image links, "
-            "delete the screenshot messages, and post a public signup embed.",
+            "Partner details saved. Now post an image of your buy-in in this channel to complete the signup. "
+            "One screenshot is fine if it shows both buy-ins.",
             ephemeral=True
         )
-        asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, self.data))
 
 
 class BossSelect(discord.ui.Select):
