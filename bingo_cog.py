@@ -622,16 +622,57 @@ class BingoCog(commands.Cog):
         return min(current, 126)
 
     def wom_combat_level(self, details: Optional[dict], data: dict) -> int:
-        for source in (details or {}, data.get("computed") or {}):
+        """Return combat level from WOM, falling back to OSRS combat calculation.
+
+        WOM responses can expose combat level in a few different shapes depending
+        on endpoint/update state. If we miss it, do not let the classifier treat
+        the account like a normal C-rank account; calculate from skills instead.
+        """
+
+        def extract_from_source(source) -> int:
             if not isinstance(source, dict):
-                continue
+                return 0
             for key in ("combatLevel", "combat_level", "combat"):
                 value = source.get(key)
                 if isinstance(value, dict):
-                    value = value.get("value") or value.get("level")
+                    value = value.get("value") or value.get("level") or value.get("score")
                 if isinstance(value, (int, float)) and value > 0:
                     return int(value)
-        return 0
+            return 0
+
+        sources = [details or {}, data.get("computed") or {}]
+        if isinstance(details, dict):
+            for key in ("player", "profile", "latestSnapshot", "latest_snapshot"):
+                value = details.get(key)
+                if isinstance(value, dict):
+                    sources.append(value)
+                    if isinstance(value.get("data"), dict):
+                        sources.append(value.get("data"))
+                    if isinstance(value.get("computed"), dict):
+                        sources.append(value.get("computed"))
+
+        for source in sources:
+            combat = extract_from_source(source)
+            if combat:
+                return combat
+
+        # Fall back to the official OSRS combat formula from skills.
+        attack = self.wom_skill_level(data, "attack")
+        strength = self.wom_skill_level(data, "strength")
+        defence = self.wom_skill_level(data, "defence")
+        hitpoints = self.wom_skill_level(data, "hitpoints")
+        ranged = self.wom_skill_level(data, "ranged")
+        magic = self.wom_skill_level(data, "magic")
+        prayer = self.wom_skill_level(data, "prayer")
+
+        if min(attack, strength, defence, hitpoints, ranged, magic, prayer) <= 0:
+            return 0
+
+        base = 0.25 * (defence + hitpoints + (prayer // 2))
+        melee = 0.325 * (attack + strength)
+        range_based = 0.325 * ((3 * ranged) // 2)
+        mage_based = 0.325 * ((3 * magic) // 2)
+        return int(base + max(melee, range_based, mage_based))
 
     def wom_boss_kc(self, data: dict, metric: str) -> int:
         boss = ((data.get("bosses") or {}).get(metric) or {}) if isinstance(data, dict) else {}
@@ -692,8 +733,9 @@ class BingoCog(commands.Cog):
             return "C"
 
         # Under 115 combat is below even the C minimum, so it is a Wild Card /
-        # manual review rather than an automatic C.
-        if combat and combat < 115:
+        # manual review rather than an automatic C. If combat could not be read
+        # or calculated, leave it blank rather than guessing C from low KC.
+        if not combat or combat < 115:
             return ""
 
         # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
@@ -730,7 +772,13 @@ class BingoCog(commands.Cog):
     async def get_auto_rank_for_rsn(self, rsn: str, submitted_ironman: str = "") -> str:
         details = await self.fetch_wom_player_details(rsn)
         rank = self.classify_wom_rank(details, submitted_ironman=submitted_ironman)
-        print(f"Bingo Cog: WOM rank for {rsn}: {rank or 'Wild Card/blank'}")
+        try:
+            data = self.wom_latest_data(details)
+            combat = self.wom_combat_level(details, data)
+            slayer = self.wom_skill_level(data, "slayer")
+            print(f"Bingo Cog: WOM rank for {rsn}: {rank or 'Wild Card/blank'} (combat={combat or 'unknown'}, slayer={slayer or 'unknown'})")
+        except Exception:
+            print(f"Bingo Cog: WOM rank for {rsn}: {rank or 'Wild Card/blank'}")
         return rank
 
     async def add_auto_rank_to_signup_data(self, data: dict, rsn_key: str = "RSN", rank_key: str = "Rank", iron_key: str = "Ironman") -> None:
