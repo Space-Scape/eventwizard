@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 import asyncio
 from typing import Optional
 import random
+import io
+import re
+
 
 # ---------------------------
 # Boss-Drop Mapping
@@ -142,7 +145,7 @@ class BingoCog(commands.Cog):
             return
 
         print("Bingo Cog: All required environment variables are present.")
-        
+
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -181,14 +184,18 @@ class BingoCog(commands.Cog):
         self.sheet = main_spreadsheet.sheet1
 
         # Bingo signup sheet.
+        # Set BINGO_SIGNUP_SHEET_ID to the Google Sheet ID for the signup sheet.
+        # If it is not set, the cog uses the same spreadsheet as the drop submission sheet.
+        signup_sheet_id = os.getenv("BINGO_SIGNUP_SHEET_ID", sheet_id)
         signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
         try:
-            self.signup_sheet = main_spreadsheet.worksheet(signup_worksheet_name)
+            signup_spreadsheet = sheet_client.open_by_key(signup_sheet_id)
+            self.signup_sheet = signup_spreadsheet.worksheet(signup_worksheet_name)
+            print(f"Bingo Cog: Signup spreadsheet loaded: {signup_spreadsheet.title} ({signup_sheet_id})")
             print(f"Bingo Cog: Signup worksheet loaded: {signup_worksheet_name}")
         except Exception as e:
-            print(f"Bingo Cog: Could not load signup worksheet '{signup_worksheet_name}': {e}")
-            print("Bingo Cog: Falling back to the first worksheet for signup submissions.")
-            self.signup_sheet = main_spreadsheet.sheet1
+            print(f"Bingo Cog: Could not load signup spreadsheet/tab '{signup_sheet_id}' / '{signup_worksheet_name}': {e}")
+            self.signup_sheet = None
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
@@ -205,9 +212,16 @@ class BingoCog(commands.Cog):
         self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
         self.DUO_SIGNUP_END_ROW = int(os.getenv("BINGO_DUO_SIGNUP_END_ROW", "232"))
-        
+
         # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
+
+        if not getattr(self.bot.intents, "message_content", False):
+            print(
+                "Bingo Cog WARNING: message_content intent is disabled. "
+                "Screenshot signup capture will not work until Message Content Intent is enabled "
+                "in both the Discord Developer Portal and the bot startup intents."
+            )
         
         print("Bingo Cog: Initialized successfully.")
 
@@ -443,8 +457,36 @@ class BingoCog(commands.Cog):
         except discord.HTTPException as e:
             print(f"Bingo Cog: Failed to delete signup screenshot message: {e}")
 
+    async def attachment_to_discord_file(self, attachment: discord.Attachment, fallback_name: str) -> tuple[discord.File, str]:
+        """Download an uploaded screenshot and re-attach it to the public embed.
+
+        This avoids broken embed images after the bot deletes the user's original
+        screenshot message. The spreadsheet still stores the original attachment URL.
+        """
+        raw = await attachment.read()
+        original_name = attachment.filename or fallback_name
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", original_name)
+        if "." not in safe_name:
+            safe_name += ".png"
+        return discord.File(io.BytesIO(raw), filename=safe_name), safe_name
+
+    def can_capture_signup_screenshots(self) -> bool:
+        """Discord only sends attachment data to bots with Message Content Intent enabled."""
+        return bool(getattr(self.bot.intents, "message_content", False))
+
     async def collect_signup_screenshots(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
         """Wait for one required screenshot, then optionally a second duo screenshot."""
+        if not self.can_capture_signup_screenshots():
+            try:
+                await channel.send(
+                    f"{member.mention}, I cannot detect screenshot uploads yet because the bot is missing Message Content Intent. "
+                    "An administrator needs to enable it in the Discord Developer Portal and in the bot startup code.",
+                    delete_after=30
+                )
+            except Exception:
+                pass
+            return
+
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
 
@@ -459,16 +501,17 @@ class BingoCog(commands.Cog):
             first_message = await self.bot.wait_for("message", check=check, timeout=600)
             first_attachment = first_message.attachments[0]
             first_url = first_attachment.url
-            await self.safe_delete_message(first_message)
+            first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
 
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
             partner_row = None
             if is_duo:
                 partner_row = self.ensure_duo_partner_row(member, data)
 
-            public_message = await channel.send(
-                embeds=self.build_signup_embeds(member, data, [first_url])
-            )
+            first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
+            first_embed.set_footer(text=f"Saved to signup row {submitter_row}.")
+            await channel.send(embed=first_embed, file=first_file)
+            await self.safe_delete_message(first_message)
 
             if not is_duo:
                 return
@@ -481,12 +524,15 @@ class BingoCog(commands.Cog):
 
             second_attachment = second_message.attachments[0]
             second_url = second_attachment.url
-            await self.safe_delete_message(second_message)
-
+            second_file, second_filename = await self.attachment_to_discord_file(second_attachment, "partner_buy_in.png")
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
-            await public_message.edit(
-                embeds=self.build_signup_embeds(member, data, [first_url, second_url])
-            )
+
+            second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
+            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
+            second_embed.set_image(url=f"attachment://{second_filename}")
+            second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
+            await channel.send(embed=second_embed, file=second_file)
+            await self.safe_delete_message(second_message)
 
         except asyncio.TimeoutError:
             try:
@@ -651,6 +697,15 @@ class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
             "Ironman": str(self.ironman.value).strip(),
         }
 
+        if not self.cog.can_capture_signup_screenshots():
+            await interaction.response.send_message(
+                "I saved your form information, but I cannot detect uploaded screenshots yet. "
+                "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
+                "After that is enabled, run the signup again and post the screenshot after the prompt.",
+                ephemeral=True
+            )
+            return
+
         await interaction.response.send_message(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post your buy-in screenshot in this channel now. "
@@ -750,6 +805,15 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Comments": str(self.comments.value).strip(),
             "Ironman": str(self.ironman.value).strip(),
         })
+
+        if not self.cog.can_capture_signup_screenshots():
+            await interaction.response.send_message(
+                "I saved your form information, but I cannot detect uploaded screenshots yet. "
+                "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
+                "After that is enabled, run the signup again and post the screenshot after the prompt.",
+                ephemeral=True
+            )
+            return
 
         await interaction.response.send_message(
             "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
