@@ -10,6 +10,10 @@ from typing import Optional
 import random
 import io
 import re
+import json
+import urllib.parse
+import urllib.request
+import urllib.error
 
 
 # ---------------------------
@@ -201,6 +205,14 @@ class BingoCog(commands.Cog):
         self._rsn_lookup_cache = None
         self.signup_panel_jump_url = None
 
+        # Wise Old Man rank lookup. WOM is used to auto-fill column L with A/B/C when clear.
+        # Wild-card/ambiguous players are intentionally left blank for captain review.
+        self.WOM_API_KEY = os.getenv("WOM_API_KEY", "").strip()
+        self.WOM_GROUP_ID = os.getenv("WOM_GROUP_ID", "").strip()
+        self.WOM_CODE = os.getenv("WOM_CODE", "").strip()
+        self.WOM_BASE_URL = os.getenv("WOM_BASE_URL", "https://api.wiseoldman.net/v2").rstrip("/")
+        self._wom_rank_cache = {}
+
         # Players who cannot participate in this event.
         # These are checked by Discord ID from the RSN tracker, by the user pressing
         # the button, and by normalized RSN/name so partner signups are also blocked.
@@ -267,7 +279,7 @@ class BingoCog(commands.Cog):
             return member
 
     def get_member_rank_name(self, member: discord.Member) -> str:
-        """Rank is assigned manually by captains and should stay blank on signup."""
+        """Legacy helper kept for compatibility. Signup rank now comes from WOM when available."""
         return ""
 
     def normalize_signup_value(self, value) -> str:
@@ -475,6 +487,246 @@ class BingoCog(commands.Cog):
 
         return True, ""
 
+    # --- Wise Old Man ranking helpers ---
+
+    def xp_for_level(self, level: int) -> int:
+        """Return the OSRS cumulative XP required for a level."""
+        points = 0
+        for lvl in range(1, level):
+            points += int(lvl + 300 * (2 ** (lvl / 7.0)))
+        return points // 4
+
+    def wom_headers(self) -> dict:
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "RancourBingoSignupBot/1.0",
+        }
+        if self.WOM_API_KEY:
+            # WOM player endpoints are public, but these headers are harmless if your
+            # deployment uses an API key / proxy / elevated WOM limits.
+            headers["Authorization"] = f"Bearer {self.WOM_API_KEY}"
+            headers["x-api-key"] = self.WOM_API_KEY
+        if self.WOM_GROUP_ID:
+            headers["x-wom-group-id"] = self.WOM_GROUP_ID
+        if self.WOM_CODE:
+            headers["x-wom-code"] = self.WOM_CODE
+        return headers
+
+    def wom_request_blocking(self, method: str, path: str, payload: Optional[dict] = None) -> Optional[dict | list]:
+        """Blocking WOM HTTP helper, called through asyncio.to_thread."""
+        url = f"{self.WOM_BASE_URL}{path}"
+        body = None
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(url, data=body, method=method.upper(), headers=self.wom_headers())
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                raw = response.read().decode("utf-8")
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            # A 404 just means WOM does not know that player yet or the name is invalid.
+            if e.code not in (404, 429):
+                try:
+                    detail = e.read().decode("utf-8")[:300]
+                except Exception:
+                    detail = ""
+                print(f"Bingo Cog: WOM HTTP {e.code} for {url}: {detail}")
+            return None
+        except Exception as e:
+            print(f"Bingo Cog: WOM request failed for {url}: {e}")
+            return None
+
+    async def fetch_wom_player_details(self, rsn: str) -> Optional[dict]:
+        """Fetch a player's WOM details. POST updates when possible, GET/search as fallback."""
+        rsn = str(rsn or "").strip()
+        if not rsn:
+            return None
+
+        cache_key = self.normalize_rsn_for_lookup(rsn)
+        if cache_key in self._wom_rank_cache:
+            return self._wom_rank_cache[cache_key]
+
+        encoded = urllib.parse.quote(rsn, safe="")
+
+        # POST /players/:username tracks or updates the player and returns PlayerDetails.
+        details = await asyncio.to_thread(self.wom_request_blocking, "POST", f"/players/{encoded}")
+        if not isinstance(details, dict):
+            details = await asyncio.to_thread(self.wom_request_blocking, "GET", f"/players/{encoded}")
+
+        # If exact fetch fails, search and retry the most exact displayName/username match.
+        if not isinstance(details, dict):
+            query = urllib.parse.urlencode({"username": rsn, "limit": 5})
+            results = await asyncio.to_thread(self.wom_request_blocking, "GET", f"/players/search?{query}")
+            if isinstance(results, list) and results:
+                wanted = self.normalize_rsn_for_lookup(rsn)
+                best = None
+                for candidate in results:
+                    candidate_name = candidate.get("displayName") or candidate.get("username") or ""
+                    if self.normalize_rsn_for_lookup(candidate_name) == wanted:
+                        best = candidate
+                        break
+                best = best or results[0]
+                best_name = best.get("displayName") or best.get("username") or rsn
+                encoded_best = urllib.parse.quote(str(best_name), safe="")
+                details = await asyncio.to_thread(self.wom_request_blocking, "GET", f"/players/{encoded_best}")
+
+        if isinstance(details, dict):
+            self._wom_rank_cache[cache_key] = details
+            return details
+
+        self._wom_rank_cache[cache_key] = None
+        return None
+
+    def wom_latest_data(self, details: Optional[dict]) -> dict:
+        if not isinstance(details, dict):
+            return {}
+        snapshot = details.get("latestSnapshot") or details.get("latest_snapshot") or {}
+        data = snapshot.get("data") if isinstance(snapshot, dict) else None
+        if isinstance(data, dict):
+            return data
+        # Some responses may already include data-like keys at the top level.
+        if any(key in details for key in ("skills", "bosses", "activities", "computed")):
+            return details
+        return {}
+
+    def wom_skill_level(self, data: dict, metric: str) -> int:
+        skill = ((data.get("skills") or {}).get(metric) or {}) if isinstance(data, dict) else {}
+        level = skill.get("level")
+        if isinstance(level, (int, float)) and level > 0:
+            return int(level)
+        xp = skill.get("experience")
+        if not isinstance(xp, (int, float)) or xp < 0:
+            return 0
+        current = 1
+        for lvl in range(2, 127):
+            if xp >= self.xp_for_level(lvl):
+                current = lvl
+            else:
+                break
+        return min(current, 126)
+
+    def wom_combat_level(self, details: Optional[dict], data: dict) -> int:
+        for source in (details or {}, data.get("computed") or {}):
+            if not isinstance(source, dict):
+                continue
+            for key in ("combatLevel", "combat_level", "combat"):
+                value = source.get(key)
+                if isinstance(value, dict):
+                    value = value.get("value") or value.get("level")
+                if isinstance(value, (int, float)) and value > 0:
+                    return int(value)
+        return 0
+
+    def wom_boss_kc(self, data: dict, metric: str) -> int:
+        boss = ((data.get("bosses") or {}).get(metric) or {}) if isinstance(data, dict) else {}
+        value = boss.get("kills")
+        if not isinstance(value, (int, float)) or value < 0:
+            return 0
+        return int(value)
+
+    def wom_player_build_or_type(self, details: Optional[dict]) -> str:
+        if not isinstance(details, dict):
+            return ""
+        parts = []
+        for key in ("type", "build", "status"):
+            value = details.get(key)
+            if value:
+                parts.append(str(value))
+        player = details.get("player")
+        if isinstance(player, dict):
+            for key in ("type", "build", "status"):
+                value = player.get(key)
+                if value:
+                    parts.append(str(value))
+        return " ".join(parts).casefold()
+
+    def classify_wom_rank(self, details: Optional[dict], submitted_ironman: str = "") -> str:
+        """Return A/B/C, or blank for Wild Card / uncertain cases."""
+        data = self.wom_latest_data(details)
+        if not data:
+            return ""
+
+        slayer = self.wom_skill_level(data, "slayer")
+        combat = self.wom_combat_level(details, data)
+
+        hmt = self.wom_boss_kc(data, "theatre_of_blood_hard_mode")
+        tob = self.wom_boss_kc(data, "theatre_of_blood")
+        cm = self.wom_boss_kc(data, "chambers_of_xeric_challenge_mode")
+        cox = self.wom_boss_kc(data, "chambers_of_xeric")
+        toa_expert = self.wom_boss_kc(data, "tombs_of_amascut_expert")
+        toa = self.wom_boss_kc(data, "tombs_of_amascut")
+
+        sol = self.wom_boss_kc(data, "sol_heredit")
+        zuk = self.wom_boss_kc(data, "tzkal_zuk")
+        hydra = self.wom_boss_kc(data, "alchemical_hydra")
+        araxxor = self.wom_boss_kc(data, "araxxor")
+        cerb = self.wom_boss_kc(data, "cerberus")
+
+        raids_total = hmt + tob + cm + cox + toa_expert + toa
+        normal_low_count = sum(1 for kc in (cox, tob, toa) if kc < 10)
+        slayer_boss_low_count = sum(1 for kc in (hydra, araxxor, cerb) if kc < 25)
+        all_boss_total = sum(
+            max(0, int((boss or {}).get("kills", 0)))
+            for boss in (data.get("bosses") or {}).values()
+            if isinstance(boss, dict) and isinstance(boss.get("kills"), (int, float))
+        )
+
+        # Hard C gates.
+        if slayer and slayer < 92:
+            return "C"
+        if combat and combat < 115:
+            return "C"
+
+        # A: hard minimums plus a clear high-end raid KC signal. "Very close" is allowed.
+        a_raid_ready = hmt >= 48 or cm >= 48 or toa_expert >= 98
+        if slayer >= 95 and combat >= 125 and sol >= 1 and zuk >= 1 and a_raid_ready:
+            # A/B-quality iron accounts can be hard to compare if this is an alt/iron.
+            if "iron" in str(submitted_ironman).casefold() or "yes" in str(submitted_ironman).casefold():
+                return ""
+            return "A"
+
+        # Clear B: nearly 300 combined raids, or at least 25 HMT/CM, with minimum stats.
+        if slayer >= 93 and combat >= 120 and (hmt >= 25 or cm >= 25 or raids_total >= 280):
+            if "iron" in str(submitted_ironman).casefold() or "yes" in str(submitted_ironman).casefold():
+                return ""
+            return "B"
+
+        # Wild-card cases: stat-qualified but uneven account shape.
+        if slayer >= 92:
+            if slayer_boss_low_count >= 2:
+                return ""
+            raid_kcs = [cox, tob, toa, cm, hmt, toa_expert]
+            if max(raid_kcs) >= 100 and sum(1 for kc in raid_kcs if kc < 25) >= 4:
+                return ""
+            if max(hydra, araxxor, cerb, cox, tob, toa, cm, hmt, toa_expert) >= 300 and sum(1 for kc in (hydra, araxxor, cerb, cox, tob, toa) if kc < 25) >= 3:
+                return ""
+
+        # C by low raid experience / low total bossing.
+        if normal_low_count >= 2 or raids_total < 50 or all_boss_total < 500:
+            return "C"
+
+        # Anything that does not clearly fit A/B/C is a Wild Card and stays blank.
+        return ""
+
+    async def get_auto_rank_for_rsn(self, rsn: str, submitted_ironman: str = "") -> str:
+        details = await self.fetch_wom_player_details(rsn)
+        rank = self.classify_wom_rank(details, submitted_ironman=submitted_ironman)
+        print(f"Bingo Cog: WOM rank for {rsn}: {rank or 'Wild Card/blank'}")
+        return rank
+
+    async def add_auto_rank_to_signup_data(self, data: dict, rsn_key: str = "RSN", rank_key: str = "Rank", iron_key: str = "Ironman") -> None:
+        """Add Rank to data in-place if WOM can confidently classify the account."""
+        if data.get(rank_key):
+            return
+        rsn = str(data.get(rsn_key, "")).strip()
+        if not rsn:
+            return
+        try:
+            data[rank_key] = await self.get_auto_rank_for_rsn(rsn, data.get(iron_key, ""))
+        except Exception as e:
+            print(f"Bingo Cog: WOM auto-rank failed for {rsn}: {e}")
+            data[rank_key] = ""
+
     def get_signup_bounds(self, signup_type: str) -> tuple[int, int]:
         """Return the configured row range for Solo or Duo signups."""
         if signup_type == "Duo":
@@ -561,9 +813,10 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
-            # Rank is a manual A-Wildcard captain field, not a Discord role. Always leave it blank.
+            # Rank is auto-filled from WOM only when the sheet cell is blank. If captains
+            # manually change a rank, never overwrite it on later signup edits.
             if index == 11:
-                merged.append("")
+                merged.append(new_value if not current_value and new_value else current_value)
                 continue
 
             # Keep the visible Discord nickname current when the user is the owner of this row.
@@ -593,7 +846,7 @@ class BingoCog(commands.Cog):
         Sheet columns: A Discord Nickname, B Discord ID, C RSN, D Playtime,
         E Timezone/Location, F Buy In Screenshot, G Comments, H Duo,
         I Duo Partner, J Duo Buy In Screenshot, K Ironman, L Rank.
-        Rank is intentionally blank because captains rank players manually.
+        Rank is auto-filled from WOM when the player clearly fits A/B/C. Ambiguous wild cards stay blank.
         """
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
@@ -623,7 +876,7 @@ class BingoCog(commands.Cog):
             data.get("Duo Partner", "") if is_duo else "",
             data.get("Duo Buy In Screenshot", "") if is_duo else "",
             data.get("Ironman", ""),
-            "",
+            data.get("Rank", ""),
         ]
 
     def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str) -> int:
@@ -674,6 +927,7 @@ class BingoCog(commands.Cog):
             "Ironman": data.get("Duo Ironman", ""),
             "Discord Nickname": str((partner_info or {}).get("discord_name", "")).strip(),
             "Discord ID": partner_discord_id,
+            "Rank": data.get("Duo Rank", ""),
         }
 
         self.merge_blank_signup_fields(
@@ -892,6 +1146,7 @@ class BingoCog(commands.Cog):
             first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
 
             # Save the submitter immediately after the required screenshot.
+            await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
             data["_submitter_row"] = submitter_row
             data["_buyin_screenshot"] = first_url
@@ -917,6 +1172,7 @@ class BingoCog(commands.Cog):
                 else:
                     print(f"Bingo Cog: Duo partner RSN was not found in tracker while saving row: {data.get('Duo Partner', '')}")
 
+                await self.add_auto_rank_to_signup_data(data, "Duo Partner", "Duo Rank", "Duo Ironman")
                 partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
                 data["_partner_row"] = partner_row
                 partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
@@ -1337,6 +1593,8 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
                 partner_info = self.cog.find_registered_rsn_info(self.data.get("Duo Partner", ""))
                 if partner_info is not None:
                     partner_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, partner_info)
+                await self.cog.add_auto_rank_to_signup_data(self.data, "RSN", "Rank", "Ironman")
+                await self.cog.add_auto_rank_to_signup_data(self.data, "Duo Partner", "Duo Rank", "Duo Ironman")
                 submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot)
                 partner_row = self.cog.ensure_duo_partner_row(interaction.user, self.data, buyin_screenshot, partner_info)
                 self.data["_submitter_row"] = submitter_row
