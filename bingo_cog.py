@@ -184,6 +184,8 @@ class BingoCog(commands.Cog):
         self.sheet = main_spreadsheet.sheet1
 
         # Bingo signup sheet.
+        # Set BINGO_SIGNUP_SHEET_ID to the Google Sheet ID for the signup sheet.
+        # If it is not set, the cog uses the same spreadsheet as the drop submission sheet.
         signup_sheet_id = os.getenv("BINGO_SIGNUP_SHEET_ID", sheet_id)
         signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
         try:
@@ -200,6 +202,8 @@ class BingoCog(commands.Cog):
         self.signup_panel_jump_url = None
 
         # Players who cannot participate in this event.
+        # These are checked by Discord ID from the RSN tracker, by the user pressing
+        # the button, and by normalized RSN/name so partner signups are also blocked.
         self.BANNED_EVENT_DISCORD_IDS = {
             "162068110516420608": "99 mage",
             "314953972278362112": "CoriSlayer",
@@ -213,6 +217,8 @@ class BingoCog(commands.Cog):
         self.REGISTERED_ROLE_NAME = "Registered"
 
         # Signup sheet layout based on the displayed signup spreadsheet.
+        # Solo signups begin under the Solo Signups header at row 18.
+        # Duo signups begin under the Duo Signups header at row 132.
         self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
         self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
@@ -457,6 +463,8 @@ class BingoCog(commands.Cog):
             return False, self.banned_signup_error_message()
 
         if data.get("signup_type") == "Duo":
+            # Signing up the duo partner is optional. Only validate the partner RSN
+            # if the user chose to add partner details on the optional second page.
             partner_rsn = str(data.get("Duo Partner", "")).strip()
             if partner_rsn:
                 partner_info = self.find_registered_rsn_info(partner_rsn)
@@ -553,14 +561,18 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
+            # Rank is a manual A-Wildcard captain field, not a Discord role. Always leave it blank.
             if index == 11:
                 merged.append("")
                 continue
 
+            # Keep the visible Discord nickname current when the user is the owner of this row.
             if index == 0 and new_value:
                 merged.append(new_value)
                 continue
 
+            # Fill blanks only. This lets someone who was placeholder-signed-up complete missing fields
+            # without accidentally overwriting information captains may already have reviewed.
             if not current_value and new_value:
                 merged.append(new_value)
             else:
@@ -633,7 +645,12 @@ class BingoCog(commands.Cog):
         if not partner_rsn:
             raise RuntimeError("Duo partner RSN is missing.")
 
-        partner_row = self.find_signup_row_by_rsn(partner_rsn, "Duo")
+        partner_row = None
+        partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
+        if partner_discord_id.isdigit():
+            partner_row = self.find_signup_row_by_discord_id(int(partner_discord_id), "Duo")
+        if partner_row is None:
+            partner_row = self.find_signup_row_by_rsn(partner_rsn, "Duo")
         if partner_row is None:
             partner_row = self.find_next_signup_row("Duo")
 
@@ -668,6 +685,52 @@ class BingoCog(commands.Cog):
                 self.format_signup_row(row)
 
 
+    def find_next_drop_log_row(self) -> int:
+        """Find the next blank drop-log row, starting at row 2.
+
+        This is intentionally separate from signup rows. Signup rows start at 18/132,
+        but drop approvals should log directly under the drop-log headers.
+        """
+        if self.sheet is None:
+            raise RuntimeError("Drop log sheet is not configured.")
+
+        start_row = int(os.getenv("BINGO_DROP_LOG_START_ROW", "2"))
+        end_row = int(os.getenv("BINGO_DROP_LOG_END_ROW", "2000"))
+
+        try:
+            values = self.sheet.get(f"A{start_row}:F{end_row}")
+        except Exception:
+            values = []
+
+        for offset in range(end_row - start_row + 1):
+            row_values = values[offset] if offset < len(values) else []
+            if not any(str(cell).strip() for cell in row_values[:6]):
+                return start_row + offset
+
+        raise RuntimeError(f"No open drop-log rows are available between rows {start_row} and {end_row}.")
+
+    def log_approved_drop_to_sheet(
+        self,
+        reviewer_name: str,
+        submitted_user_name: str,
+        submitted_user_id: int,
+        drop: str,
+        image_url: str,
+    ) -> int:
+        """Write an approved drop to the drop-log sheet beginning at row 2."""
+        row = self.find_next_drop_log_row()
+        values = [[
+            reviewer_name,
+            submitted_user_name,
+            str(submitted_user_id),
+            drop,
+            image_url,
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        ]]
+        self.sheet.update(f"A{row}:F{row}", values)
+        return row
+
+
     def get_signup_link_text(self) -> str:
         """Return a clickable signup-panel jump link when known."""
         if self.signup_panel_jump_url:
@@ -678,7 +741,7 @@ class BingoCog(commands.Cog):
         """Return the large public signup prompt shown after each new-signup embed."""
         if self.signup_panel_jump_url:
             return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})!"
-        return "# Want to sign up as well? Please scroll to the signup panel above or ask staff to repost it."
+        return "# Want to sign up? Please scroll to the signup panel above or ask staff to repost it."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
@@ -720,10 +783,18 @@ class BingoCog(commands.Cog):
         """
         submitter_rsn = str(data.get("RSN", "")).strip()
         partner_rsn = str(data.get("Duo Partner", "")).strip()
+
+        # Use the partner's RSN in the public title. Do not use generic wording
+        # such as "submitter's duo partner" here. If the RSN is somehow blank,
+        # fall back to the tracker name only as a last resort.
         partner_display = partner_rsn or str((partner_info or {}).get("discord_name", "")).strip() or "Duo Partner"
+        partner_title = f"New Signup! {partner_display} has signed up as a duo"
+        if submitter_rsn:
+            partner_title += f" with {submitter_rsn}"
+        partner_title += "!"
 
         embed = discord.Embed(
-            title=f"New Signup! {partner_display} has signed up as a duo with {submitter_rsn}!",
+            title=partner_title,
             colour=discord.Colour.blue(),
         )
 
@@ -857,6 +928,7 @@ class BingoCog(commands.Cog):
             if not is_duo:
                 return
 
+            # Optional partner screenshot. The signup is already submitted after the first screenshot.
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=300)
             except asyncio.TimeoutError:
@@ -868,7 +940,7 @@ class BingoCog(commands.Cog):
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
-            second_embed.description = f"Additional buy-in screenshot for {partner_text}."
+            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=second_embed, file=second_file)
@@ -910,7 +982,7 @@ class BingoCog(commands.Cog):
                 "**Duo Signup** - Sign up with a duo partner. Duo buy-ins must be matched to a duo partner to pair you.\n\n"
                 "You may submit both buy-ins for yourself and your duo partner. "
                 "Please make sure your RSN, playtime, timezone/location, and buy-in proof are accurate."
-                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events.\nIf you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
+                "\n\n*note: Some players are banned from signing up if they were problematic in 2 or more events. If you planned on signing up with a banned player as a duo partner, you can still sign up solo or choose a different partner*"
             ),
             colour=discord.Colour.gold()
         )
@@ -1159,9 +1231,9 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             return
 
         await interaction.followup.send(
-            "# **Step 2/2: Post Buy In Screenshot**\n\n"
-            "Post an image of your buy-in in this channel now to complete your signup.\n\n"
-            "If you are also signing up a duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
+            "**Step 2/2: Post Buy In Screenshot**\n"
+            "Post an image of your buy-in in this channel now to complete your signup. "
+            "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
             view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
@@ -1223,6 +1295,8 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Duo Ironman": str(self.duo_ironman.value).strip(),
         })
 
+        # Respond immediately so Discord does not expire the modal interaction
+        # while the Google Sheet / RSN tracker lookup runs.
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, self.data)
@@ -1230,6 +1304,10 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             await interaction.followup.send(error_message, ephemeral=True)
             return
 
+        # If the user already posted the screenshot before filling the optional
+        # partner page, update the existing submitter row and create/fill the
+        # partner row now. Otherwise, the in-memory data will be picked up by
+        # the screenshot collector when the user posts their image.
         buyin_screenshot = str(self.data.get("_buyin_screenshot", "")).strip()
         if buyin_screenshot:
             try:
@@ -1507,16 +1585,15 @@ class DropReviewButtons(discord.ui.View):
             errors.append("Log channel not found")
 
         try:
-            self.cog.sheet.append_row([
-                interaction.user.display_name,
-                self.submitted_user.display_name,
-                str(self.submitted_user.id),
-                self.drop,
-                self.image_url,
-                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            ])
+            self.cog.log_approved_drop_to_sheet(
+                reviewer_name=interaction.user.display_name,
+                submitted_user_name=self.submitted_user.display_name,
+                submitted_user_id=self.submitted_user.id,
+                drop=self.drop,
+                image_url=self.image_url,
+            )
         except Exception as e:
-            print(f"Bingo Cog: Failed to append to sheet: {e}")
+            print(f"Bingo Cog: Failed to write drop log row: {e}")
             errors.append("Failed to log to spreadsheet")
 
         if errors:
