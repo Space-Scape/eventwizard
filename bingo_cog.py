@@ -182,9 +182,7 @@ class BingoCog(commands.Cog):
         self.sheet = main_spreadsheet.sheet1
 
         # Bingo signup sheet.
-        # Defaults to the visible signup worksheet tab named "Buy ins".
-        # You can override this in Railway with BINGO_SIGNUP_WORKSHEET if needed.
-        signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins").strip() or "Buy ins"
+        signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
         try:
             self.signup_sheet = main_spreadsheet.worksheet(signup_worksheet_name)
             print(f"Bingo Cog: Signup worksheet loaded: {signup_worksheet_name}")
@@ -192,7 +190,6 @@ class BingoCog(commands.Cog):
             print(f"Bingo Cog: Could not load signup worksheet '{signup_worksheet_name}': {e}")
             print("Bingo Cog: Falling back to the first worksheet for signup submissions.")
             self.signup_sheet = main_spreadsheet.sheet1
-            print(f"Bingo Cog: Fallback signup worksheet loaded: {self.signup_sheet.title}")
         
         self.rsn_sheet = sheet_client.open_by_key("1ZwJiuVMp-3p8UH0NCVYTV9_UVI26jl5kWu2nvdspl9k").worksheet("Tracker")
 
@@ -241,14 +238,27 @@ class BingoCog(commands.Cog):
             return role.name
         return ""
 
+    def normalize_signup_value(self, value) -> str:
+        """Normalize values for matching signup rows."""
+        return str(value or "").strip().casefold()
+
+    def get_signup_bounds(self, signup_type: str) -> tuple[int, int]:
+        """Return the configured row range for Solo or Duo signups."""
+        if signup_type == "Duo":
+            return self.DUO_SIGNUP_START_ROW, self.DUO_SIGNUP_END_ROW
+        return self.SOLO_SIGNUP_START_ROW, self.SOLO_SIGNUP_END_ROW
+
+    def get_signup_row_values(self, row: int) -> list[str]:
+        """Read columns A-L for a signup row and pad missing cells."""
+        values = self.signup_sheet.get(f"A{row}:L{row}")
+        row_values = values[0] if values else []
+        while len(row_values) < 12:
+            row_values.append("")
+        return row_values[:12]
+
     def find_next_signup_row(self, signup_type: str) -> int:
         """Find the next open row in the correct signup section of the signup sheet."""
-        if signup_type == "Duo":
-            start_row = self.DUO_SIGNUP_START_ROW
-            end_row = self.DUO_SIGNUP_END_ROW
-        else:
-            start_row = self.SOLO_SIGNUP_START_ROW
-            end_row = self.SOLO_SIGNUP_END_ROW
+        start_row, end_row = self.get_signup_bounds(signup_type)
 
         try:
             values = self.signup_sheet.get(f"A{start_row}:L{end_row}")
@@ -263,37 +273,239 @@ class BingoCog(commands.Cog):
 
         raise RuntimeError(f"No open {signup_type.lower()} signup rows are available between rows {start_row} and {end_row}.")
 
-    def write_signup_to_sheet(self, member: discord.Member, data: dict) -> int:
-        """Write a solo or duo signup to columns A-L and return the row used."""
-        if self.signup_sheet is None:
-            raise RuntimeError("Signup sheet is not configured.")
+    def find_signup_row_by_discord_id(self, discord_id: int, signup_type: str) -> Optional[int]:
+        """Find an existing signup row by Discord ID in the selected section."""
+        start_row, end_row = self.get_signup_bounds(signup_type)
+        wanted_id = str(discord_id)
 
+        try:
+            values = self.signup_sheet.get(f"A{start_row}:L{end_row}")
+        except Exception:
+            return None
+
+        for offset, row_values in enumerate(values):
+            row_discord_id = str(row_values[1]).strip() if len(row_values) > 1 else ""
+            if row_discord_id == wanted_id:
+                return start_row + offset
+        return None
+
+    def find_signup_row_by_rsn(self, rsn: str, signup_type: str) -> Optional[int]:
+        """Find an existing signup row by RSN in the selected section."""
+        start_row, end_row = self.get_signup_bounds(signup_type)
+        wanted_rsn = self.normalize_signup_value(rsn)
+        if not wanted_rsn:
+            return None
+
+        try:
+            values = self.signup_sheet.get(f"A{start_row}:L{end_row}")
+        except Exception:
+            return None
+
+        for offset, row_values in enumerate(values):
+            row_rsn = self.normalize_signup_value(row_values[2] if len(row_values) > 2 else "")
+            if row_rsn == wanted_rsn:
+                return start_row + offset
+        return None
+
+    def find_existing_signup_row(self, member: discord.Member, data: dict) -> Optional[int]:
+        """Find the row this user should update, prioritizing Discord ID, then RSN."""
+        signup_type = data.get("signup_type", "Solo")
+        row = self.find_signup_row_by_discord_id(member.id, signup_type)
+        if row:
+            return row
+        return self.find_signup_row_by_rsn(data.get("RSN", ""), signup_type)
+
+    def merge_blank_signup_fields(self, row: int, new_values: list[str]) -> None:
+        """Fill only blank cells in A-L, except Discord nickname may refresh and screenshot cells may be filled when empty."""
+        current_values = self.get_signup_row_values(row)
+        merged = []
+
+        for index, new_value in enumerate(new_values):
+            current_value = str(current_values[index]).strip() if index < len(current_values) else ""
+            new_value = str(new_value or "").strip()
+
+            # Keep the visible Discord nickname current when the user is the owner of this row.
+            if index == 0 and new_value:
+                merged.append(new_value)
+                continue
+
+            # Fill blanks only. This lets someone who was placeholder-signed-up complete missing fields
+            # without accidentally overwriting information captains may already have reviewed.
+            if not current_value and new_value:
+                merged.append(new_value)
+            else:
+                merged.append(current_value)
+
+        self.signup_sheet.update(f"A{row}:L{row}", [merged])
+
+    def build_signup_row_values(self, member: Optional[discord.Member], data: dict, buyin_screenshot: str = "") -> list[str]:
+        """Build columns A-L for a signup row."""
         signup_type = data.get("signup_type", "Solo")
         is_duo = signup_type == "Duo"
 
-        row = self.find_next_signup_row(signup_type)
-        row_values = [
-            member.display_name,
-            str(member.id),
-            data.get("RSN") or data.get("rsn", ""),
-            data.get("Playtime") or data.get("playtime", ""),
-            data.get("Timezone/Location") or data.get("timezone", ""),
-            data.get("Buy In Screenshot") or data.get("buyin_screenshot", ""),
-            data.get("Comments") or data.get("comments", ""),
+        return [
+            member.display_name if member else data.get("Discord Nickname", ""),
+            str(member.id) if member else data.get("Discord ID", ""),
+            data.get("RSN", ""),
+            data.get("Playtime", ""),
+            data.get("Timezone/Location", ""),
+            buyin_screenshot or data.get("Buy In Screenshot", ""),
+            data.get("Comments", ""),
             "Yes" if is_duo else "No",
-            (data.get("Duo Partner") or data.get("duo_partner", "")) if is_duo else "",
-            (data.get("Duo Buy In Screenshot") or data.get("duo_buyin_screenshot", "")) if is_duo else "",
-            data.get("Ironman") or data.get("ironman", ""),
-            self.get_member_rank_name(member),
+            data.get("Duo Partner", "") if is_duo else "",
+            data.get("Duo Buy In Screenshot", "") if is_duo else "",
+            data.get("Ironman", ""),
+            self.get_member_rank_name(member) if member else data.get("Rank", ""),
         ]
 
-        print(f"Bingo Cog: Writing {signup_type} signup to worksheet '{self.signup_sheet.title}' row {row}: {row_values}")
-        self.signup_sheet.update(
-            range_name=f"A{row}:L{row}",
-            values=[row_values],
-            value_input_option="USER_ENTERED"
-        )
+    def write_or_update_signup_to_sheet(self, member: discord.Member, data: dict, buyin_screenshot: str) -> int:
+        """Create a new signup row or fill blanks in an existing row."""
+        if self.signup_sheet is None:
+            raise RuntimeError("Signup sheet is not configured.")
+
+        row = self.find_existing_signup_row(member, data)
+        if row is None:
+            row = self.find_next_signup_row(data.get("signup_type", "Solo"))
+
+        row_values = self.build_signup_row_values(member, data, buyin_screenshot)
+        self.merge_blank_signup_fields(row, row_values)
         return row
+
+    def ensure_duo_partner_row(self, submitting_member: discord.Member, data: dict) -> int:
+        """Make sure the duo partner has their own row, even if most fields are blank."""
+        partner_rsn = data.get("Duo Partner", "").strip()
+        if not partner_rsn:
+            raise RuntimeError("Duo partner RSN is missing.")
+
+        partner_row = self.find_signup_row_by_rsn(partner_rsn, "Duo")
+        if partner_row is None:
+            partner_row = self.find_next_signup_row("Duo")
+
+        placeholder_data = {
+            "signup_type": "Duo",
+            "Discord Nickname": "",
+            "Discord ID": "",
+            "RSN": partner_rsn,
+            "Playtime": "",
+            "Timezone/Location": "",
+            "Buy In Screenshot": "",
+            "Comments": "",
+            "Duo Partner": data.get("RSN", ""),
+            "Duo Buy In Screenshot": data.get("Duo Buy In Screenshot", ""),
+            "Ironman": "",
+            "Rank": "",
+        }
+        self.merge_blank_signup_fields(partner_row, self.build_signup_row_values(None, placeholder_data))
+        return partner_row
+
+    def update_duo_second_screenshot(self, submitter_row: int, partner_row: Optional[int], screenshot_url: str) -> None:
+        """Put the optional second screenshot into Duo Buy In Screenshot for both duo rows."""
+        if not screenshot_url:
+            return
+
+        for row in {submitter_row, partner_row}:
+            if not row:
+                continue
+            current_values = self.get_signup_row_values(row)
+            if not str(current_values[9]).strip():
+                self.signup_sheet.update_cell(row, 10, screenshot_url)
+
+    def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
+        """Build the public New Signup embed or embeds."""
+        is_duo = data.get("signup_type") == "Duo"
+        colour = discord.Colour.blue() if is_duo else discord.Colour.green()
+
+        if is_duo:
+            partner_text = data.get("Duo Partner", "your duo partner")
+            title = f"New Signup! {member.display_name} has signed up as a duo with {partner_text}!"
+        else:
+            title = f"New Signup! {member.display_name} has signed up solo!"
+
+        embeds = []
+        first_embed = discord.Embed(title=title, colour=colour)
+        first_embed.description = member.mention
+        if image_urls:
+            first_embed.set_image(url=image_urls[0])
+        embeds.append(first_embed)
+
+        # Discord only allows one large image per embed, so the optional second screenshot is shown in a second embed.
+        if len(image_urls) > 1:
+            second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=colour)
+            second_embed.set_image(url=image_urls[1])
+            embeds.append(second_embed)
+
+        return embeds
+
+    async def safe_delete_message(self, message: discord.Message) -> None:
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            print("Bingo Cog: Missing permission to delete signup screenshot message.")
+        except discord.HTTPException as e:
+            print(f"Bingo Cog: Failed to delete signup screenshot message: {e}")
+
+    async def collect_signup_screenshots(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
+        """Wait for one required screenshot, then optionally a second duo screenshot."""
+        signup_type = data.get("signup_type", "Solo")
+        is_duo = signup_type == "Duo"
+
+        def check(message: discord.Message) -> bool:
+            return (
+                message.author.id == member.id
+                and message.channel.id == channel.id
+                and len(message.attachments) > 0
+            )
+
+        try:
+            first_message = await self.bot.wait_for("message", check=check, timeout=600)
+            first_attachment = first_message.attachments[0]
+            first_url = first_attachment.url
+            await self.safe_delete_message(first_message)
+
+            submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url)
+            partner_row = None
+            if is_duo:
+                partner_row = self.ensure_duo_partner_row(member, data)
+
+            public_message = await channel.send(
+                embeds=self.build_signup_embeds(member, data, [first_url])
+            )
+
+            if not is_duo:
+                return
+
+            # Optional partner screenshot. The signup is already submitted after the first screenshot.
+            try:
+                second_message = await self.bot.wait_for("message", check=check, timeout=300)
+            except asyncio.TimeoutError:
+                return
+
+            second_attachment = second_message.attachments[0]
+            second_url = second_attachment.url
+            await self.safe_delete_message(second_message)
+
+            self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
+            await public_message.edit(
+                embeds=self.build_signup_embeds(member, data, [first_url, second_url])
+            )
+
+        except asyncio.TimeoutError:
+            try:
+                await channel.send(
+                    f"{member.mention}, your signup timed out because no screenshot was posted.",
+                    delete_after=20
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Bingo Cog: Failed while collecting signup screenshots: {e}")
+            try:
+                await channel.send(
+                    f"{member.mention}, something went wrong while saving your signup. Please contact an administrator.",
+                    delete_after=25
+                )
+            except Exception:
+                pass
 
     @app_commands.command(name="signup_panel", description="Post the bingo signup panel in this channel")
     @app_commands.checks.has_permissions(administrator=True)
@@ -376,7 +588,7 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:solo"
     )
     async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(SoloSignupPageOneModal(self.cog))
+        await interaction.response.send_modal(SoloSignupModal(self.cog))
 
     @discord.ui.button(
         label="Duo Signup",
@@ -387,22 +599,7 @@ class BingoSignupPanelView(discord.ui.View):
         await interaction.response.send_modal(DuoSignupPageOneModal(self.cog))
 
 
-class ContinueSignupView(discord.ui.View):
-    def __init__(self, cog: BingoCog, signup_type: str, data: dict):
-        super().__init__(timeout=600)
-        self.cog = cog
-        self.signup_type = signup_type
-        self.data = data
-
-    @discord.ui.button(label="Continue to Page 2", style=discord.ButtonStyle.green)
-    async def continue_to_page_two(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.signup_type == "Solo":
-            await interaction.response.send_modal(SoloSignupPageTwoModal(self.cog, self.data))
-        else:
-            await interaction.response.send_modal(DuoSignupPageTwoModal(self.cog, self.data))
-
-
-class SoloSignupPageOneModal(discord.ui.Modal, title="Solo Signup - Page 1 of 2"):
+class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
     def __init__(self, cog: BingoCog):
         super().__init__()
         self.cog = cog
@@ -425,38 +622,6 @@ class SoloSignupPageOneModal(discord.ui.Modal, title="Solo Signup - Page 1 of 2"
             required=True,
             max_length=100
         )
-
-        self.add_item(self.rsn)
-        self.add_item(self.playtime)
-        self.add_item(self.timezone)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        data = {
-            "signup_type": "Solo",
-            "RSN": str(self.rsn.value).strip(),
-            "Playtime": str(self.playtime.value).strip(),
-            "Timezone/Location": str(self.timezone.value).strip(),
-        }
-
-        await interaction.response.send_message(
-            "Page 1 saved. Press **Continue to Page 2** to finish your solo signup.",
-            view=ContinueSignupView(self.cog, "Solo", data),
-            ephemeral=True
-        )
-
-
-class SoloSignupPageTwoModal(discord.ui.Modal, title="Solo Signup - Page 2 of 2"):
-    def __init__(self, cog: BingoCog, data: dict):
-        super().__init__()
-        self.cog = cog
-        self.data = data
-
-        self.buyin_screenshot = discord.ui.TextInput(
-            label="Buy-in screenshot URL",
-            placeholder="Paste a Discord image link or uploaded screenshot URL.",
-            required=True,
-            max_length=500
-        )
         self.comments = discord.ui.TextInput(
             label="Comments",
             placeholder="Anything you would like captains to know.",
@@ -471,29 +636,29 @@ class SoloSignupPageTwoModal(discord.ui.Modal, title="Solo Signup - Page 2 of 2"
             max_length=25
         )
 
-        self.add_item(self.buyin_screenshot)
+        self.add_item(self.rsn)
+        self.add_item(self.playtime)
+        self.add_item(self.timezone)
         self.add_item(self.comments)
         self.add_item(self.ironman)
 
     async def on_submit(self, interaction: discord.Interaction):
-        self.data.update({
-            "Buy In Screenshot": str(self.buyin_screenshot.value).strip(),
+        data = {
+            "signup_type": "Solo",
+            "RSN": str(self.rsn.value).strip(),
+            "Playtime": str(self.playtime.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
             "Comments": str(self.comments.value).strip(),
             "Ironman": str(self.ironman.value).strip(),
-        })
+        }
 
-        try:
-            row = self.cog.write_signup_to_sheet(interaction.user, self.data)
-            await interaction.response.send_message(
-                f"Your solo signup has been submitted. You were added to row {row}.",
-                ephemeral=True
-            )
-        except Exception as e:
-            print(f"Bingo Cog: Failed to submit solo signup: {e}")
-            await interaction.response.send_message(
-                "Something went wrong while submitting your signup. Please contact an administrator.",
-                ephemeral=True
-            )
+        await interaction.response.send_message(
+            "**Step 2/2: Post Buy In Screenshot**\n"
+            "Post your buy-in screenshot in this channel now. "
+            "I will save it, delete your screenshot message, and post a public signup embed.",
+            ephemeral=True
+        )
+        asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, data))
 
 
 class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
@@ -519,17 +684,10 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             required=True,
             max_length=100
         )
-        self.timezone = discord.ui.TextInput(
-            label="Timezone/Location",
-            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
-            required=True,
-            max_length=100
-        )
 
         self.add_item(self.rsn)
         self.add_item(self.duo_partner)
         self.add_item(self.playtime)
-        self.add_item(self.timezone)
 
     async def on_submit(self, interaction: discord.Interaction):
         data = {
@@ -537,14 +695,24 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             "RSN": str(self.rsn.value).strip(),
             "Duo Partner": str(self.duo_partner.value).strip(),
             "Playtime": str(self.playtime.value).strip(),
-            "Timezone/Location": str(self.timezone.value).strip(),
         }
 
         await interaction.response.send_message(
-            "Page 1 saved. Press **Continue to Page 2** to finish your duo signup.",
-            view=ContinueSignupView(self.cog, "Duo", data),
+            "Page 1 saved. Press **Continue to Page 2** to finish your duo signup details.",
+            view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
+
+
+class DuoContinueSignupView(discord.ui.View):
+    def __init__(self, cog: BingoCog, data: dict):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.data = data
+
+    @discord.ui.button(label="Continue to Page 2", style=discord.ButtonStyle.green)
+    async def continue_to_page_two(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(DuoSignupPageTwoModal(self.cog, self.data))
 
 
 class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
@@ -553,17 +721,11 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
         self.cog = cog
         self.data = data
 
-        self.buyin_screenshot = discord.ui.TextInput(
-            label="Buy-in screenshot URL",
-            placeholder="Paste a Discord image link or uploaded screenshot URL.",
+        self.timezone = discord.ui.TextInput(
+            label="Timezone/Location",
+            placeholder="Example: GMT, CST, AUS, South America, active hours, etc.",
             required=True,
-            max_length=500
-        )
-        self.duo_buyin_screenshot = discord.ui.TextInput(
-            label="Duo buy-in screenshot URL",
-            placeholder="(Optional) Paste your duo partner's buy-in screenshot URL, if submitting it.",
-            required=False,
-            max_length=500
+            max_length=100
         )
         self.comments = discord.ui.TextInput(
             label="Comments",
@@ -579,31 +741,25 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             max_length=25
         )
 
-        self.add_item(self.buyin_screenshot)
-        self.add_item(self.duo_buyin_screenshot)
+        self.add_item(self.timezone)
         self.add_item(self.comments)
         self.add_item(self.ironman)
 
     async def on_submit(self, interaction: discord.Interaction):
         self.data.update({
-            "Buy In Screenshot": str(self.buyin_screenshot.value).strip(),
-            "Duo Buy In Screenshot": str(self.duo_buyin_screenshot.value).strip(),
+            "Timezone/Location": str(self.timezone.value).strip(),
             "Comments": str(self.comments.value).strip(),
             "Ironman": str(self.ironman.value).strip(),
         })
 
-        try:
-            row = self.cog.write_signup_to_sheet(interaction.user, self.data)
-            await interaction.response.send_message(
-                f"Your duo signup has been submitted. You were added to row {row}.",
-                ephemeral=True
-            )
-        except Exception as e:
-            print(f"Bingo Cog: Failed to submit duo signup: {e}")
-            await interaction.response.send_message(
-                "Something went wrong while submitting your signup. Please contact an administrator.",
-                ephemeral=True
-            )
+        await interaction.response.send_message(
+            "**Step 3/3: Post Buy In Screenshot (Optionally, post a second screenshot for a partner)**\n"
+            "Post your buy-in screenshot in this channel now. The signup submits after the first screenshot. "
+            "If you are submitting your partner's buy-in too, post the second screenshot after the first one. "
+            "I will save the image links, delete the screenshot messages, and post a public signup embed.",
+            ephemeral=True
+        )
+        asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, self.data))
 
 
 class BossSelect(discord.ui.Select):
