@@ -201,6 +201,15 @@ class BingoCog(commands.Cog):
         self._rsn_lookup_cache = None
         self.signup_panel_jump_url = None
 
+        # Players who cannot participate in this event.
+        # These are checked by Discord ID from the RSN tracker, by the user pressing
+        # the button, and by normalized RSN/name so partner signups are also blocked.
+        self.BANNED_EVENT_DISCORD_IDS = {
+            "162068110516420608": "99 mage",
+            "314953972278362112": "CoriSlayer",
+        }
+        self.BANNED_EVENT_RSNS = {"99mage", "corislayer"}
+
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
         self.LOG_CHANNEL_ID = 1504315879431864372
@@ -413,18 +422,56 @@ class BingoCog(commands.Cog):
             'with their main, their iron, or both names with a separator in-between, such as "Joe | Mama".'
         )
 
+    def banned_signup_error_message(self) -> str:
+        return "This player can not participate. Please select another partner or sign up solo."
+
+    def is_banned_event_participant(
+        self,
+        rsn: str = "",
+        discord_id: str = "",
+        registered_info: Optional[dict] = None,
+    ) -> bool:
+        """Return True if this RSN / Discord ID is banned from this event."""
+        normalized_rsn = self.normalize_rsn_for_lookup(rsn)
+        if normalized_rsn and normalized_rsn in self.BANNED_EVENT_RSNS:
+            return True
+
+        discord_id = str(discord_id or "").strip()
+        if discord_id and discord_id in self.BANNED_EVENT_DISCORD_IDS:
+            return True
+
+        if registered_info:
+            tracker_id = str(registered_info.get("discord_id", "")).strip()
+            if tracker_id and tracker_id in self.BANNED_EVENT_DISCORD_IDS:
+                return True
+
+            tracker_name = self.normalize_rsn_for_lookup(registered_info.get("discord_name", ""))
+            if tracker_name and tracker_name in self.BANNED_EVENT_RSNS:
+                return True
+
+        return False
+
     async def validate_signup_rsns(self, channel: discord.abc.Messageable, data: dict) -> tuple[bool, str]:
-        """Validate that signup RSNs exist in the RSN Tracker before asking for screenshots."""
+        """Validate that signup RSNs exist in the RSN Tracker and are allowed to participate."""
         submitter_rsn = str(data.get("RSN", "")).strip()
-        if not self.find_registered_rsn_info(submitter_rsn):
+        submitter_info = self.find_registered_rsn_info(submitter_rsn)
+        if not submitter_info:
             return False, self.registered_rsn_error_message(submitter_rsn)
+
+        submitter_discord_id = str(data.get("_submitter_discord_id", "")).strip()
+        if self.is_banned_event_participant(submitter_rsn, submitter_discord_id, submitter_info):
+            return False, self.banned_signup_error_message()
 
         if data.get("signup_type") == "Duo":
             # Signing up the duo partner is optional. Only validate the partner RSN
             # if the user chose to add partner details on the optional second page.
             partner_rsn = str(data.get("Duo Partner", "")).strip()
-            if partner_rsn and not self.find_registered_rsn_info(partner_rsn):
-                return False, self.registered_rsn_error_message(partner_rsn)
+            if partner_rsn:
+                partner_info = self.find_registered_rsn_info(partner_rsn)
+                if not partner_info:
+                    return False, self.registered_rsn_error_message(partner_rsn)
+                if self.is_banned_event_participant(partner_rsn, "", partner_info):
+                    return False, self.banned_signup_error_message()
 
         return True, ""
 
@@ -642,7 +689,7 @@ class BingoCog(commands.Cog):
     def get_signup_followup_message(self) -> str:
         """Return the large public signup prompt shown after each new-signup embed."""
         if self.signup_panel_jump_url:
-            return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})."
+            return f"# Want to sign up as well? [Click here]({self.signup_panel_jump_url}) to go to the signup."
         return "# Want to sign up as well? Please scroll to the signup panel above or ask staff to repost it."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
@@ -727,6 +774,13 @@ class BingoCog(commands.Cog):
                 pass
             return
 
+        if self.is_banned_event_participant(data.get("RSN", ""), str(member.id), submitter_info):
+            try:
+                await channel.send(f"{member.mention}, {self.banned_signup_error_message()}", delete_after=45)
+            except Exception:
+                pass
+            return
+
         submitter_info = await self.enrich_registered_info_for_guild(channel, submitter_info)
 
         partner_info = None
@@ -735,6 +789,12 @@ class BingoCog(commands.Cog):
             if partner_info is None:
                 try:
                     await channel.send(f"{member.mention}, {self.registered_rsn_error_message(data.get('Duo Partner', ''))}", delete_after=45)
+                except Exception:
+                    pass
+                return
+            if self.is_banned_event_participant(data.get("Duo Partner", ""), "", partner_info):
+                try:
+                    await channel.send(f"{member.mention}, {self.banned_signup_error_message()}", delete_after=45)
                 except Exception:
                     pass
                 return
@@ -905,6 +965,9 @@ class BingoSignupPanelView(discord.ui.View):
     )
     async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
+            await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
+            return
         await interaction.response.send_modal(SoloSignupModal(self.cog))
 
     @discord.ui.button(
@@ -914,6 +977,9 @@ class BingoSignupPanelView(discord.ui.View):
     )
     async def duo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
+            await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
+            return
         await interaction.response.send_modal(DuoSignupPageOneModal(self.cog))
 
 
@@ -968,10 +1034,18 @@ class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
             "Timezone/Location": str(self.timezone.value).strip(),
             "Comments": str(self.comments.value).strip(),
             "Ironman": str(self.ironman.value).strip(),
+            "_submitter_discord_id": str(interaction.user.id),
         }
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, data)
+        if not valid:
+            await interaction.followup.send(error_message, ephemeral=True)
+            return
+
         if not self.cog.can_capture_signup_screenshots():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I saved your form information, but I cannot detect uploaded screenshots yet. "
                 "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
                 "After that is enabled, run the signup again and post the screenshot after the prompt.",
@@ -979,7 +1053,7 @@ class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
             )
             return
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post your buy-in screenshot in this channel now. "
             "I will save it, delete your screenshot message, and post a public signup embed.",
@@ -1039,10 +1113,18 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             "Timezone/Location": str(self.timezone.value).strip(),
             "Comments": str(self.comments.value).strip(),
             "Ironman": str(self.ironman.value).strip(),
+            "_submitter_discord_id": str(interaction.user.id),
         }
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, data)
+        if not valid:
+            await interaction.followup.send(error_message, ephemeral=True)
+            return
+
         if not self.cog.can_capture_signup_screenshots():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I saved your form information, but I cannot detect uploaded screenshots yet. "
                 "The bot needs **Message Content Intent** enabled in the Discord Developer Portal and in the bot startup code. "
                 "After that is enabled, run the signup again and post the screenshot after the prompt.",
@@ -1050,7 +1132,7 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             )
             return
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post an image of your buy-in in this channel now to complete your signup. "
             "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
