@@ -374,6 +374,19 @@ class BingoCog(commands.Cog):
             'with their main, their iron, or both names with a separator in-between, such as "Joe | Mama".'
         )
 
+    async def validate_signup_rsns(self, channel: discord.abc.Messageable, data: dict) -> tuple[bool, str]:
+        """Validate that signup RSNs exist in the RSN Tracker before asking for screenshots."""
+        submitter_rsn = str(data.get("RSN", "")).strip()
+        if not self.find_registered_rsn_info(submitter_rsn):
+            return False, self.registered_rsn_error_message(submitter_rsn)
+
+        if data.get("signup_type") == "Duo":
+            partner_rsn = str(data.get("Duo Partner", "")).strip()
+            if not self.find_registered_rsn_info(partner_rsn):
+                return False, self.registered_rsn_error_message(partner_rsn)
+
+        return True, ""
+
     def get_signup_bounds(self, signup_type: str) -> tuple[int, int]:
         """Return the configured row range for Solo or Duo signups."""
         if signup_type == "Duo":
@@ -582,8 +595,14 @@ class BingoCog(commands.Cog):
     def get_signup_link_text(self) -> str:
         """Return a clickable signup-panel jump link when known, otherwise point users to /signup."""
         if self.signup_panel_jump_url:
-            return f"[Click here to sign up]({self.signup_panel_jump_url})"
-        return "Use `/signup` to open the signup buttons."
+            return f"[Click here]({self.signup_panel_jump_url})"
+        return "Use `/signup`"
+
+    def get_signup_followup_message(self) -> str:
+        """Return the large public signup prompt shown after each new-signup embed."""
+        if self.signup_panel_jump_url:
+            return f"# Want to sign up as well? [Click here]({self.signup_panel_jump_url}) to go to the signup."
+        return "# Want to sign up as well? Use `/signup` to open the signup."
 
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
@@ -600,7 +619,7 @@ class BingoCog(commands.Cog):
 
         embeds = []
         first_embed = discord.Embed(title=title, colour=colour)
-        first_embed.description = f"{member.mention}\n\n{self.get_signup_link_text()}"
+        first_embed.description = member.mention
         if image_urls:
             first_embed.set_image(url=image_urls[0])
         embeds.append(first_embed)
@@ -695,6 +714,7 @@ class BingoCog(commands.Cog):
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=first_embed, file=first_file)
+            await channel.send(self.get_signup_followup_message())
             await self.safe_delete_message(first_message)
 
             if not is_duo:
@@ -712,7 +732,7 @@ class BingoCog(commands.Cog):
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
-            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup.\n\n{self.get_signup_link_text()}"
+            second_embed.description = f"Additional buy-in screenshot for {member.mention}'s duo signup."
             second_embed.set_image(url=f"attachment://{second_filename}")
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             await channel.send(embed=second_embed, file=second_file)
