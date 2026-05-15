@@ -2026,7 +2026,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:solo"
     )
     async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
             await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
             return
@@ -2038,7 +2039,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:duo"
     )
     async def duo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
             await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
             return
@@ -2050,7 +2052,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:captain"
     )
     async def captain_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if not self.cog.has_captain_signup_access(interaction.user):
             await interaction.response.send_message(
                 "Only Event Staff, Clan Staff, Senior Staff, or Event Captains can use Captain Signup.",
