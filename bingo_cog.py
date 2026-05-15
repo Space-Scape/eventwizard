@@ -6,7 +6,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timezone
 import asyncio
-from typing import Optional
+from typing import Optional, NamedTuple
 import random
 import io
 import re
@@ -123,6 +123,11 @@ BOSS_DROPS = {
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage"],
     "Misc": ["Gull", "Muphin", "Smolcano", "Pet Drop", "Moxi", "Jar of feathers", "Prince black dragon", "Abyssal orphan"]
 }
+
+
+class MessageImageSource(NamedTuple):
+    attachment: Optional[discord.Attachment]
+    image_url: str
 
 class BingoCog(commands.Cog):
     """Cog for handling bingo drop submissions, reviews, and player rolls."""
@@ -1556,6 +1561,40 @@ class BingoCog(commands.Cog):
             safe_name += ".png"
         return discord.File(io.BytesIO(raw), filename=safe_name), safe_name
 
+    def extract_image_url_from_message(self, message: discord.Message) -> Optional[MessageImageSource]:
+        """Extract an image source from a message attachment or embed preview."""
+        if message.attachments:
+            attachment = message.attachments[0]
+            if attachment.url:
+                return MessageImageSource(attachment=attachment, image_url=attachment.url)
+
+        for embed in message.embeds:
+            embed_image = getattr(embed, "image", None)
+            image_url = getattr(embed_image, "url", None) if embed_image else None
+            if image_url:
+                return MessageImageSource(attachment=None, image_url=image_url)
+
+            embed_thumbnail = getattr(embed, "thumbnail", None)
+            thumbnail_url = getattr(embed_thumbnail, "url", None) if embed_thumbnail else None
+            if thumbnail_url:
+                return MessageImageSource(attachment=None, image_url=thumbnail_url)
+
+        # Embed previews may not be ready yet on message create events.
+        # Accept direct image URLs pasted into message content as a fallback.
+        content = str(getattr(message, "content", "") or "").strip()
+        if content:
+            url_match = re.search(r"https?://\S+", content)
+            if url_match:
+                candidate = url_match.group(0).rstrip(")>]\"'.,!?")
+                parsed = urllib.parse.urlparse(candidate)
+                path = (parsed.path or "").casefold()
+                if parsed.scheme in {"http", "https"} and any(
+                    path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+                ):
+                    return MessageImageSource(attachment=None, image_url=candidate)
+
+        return None
+
     def can_capture_signup_screenshots(self) -> bool:
         """Discord only sends attachment data to bots with Message Content Intent enabled."""
         return bool(getattr(self.bot.intents, "message_content", False))
@@ -1638,14 +1677,19 @@ class BingoCog(commands.Cog):
             return (
                 message.author.id == member.id
                 and message.channel.id == channel.id
-                and len(message.attachments) > 0
+                and self.extract_image_url_from_message(message) is not None
             )
 
         try:
             first_message = await self.bot.wait_for("message", check=check, timeout=600)
-            first_attachment = first_message.attachments[0]
-            first_url = first_attachment.url
-            first_file, first_filename = await self.attachment_to_discord_file(first_attachment, "buy_in.png")
+            first_source = self.extract_image_url_from_message(first_message)
+            if first_source is None:
+                raise ValueError("No valid image source found for first screenshot message.")
+            first_url = first_source.image_url
+            first_file = None
+            first_filename = None
+            if first_source.attachment is not None:
+                first_file, first_filename = await self.attachment_to_discord_file(first_source.attachment, "buy_in.png")
 
             # Save the submitter immediately after the required screenshot.
             # Captain rows keep their pre-filled crown rank, so they are not WOM-ranked.
@@ -1679,7 +1723,8 @@ class BingoCog(commands.Cog):
                 await self.add_auto_rank_to_signup_data(data, "Duo Partner", "Duo Rank", "Duo Ironman")
                 partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
                 data["_partner_row"] = partner_row
-                partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
+                if first_source.attachment is not None:
+                    partner_file, partner_filename = await self.attachment_to_discord_file(first_source.attachment, "partner_buy_in.png")
 
             await self.add_bingo_player_role_for_signup(
                 member,
@@ -1688,18 +1733,26 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
-            first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
+            first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
+            first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
-            await channel.send(embed=first_embed, file=first_file)
+            if first_file:
+                await channel.send(embed=first_embed, file=first_file)
+            else:
+                await channel.send(embed=first_embed)
 
             if is_duo and partner_row and partner_file and partner_filename:
+                partner_embed_url = f"attachment://{partner_filename}" if partner_filename else first_url
                 partner_embed = self.build_duo_partner_signup_embed(
                     data,
                     partner_info,
-                    f"attachment://{partner_filename}",
+                    partner_embed_url,
                 )
                 partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
-                await channel.send(embed=partner_embed, file=partner_file)
+                if partner_file:
+                    await channel.send(embed=partner_embed, file=partner_file)
+                else:
+                    await channel.send(embed=partner_embed)
 
             await self.safe_delete_message(first_message)
 
@@ -1715,9 +1768,14 @@ class BingoCog(commands.Cog):
                 await channel.send(self.get_signup_followup_message())
                 return
 
-            second_attachment = second_message.attachments[0]
-            second_url = second_attachment.url
-            second_file, second_filename = await self.attachment_to_discord_file(second_attachment, "partner_buy_in.png")
+            second_source = self.extract_image_url_from_message(second_message)
+            if second_source is None:
+                raise ValueError("No valid image source found for second screenshot message.")
+            second_url = second_source.image_url
+            second_file = None
+            second_filename = None
+            if second_source.attachment is not None:
+                second_file, second_filename = await self.attachment_to_discord_file(second_source.attachment, "partner_buy_in.png")
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
 
             partner_target = None
@@ -1730,16 +1788,19 @@ class BingoCog(commands.Cog):
 
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=discord.Colour.blue())
             second_embed.description = f"Additional buy-in screenshot for {partner_target}."
-            second_embed.set_image(url=f"attachment://{second_filename}")
+            second_embed.set_image(url=f"attachment://{second_filename}" if second_filename else second_url)
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
-            await channel.send(embed=second_embed, file=second_file)
+            if second_file:
+                await channel.send(embed=second_embed, file=second_file)
+            else:
+                await channel.send(embed=second_embed)
             await self.safe_delete_message(second_message)
             await channel.send(self.get_signup_followup_message())
 
         except asyncio.TimeoutError:
             try:
                 await channel.send(
-                    f"{member.mention}, your signup timed out because no screenshot was posted.",
+                    f"{member.mention}, your signup timed out because no image upload or image link was posted.",
                     delete_after=20
                 )
             except Exception:
@@ -1979,7 +2040,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:solo"
     )
     async def solo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
             await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
             return
@@ -1991,7 +2053,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:duo"
     )
     async def duo_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if self.cog.is_banned_event_participant(discord_id=str(interaction.user.id)):
             await interaction.response.send_message(self.cog.banned_signup_error_message(), ephemeral=True)
             return
@@ -2003,7 +2066,8 @@ class BingoSignupPanelView(discord.ui.View):
         custom_id="bingo_signup:captain"
     )
     async def captain_signup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.cog.signup_panel_jump_url = interaction.message.jump_url
+        if not self.cog.signup_panel_jump_url:
+            self.cog.signup_panel_jump_url = interaction.message.jump_url
         if not self.cog.has_captain_signup_access(interaction.user):
             await interaction.response.send_message(
                 "Only Event Staff, Clan Staff, Senior Staff, or Event Captains can use Captain Signup.",
