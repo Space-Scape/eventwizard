@@ -48,7 +48,57 @@ def clean_clan_message(content: str) -> str:
         .replace("\\'", "'")
         .replace('\\"', '"')
         .replace("\\-", "-")
+        .replace("\\.", ".")
     )
+
+
+def clean_player_name(name: str) -> str:
+    """
+    Clan Chat names can come through like:
+    <:Deputy_owner:1144313595925110857> **SpaceScape**
+
+    This returns:
+    SpaceScape
+    """
+
+    name = name.strip()
+
+    # Remove custom Discord emojis like <:Deputy_owner:1144313595925110857>
+    name = re.sub(r"<a?:[^:]+:\d+>", "", name)
+
+    # If the name is bolded like **SpaceScape**, grab what's inside.
+    bold_match = re.search(r"\*\*(.+?)\*\*", name)
+    if bold_match:
+        name = bold_match.group(1)
+
+    # Remove leftover markdown symbols and whitespace.
+    name = name.replace("*", "").strip()
+
+    return name
+
+
+def clean_drop_name(drop: str) -> str:
+    """
+    Removes trailing value/progress text from drops.
+
+    Examples:
+    Imbued heart (101,719,907 coins). -> Imbued heart
+    Beekeeper's legs (135/1537) -> Beekeeper's legs
+    """
+
+    drop = drop.strip()
+
+    # Clean escaped Discord punctuation first.
+    drop = clean_clan_message(drop)
+
+    # Remove anything from the first parenthesis onward.
+    # Example: Imbued heart (101,719,907 coins). -> Imbued heart
+    drop = re.sub(r"\s*\(.*$", "", drop).strip()
+
+    # Remove leftover trailing punctuation.
+    drop = drop.rstrip(".").strip()
+
+    return drop
 
 
 # ============================================================
@@ -59,8 +109,8 @@ def clean_clan_message(content: str) -> str:
 #
 # Player received a drop: Item Name
 #
-# This is intentionally simple for now. If your Clan Chat app has a more exact
-# format, we can add a custom parser like the pet/raid/clog ones.
+# Example:
+# <:Deputy_owner:1144313595925110857> **SpaceScape** received a drop: Imbued heart (101,719,907 coins).
 NORMAL_DROP_PATTERN = re.compile(
     r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a drop:?\s*(?P<drop>.+)?$",
     re.IGNORECASE,
@@ -111,6 +161,7 @@ COLLECTION_LOG_PATTERN = re.compile(
 #
 # SpaceScape: Test
 # SpaceScape Test
+# <:Deputy_owner:1144313595925110857> **SpaceScape** Test
 #
 # Grabs:
 # player = SpaceScape
@@ -214,29 +265,29 @@ class ChannelLogger(commands.Cog):
 
         pet_match = PET_PATTERN.search(content)
         if pet_match:
-            submitted_for = pet_match.group("player").strip()
-            drop_received = pet_match.group("drop").strip()
+            submitted_for = clean_player_name(pet_match.group("player"))
+            drop_received = clean_drop_name(pet_match.group("drop"))
             return submitted_for, drop_received
 
         raid_match = RAID_DROP_PATTERN.search(content)
         if raid_match:
-            submitted_for = raid_match.group("player").strip()
-            drop_received = raid_match.group("drop").strip()
+            submitted_for = clean_player_name(raid_match.group("player"))
+            drop_received = clean_drop_name(raid_match.group("drop"))
             return submitted_for, drop_received
 
         collection_match = COLLECTION_LOG_PATTERN.search(content)
         if collection_match:
-            submitted_for = collection_match.group("player").strip()
-            drop_received = collection_match.group("drop").strip()
+            submitted_for = clean_player_name(collection_match.group("player"))
+            drop_received = clean_drop_name(collection_match.group("drop"))
             return submitted_for, drop_received
 
         normal_drop_match = NORMAL_DROP_PATTERN.search(content)
         if normal_drop_match:
-            submitted_for = normal_drop_match.group("player").strip()
+            submitted_for = clean_player_name(normal_drop_match.group("player"))
             drop_received = normal_drop_match.group("drop")
 
             if drop_received:
-                drop_received = drop_received.strip()
+                drop_received = clean_drop_name(drop_received)
             else:
                 drop_received = "Drop"
 
@@ -244,7 +295,7 @@ class ChannelLogger(commands.Cog):
 
         test_match = TEST_PATTERN.search(content)
         if test_match:
-            submitted_for = test_match.group("player").strip()
+            submitted_for = clean_player_name(test_match.group("player"))
             drop_received = "Test"
             return submitted_for, drop_received
 
