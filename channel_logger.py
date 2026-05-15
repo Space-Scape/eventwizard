@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import asyncio
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -28,6 +29,9 @@ LOG_CHANNEL_ID = 1504315879431864372
 
 REQUIRED_ROLE_NAME = "Event Staff"
 
+# Keep this False so ignored non-signup drops do not spam Railway logs.
+VERBOSE_IGNORED = False
+
 CST = ZoneInfo("America/Chicago")
 
 
@@ -37,7 +41,7 @@ CST = ZoneInfo("America/Chicago")
 
 def clean_clan_message(content: str) -> str:
     return (
-        content
+        str(content or "")
         .replace("\\:", ":")
         .replace("\\(", "(")
         .replace("\\)", ")")
@@ -49,7 +53,7 @@ def clean_clan_message(content: str) -> str:
 
 
 def clean_player_name(name: str) -> str:
-    name = name.strip()
+    name = str(name or "").strip()
 
     # Remove custom Discord emojis like <:Deputy_owner:1144313595925110857>
     name = re.sub(r"<a?:[^:]+:\d+>", "", name)
@@ -59,12 +63,14 @@ def clean_player_name(name: str) -> str:
     if bold_match:
         name = bold_match.group(1)
 
+    # Remove leftover markdown symbols and whitespace.
     name = name.replace("*", "").strip()
+
     return name
 
 
 def clean_drop_name(drop: str) -> str:
-    drop = drop.strip()
+    drop = str(drop or "").strip()
     drop = clean_clan_message(drop)
 
     # Remove anything from the first parenthesis onward.
@@ -75,6 +81,18 @@ def clean_drop_name(drop: str) -> str:
     drop = drop.rstrip(".").strip()
 
     return drop
+
+
+def normalize_rsn_name(name: str) -> str:
+    """
+    Normalizes RSNs for matching parsed Clan Chat names against
+    the bingo signup sheet column C.
+    """
+
+    name = clean_clan_message(str(name or ""))
+    name = clean_player_name(name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return name.casefold()
 
 
 # ============================================================
@@ -94,7 +112,8 @@ PET_PATTERN = re.compile(
 )
 
 RAID_DROP_PATTERN = re.compile(
-    r"^(?:\[.*?\]\s*)?(?:\S+\s+)?(?P<player>.+?)\s+received special loot from a raid:\s+"
+    r"^(?:\[.*?\]\s*)?(?:<a?:[^:]+:\d+>\s*|[^\w\s]+\s*)?"
+    r"(?P<player>.+?)\s+received special loot from a raid:\s+"
     r"(?P<drop>.+?)\s+\(",
     re.IGNORECASE,
 )
@@ -361,7 +380,90 @@ class ChannelLogger(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.sheet = get_sheet()
+
+        # Cache signup RSNs for 60 seconds so every clan-chat message does not
+        # hammer Google Sheets.
+        self._signup_rsn_cache: set[str] = set()
+        self._signup_rsn_cache_time = 0.0
+
         print("✅ ChannelLogger cog initialized.")
+
+    # --------------------------------------------------------
+    # Signup validation
+    # --------------------------------------------------------
+
+    def get_bingo_signup_sheet(self):
+        """
+        Uses the already-loaded BingoCog signup sheet.
+
+        bingo_cog.py stores signup RSNs in column C.
+        """
+
+        bingo_cog = self.bot.get_cog("BingoCog")
+
+        if not bingo_cog:
+            if VERBOSE_IGNORED:
+                print("ChannelLogger: BingoCog is not loaded yet, so signup validation cannot run.")
+            return None
+
+        signup_sheet = getattr(bingo_cog, "signup_sheet", None)
+
+        if signup_sheet is None:
+            if VERBOSE_IGNORED:
+                print("ChannelLogger: BingoCog signup_sheet is not available.")
+            return None
+
+        return signup_sheet
+
+    def get_signed_up_rsns(self, force_refresh: bool = False) -> set[str]:
+        """
+        Reads column C from the Bingo signup spreadsheet and caches it briefly.
+        Column C is RSN.
+        """
+
+        now = time.time()
+
+        if (
+            not force_refresh
+            and self._signup_rsn_cache
+            and now - self._signup_rsn_cache_time < 60
+        ):
+            return self._signup_rsn_cache
+
+        signup_sheet = self.get_bingo_signup_sheet()
+
+        if signup_sheet is None:
+            return set()
+
+        try:
+            rsn_values = signup_sheet.col_values(3)  # Column C: RSN
+        except Exception as e:
+            print(f"ChannelLogger: Failed to read signup RSN column C: {e}")
+            return set()
+
+        normalized_rsns = {
+            normalize_rsn_name(rsn)
+            for rsn in rsn_values[1:]  # skip header row
+            if normalize_rsn_name(rsn)
+        }
+
+        self._signup_rsn_cache = normalized_rsns
+        self._signup_rsn_cache_time = now
+
+        return normalized_rsns
+
+    def player_is_signed_up(self, player_name: str) -> bool:
+        wanted = normalize_rsn_name(player_name)
+
+        if not wanted:
+            return False
+
+        signed_up_rsns = self.get_signed_up_rsns()
+        return wanted in signed_up_rsns
+
+    # --------------------------------------------------------
+    # Drop-log sheet writing after review approval
+    # --------------------------------------------------------
 
     def find_next_drop_log_row(self) -> int:
         start_row = 2
@@ -399,6 +501,10 @@ class ChannelLogger(commands.Cog):
 
         self.sheet.update(f"A{row}:F{row}", values)
         return row
+
+    # --------------------------------------------------------
+    # Parsing
+    # --------------------------------------------------------
 
     def get_matches(self, content: str) -> list[str]:
         content = clean_clan_message(content)
@@ -462,6 +568,10 @@ class ChannelLogger(commands.Cog):
 
         return message.author.display_name, content
 
+    # --------------------------------------------------------
+    # Discord listener
+    # --------------------------------------------------------
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         # Do not log this bot's own messages.
@@ -478,6 +588,16 @@ class ChannelLogger(commands.Cog):
             return
 
         submitted_for, drop_received = self.parse_logged_message(message, matches)
+
+        # Only send for verification if the parsed player exists in the bingo
+        # signup spreadsheet column C.
+        if not self.player_is_signed_up(submitted_for):
+            if VERBOSE_IGNORED:
+                print(
+                    f"ChannelLogger: Ignored {drop_received} for {submitted_for} "
+                    f"because the RSN is not signed up in column C."
+                )
+            return
 
         review_channel = self.bot.get_channel(REVIEW_CHANNEL_ID)
 
