@@ -112,16 +112,12 @@ class ChannelLogger(commands.Cog):
         attachment_urls = "\n".join(a.url for a in message.attachments)
 
         row = [
-            timestamp,
-            str(message.author),
-            str(message.author.id),
+            "Auto Logger",
             message.author.display_name,
-            str(message.channel),
-            str(message.channel.id),
-            ", ".join(matches),
+            str(message.author.id),
             message.content,
             attachment_urls,
-            message.jump_url,
+            timestamp,
         ]
 
         try:
