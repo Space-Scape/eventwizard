@@ -2392,6 +2392,13 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
                     submitter_info = await self.cog.enrich_registered_info_for_guild(interaction.channel, submitter_info)
                 submitter_row = self.cog.write_or_update_signup_to_sheet(interaction.user, self.data, buyin_screenshot, registered_info=submitter_info)
                 partner_row = self.cog.ensure_duo_partner_row(interaction.user, self.data, buyin_screenshot, partner_info)
+                guild_member = await self.cog.resolve_guild_member(interaction.channel, interaction.user)
+                await self.cog.add_bingo_player_role_for_signup(
+                    guild_member,
+                    self.data,
+                    partner_row=partner_row,
+                    partner_info=partner_info,
+                )
                 self.data["_submitter_row"] = submitter_row
                 self.data["_partner_row"] = partner_row
                 await interaction.followup.send(
