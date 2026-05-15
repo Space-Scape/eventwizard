@@ -1,7 +1,9 @@
 import os
 import re
-from datetime import datetime
+import asyncio
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -15,12 +17,16 @@ from google.oauth2.service_account import Credentials
 # ============================================================
 
 DROP_LOG_SHEET_ID = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
-
-# Your sheet tab name.
 DROP_LOG_TAB_NAME = "Drop Tab"
 
 # Channel the bot watches for drop/pet/clog messages.
 WATCH_CHANNEL_ID = 1272875477555482666
+
+# Same review/log channels used by bingo_cog.py.
+REVIEW_CHANNEL_ID = 1504315926017867847
+LOG_CHANNEL_ID = 1504315879431864372
+
+REQUIRED_ROLE_NAME = "Event Staff"
 
 CST = ZoneInfo("America/Chicago")
 
@@ -30,16 +36,6 @@ CST = ZoneInfo("America/Chicago")
 # ============================================================
 
 def clean_clan_message(content: str) -> str:
-    """
-    Clan Chat messages sometimes escape punctuation when passed through Discord.
-
-    Example:
-    collection log item\\: Beekeeper's legs \\(135/1537\\)
-
-    This turns it back into:
-    collection log item: Beekeeper's legs (135/1537)
-    """
-
     return (
         content
         .replace("\\:", ":")
@@ -53,14 +49,6 @@ def clean_clan_message(content: str) -> str:
 
 
 def clean_player_name(name: str) -> str:
-    """
-    Clan Chat names can come through like:
-    <:Deputy_owner:1144313595925110857> **SpaceScape**
-
-    This returns:
-    SpaceScape
-    """
-
     name = name.strip()
 
     # Remove custom Discord emojis like <:Deputy_owner:1144313595925110857>
@@ -71,24 +59,12 @@ def clean_player_name(name: str) -> str:
     if bold_match:
         name = bold_match.group(1)
 
-    # Remove leftover markdown symbols and whitespace.
     name = name.replace("*", "").strip()
-
     return name
 
 
 def clean_drop_name(drop: str) -> str:
-    """
-    Removes trailing value/progress text from drops.
-
-    Examples:
-    Imbued heart (101,719,907 coins). -> Imbued heart
-    Beekeeper's legs (135/1537) -> Beekeeper's legs
-    """
-
     drop = drop.strip()
-
-    # Clean escaped Discord punctuation first.
     drop = clean_clan_message(drop)
 
     # Remove anything from the first parenthesis onward.
@@ -105,25 +81,11 @@ def clean_drop_name(drop: str) -> str:
 # REGEX PATTERNS
 # ============================================================
 
-# Normal drop format:
-#
-# Player received a drop: Item Name
-#
-# Example:
-# <:Deputy_owner:1144313595925110857> **SpaceScape** received a drop: Imbued heart (101,719,907 coins).
 NORMAL_DROP_PATTERN = re.compile(
     r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a drop:?\s*(?P<drop>.+)?$",
     re.IGNORECASE,
 )
 
-# Pet message formats:
-#
-# Name has a funny feeling like he's being followed: Pet Name at KC.
-# Name has a funny feeling like she's being followed: Pet Name at KC.
-# Name has a funny feeling like they're being followed: Pet Name at KC.
-# Name has a funny feeling like he would have been followed: Pet Name at XP.
-# Name has a funny feeling like she would have been followed: Pet Name at XP.
-# Name has a funny feeling like they would have been followed: Pet Name at XP.
 PET_PATTERN = re.compile(
     r"^(?P<player>.+?)\s+has a funny feeling like\s+"
     r"(?:(?:he's|she's|they're)\s+being followed|(?:he|she|they)\s+would have been followed):\s+"
@@ -131,41 +93,18 @@ PET_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Raid drop format:
-#
-# [Rancour PvM] 🛡 Packn Fudge received special loot from a raid: Dinh's bulwark (16,726,799 coins).
-#
-# Grabs:
-# player = Packn Fudge
-# drop = Dinh's bulwark
 RAID_DROP_PATTERN = re.compile(
     r"^(?:\[.*?\]\s*)?(?:\S+\s+)?(?P<player>.+?)\s+received special loot from a raid:\s+"
     r"(?P<drop>.+?)\s+\(",
     re.IGNORECASE,
 )
 
-# Collection log format:
-#
-# <:Collectionlog:1147701373455048814> PatrickRobby received a new collection log item: Beekeeper's legs (135/1537)
-#
-# Grabs:
-# player = PatrickRobby
-# drop = Beekeeper's legs
 COLLECTION_LOG_PATTERN = re.compile(
     r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a new collection log item:\s+"
     r"(?P<drop>.+?)\s+\(",
     re.IGNORECASE,
 )
 
-# Test format:
-#
-# SpaceScape: Test
-# SpaceScape Test
-# <:Deputy_owner:1144313595925110857> **SpaceScape** Test
-#
-# Grabs:
-# player = SpaceScape
-# drop = Test
 TEST_PATTERN = re.compile(
     r"^(?P<player>.+?)(?::)?\s+test\b",
     re.IGNORECASE,
@@ -213,6 +152,208 @@ def get_sheet():
 
 
 # ============================================================
+# REVIEW BUTTONS FOR AUTO-LOGGED DROPS
+# ============================================================
+
+class AutoLogReviewButtons(discord.ui.View):
+    def __init__(
+        self,
+        cog: "ChannelLogger",
+        submitted_for: str,
+        drop_received: str,
+        source_message_url: str,
+        match_types: list[str],
+    ):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.submitted_for = submitted_for
+        self.drop_received = drop_received
+        self.source_message_url = source_message_url
+        self.match_types = match_types
+        self.reviewer: Optional[int] = None
+
+    def has_drop_manager_role(self, member: discord.Member) -> bool:
+        return any(role.name == REQUIRED_ROLE_NAME for role in member.roles)
+
+    def is_moderator(self, member: discord.Member) -> bool:
+        return any(role.name == "Moderators" for role in member.roles)
+
+    @discord.ui.button(label="Review", style=discord.ButtonStyle.blurple)
+    async def review(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = interaction.user
+
+        if not self.has_drop_manager_role(user) and not self.is_moderator(user):
+            await interaction.response.send_message("You do not have permission to review.", ephemeral=True)
+            return
+
+        if self.reviewer is None:
+            self.reviewer = user.id
+
+            for child in self.children:
+                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                    child.disabled = False
+
+            reviewer_label = "Moderator" if self.is_moderator(user) else "Reviewer"
+
+            await interaction.message.edit(
+                content=f"Being reviewed by {reviewer_label}: {user.display_name}",
+                view=self,
+            )
+            await interaction.response.defer()
+            return
+
+        if self.reviewer == user.id:
+            self.reviewer = None
+
+            for child in self.children:
+                if child.label.startswith("Approve") or child.label.startswith("Reject"):
+                    child.disabled = True
+
+            await interaction.message.edit(
+                content="No one is currently reviewing this.",
+                view=self,
+            )
+            await interaction.response.defer()
+            return
+
+        await interaction.response.send_message(
+            f"This is currently being reviewed by <@{self.reviewer}>.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green, disabled=True)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.reviewer != interaction.user.id:
+            await interaction.response.send_message(
+                "You are not the reviewer of this submission.",
+                ephemeral=True,
+            )
+            return
+
+        errors = []
+
+        log_channel = self.cog.bot.get_channel(LOG_CHANNEL_ID)
+
+        if log_channel:
+            try:
+                embed = discord.Embed(title="Drop Approved", colour=discord.Colour.green())
+                embed.add_field(name="Approved By", value=interaction.user.display_name, inline=False)
+                embed.add_field(name="Drop For", value=self.submitted_for, inline=False)
+                embed.add_field(name="Drop", value=self.drop_received, inline=False)
+                embed.add_field(name="Submitted By", value="Auto Logger", inline=False)
+                embed.add_field(name="Source Message", value=self.source_message_url, inline=False)
+                embed.add_field(name="Match Type", value=", ".join(self.match_types), inline=False)
+
+                await log_channel.send(embed=embed)
+
+            except Exception as e:
+                print(f"ChannelLogger: Failed to send approval to log channel: {e}")
+                errors.append("Failed to log to channel")
+        else:
+            errors.append("Log channel not found")
+
+        try:
+            self.cog.log_approved_autolog_drop_to_sheet(
+                reviewer_name=interaction.user.display_name,
+                submitted_for=self.submitted_for,
+                drop_received=self.drop_received,
+                source_message_url=self.source_message_url,
+            )
+        except Exception as e:
+            print(f"ChannelLogger: Failed to write approved auto-log row: {e}")
+            errors.append("Failed to log to spreadsheet")
+
+        if errors:
+            await interaction.response.send_message(
+                f"Approved but with issues: {', '.join(errors)}. Message will be removed.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "Approved and logged. This message will now be removed.",
+                ephemeral=True,
+            )
+
+        try:
+            await asyncio.sleep(1)
+            await interaction.message.delete()
+        except Exception as e:
+            print(f"ChannelLogger: Failed to delete review message: {e}")
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red, disabled=True)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.reviewer != interaction.user.id:
+            await interaction.response.send_message(
+                "You are not the reviewer of this submission.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_modal(AutoLogRejectReasonModal(self.cog, self, interaction))
+
+
+class AutoLogRejectReasonModal(discord.ui.Modal, title="Reject Auto-Logged Submission"):
+    def __init__(
+        self,
+        cog: "ChannelLogger",
+        parent_view: AutoLogReviewButtons,
+        interaction: discord.Interaction,
+    ):
+        super().__init__()
+        self.cog = cog
+        self.parent_view = parent_view
+        self.message = interaction.message
+
+        self.reason = discord.ui.TextInput(
+            label="Reason for rejection",
+            style=discord.TextStyle.paragraph,
+            placeholder="Enter the reason why this drop is being rejected.",
+            required=True,
+            max_length=500,
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        logged = False
+
+        log_channel = self.cog.bot.get_channel(LOG_CHANNEL_ID)
+
+        if log_channel:
+            try:
+                embed = discord.Embed(title="Drop Rejected", colour=discord.Colour.red())
+                embed.add_field(name="Rejected By", value=interaction.user.display_name, inline=False)
+                embed.add_field(name="Drop For", value=self.parent_view.submitted_for, inline=False)
+                embed.add_field(name="Drop", value=self.parent_view.drop_received, inline=False)
+                embed.add_field(name="Submitted By", value="Auto Logger", inline=False)
+                embed.add_field(name="Source Message", value=self.parent_view.source_message_url, inline=False)
+                embed.add_field(name="Match Type", value=", ".join(self.parent_view.match_types), inline=False)
+                embed.add_field(name="Reason", value=self.reason.value, inline=False)
+
+                await log_channel.send(embed=embed)
+                logged = True
+
+            except Exception as e:
+                print(f"ChannelLogger: Failed to send rejection to log channel: {e}")
+
+        if logged:
+            await interaction.response.send_message(
+                "Submission rejected and logged. This message will now be removed.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "Submission rejected but failed to log. This message will now be removed.",
+                ephemeral=True,
+            )
+
+        try:
+            await asyncio.sleep(1)
+            await self.message.delete()
+        except Exception as e:
+            print(f"ChannelLogger: Failed to delete rejected review message: {e}")
+
+
+# ============================================================
 # COG
 # ============================================================
 
@@ -221,6 +362,43 @@ class ChannelLogger(commands.Cog):
         self.bot = bot
         self.sheet = get_sheet()
         print("✅ ChannelLogger cog initialized.")
+
+    def find_next_drop_log_row(self) -> int:
+        start_row = 2
+        end_row = 2000
+
+        try:
+            values = self.sheet.get(f"A{start_row}:F{end_row}")
+        except Exception:
+            values = []
+
+        for offset in range(end_row - start_row + 1):
+            row_values = values[offset] if offset < len(values) else []
+            if not any(str(cell).strip() for cell in row_values[:6]):
+                return start_row + offset
+
+        raise RuntimeError(f"No open drop-log rows are available between rows {start_row} and {end_row}.")
+
+    def log_approved_autolog_drop_to_sheet(
+        self,
+        reviewer_name: str,
+        submitted_for: str,
+        drop_received: str,
+        source_message_url: str,
+    ) -> int:
+        row = self.find_next_drop_log_row()
+
+        values = [[
+            reviewer_name,       # Approved by
+            submitted_for,       # Submitted for
+            "",                  # Submitted for Discord ID
+            drop_received,       # Drop Received
+            source_message_url,  # Screenshot / message link
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        ]]
+
+        self.sheet.update(f"A{row}:F{row}", values)
+        return row
 
     def get_matches(self, content: str) -> list[str]:
         content = clean_clan_message(content)
@@ -243,24 +421,7 @@ class ChannelLogger(commands.Cog):
 
         return matches
 
-    def parse_logged_message(
-        self,
-        message: discord.Message,
-        matches: list[str],
-    ) -> tuple[str, str]:
-        """
-        Returns:
-        submitted_for, drop_received
-
-        Auto-logged sheet behavior:
-        - Approved by = Auto Logger
-        - Submitted for = parsed player name
-        - Submitted for Discord ID = blank
-        - Drop Received = parsed drop/item/test
-        - Screenshot = blank
-        - Date/Time = timestamp
-        """
-
+    def parse_logged_message(self, message: discord.Message, matches: list[str]) -> tuple[str, str]:
         content = clean_clan_message(message.content.strip())
 
         pet_match = PET_PATTERN.search(content)
@@ -303,16 +464,11 @@ class ChannelLogger(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # IMPORTANT:
-        # Clan Chat appears to be a Discord bot/app.
-        # Do NOT ignore all bot messages, or Clan Chat logs will never be recorded.
-        #
-        # This only ignores your own bot so it does not accidentally log itself.
+        # Do not log this bot's own messages.
         if message.author.id == self.bot.user.id:
             return
 
-        # Only watch the configured channel.
-        # This check is before any logging/printing so other channels do not spam Railway.
+        # Only watch live-clan-chat.
         if message.channel.id != WATCH_CHANNEL_ID:
             return
 
@@ -321,41 +477,41 @@ class ChannelLogger(commands.Cog):
         if not matches:
             return
 
-        timestamp = datetime.now(CST).strftime("%m/%d/%Y %I:%M %p")
-
         submitted_for, drop_received = self.parse_logged_message(message, matches)
 
-        row = [
-            "Auto Logger",      # Approved by
-            submitted_for,      # Submitted for
-            "",                 # Submitted for Discord ID
-            drop_received,      # Drop Received
-            message.jump_url,   # Screenshot / Message Link
-            timestamp,          # Date/Time
-        ]
+        review_channel = self.bot.get_channel(REVIEW_CHANNEL_ID)
 
-        try:
-            # Write directly into A:F instead of relying on append_row behavior.
-            # Header is row 1, so first log row should be row 2.
-            next_row = len(self.sheet.col_values(1)) + 1
+        if not review_channel:
+            print(f"❌ ChannelLogger could not find review channel {REVIEW_CHANNEL_ID}.")
+            return
 
-            if next_row < 2:
-                next_row = 2
+        embed = discord.Embed(
+            title="Auto-Logged Drop Submission",
+            colour=discord.Colour.blurple(),
+        )
+        embed.add_field(name="Submitted For", value=submitted_for, inline=False)
+        embed.add_field(name="Drop Received", value=drop_received, inline=False)
+        embed.add_field(name="Submitted By", value="Auto Logger", inline=False)
+        embed.add_field(name="Source Message", value=message.jump_url, inline=False)
+        embed.add_field(name="Match Type", value=", ".join(matches), inline=False)
+        embed.set_footer(text=f"Detected from #{message.channel.name}")
 
-            self.sheet.update(
-                range_name=f"A{next_row}:F{next_row}",
-                values=[row],
-                value_input_option="USER_ENTERED",
-            )
+        await review_channel.send(
+            embed=embed,
+            view=AutoLogReviewButtons(
+                self,
+                submitted_for,
+                drop_received,
+                message.jump_url,
+                matches,
+            ),
+        )
 
-            print(
-                f"✅ Auto-logged {drop_received} for {submitted_for} "
-                f"with match type(s): {', '.join(matches)} "
-                f"to row {next_row}"
-            )
-
-        except Exception as e:
-            print(f"❌ ChannelLogger failed to log message: {e}")
+        print(
+            f"✅ Sent auto-logged submission to review: "
+            f"{drop_received} for {submitted_for} "
+            f"with match type(s): {', '.join(matches)}"
+        )
 
 
 async def setup(bot: commands.Bot):
