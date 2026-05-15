@@ -326,12 +326,12 @@ class ChannelLogger(commands.Cog):
         submitted_for, drop_received = self.parse_logged_message(message, matches)
 
         row = [
-            "Auto Logger",   # Approved by
-            submitted_for,   # Submitted for
-            "",              # Submitted for Discord ID
-            drop_received,   # Drop Received
-            "",              # Screenshot
-            timestamp,       # Date/Time
+            "Auto Logger",      # Approved by
+            submitted_for,      # Submitted for
+            "",                 # Submitted for Discord ID
+            drop_received,      # Drop Received
+            message.jump_url,   # Screenshot / Message Link
+            timestamp,          # Date/Time
         ]
 
         try:
