@@ -205,21 +205,29 @@ class ChannelLogger(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # IMPORTANT:
-        # Clan Chat appears to be a Discord bot/app.
-        # Do NOT ignore all bot messages, or Clan Chat logs will never be recorded.
-        #
-        # This only ignores your own bot so it does not accidentally log itself.
+        print(
+            f"[ChannelLogger DEBUG] Saw message | "
+            f"channel={message.channel.id} | "
+            f"author={message.author} | "
+            f"content={message.content!r}"
+        )
+
         if message.author.id == self.bot.user.id:
+            print("[ChannelLogger DEBUG] Ignored own bot message.")
             return
 
-        # Only watch the configured channel.
         if message.channel.id != WATCH_CHANNEL_ID:
+            print(
+                f"[ChannelLogger DEBUG] Wrong channel. "
+                f"Expected {WATCH_CHANNEL_ID}, got {message.channel.id}."
+            )
             return
 
         matches = self.get_matches(message.content)
+        print(f"[ChannelLogger DEBUG] Matches found: {matches}")
 
         if not matches:
+            print("[ChannelLogger DEBUG] No matching pattern.")
             return
 
         timestamp = datetime.now(CST).strftime("%m/%d/%Y %I:%M %p")
@@ -227,13 +235,15 @@ class ChannelLogger(commands.Cog):
         submitted_for, drop_received = self.parse_logged_message(message, matches)
 
         row = [
-            "Auto Logger",   # Approved by
-            submitted_for,   # Submitted for
-            "",              # Submitted for Discord ID
-            drop_received,   # Drop Received
-            "",              # Screenshot
-            timestamp,       # Date/Time
+            "Auto Logger",
+            submitted_for,
+            "",
+            drop_received,
+            "",
+            timestamp,
         ]
+
+        print(f"[ChannelLogger DEBUG] Row to append: {row}")
 
         try:
             self.sheet.append_row(row, value_input_option="USER_ENTERED")
@@ -243,7 +253,6 @@ class ChannelLogger(commands.Cog):
             )
         except Exception as e:
             print(f"❌ ChannelLogger failed to log message: {e}")
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ChannelLogger(bot))
