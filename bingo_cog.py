@@ -1579,20 +1579,6 @@ class BingoCog(commands.Cog):
             if thumbnail_url:
                 return MessageImageSource(attachment=None, image_url=thumbnail_url)
 
-        # Embed previews may not be ready yet on message create events.
-        # Accept direct image URLs pasted into message content as a fallback.
-        content = str(getattr(message, "content", "") or "").strip()
-        if content:
-            url_match = re.search(r"https?://\S+", content)
-            if url_match:
-                candidate = url_match.group(0).rstrip(")>]\"'.,!?")
-                parsed = urllib.parse.urlparse(candidate)
-                path = (parsed.path or "").casefold()
-                if parsed.scheme in {"http", "https"} and any(
-                    path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
-                ):
-                    return MessageImageSource(attachment=None, image_url=candidate)
-
         return None
 
     def can_capture_signup_screenshots(self) -> bool:
