@@ -26,16 +26,45 @@ CST = ZoneInfo("America/Chicago")
 
 
 # ============================================================
+# MESSAGE CLEANUP
+# ============================================================
+
+def clean_clan_message(content: str) -> str:
+    """
+    Clan Chat messages sometimes escape punctuation when passed through Discord.
+
+    Example:
+    collection log item\\: Beekeeper's legs \\(135/1537\\)
+
+    This turns it back into:
+    collection log item: Beekeeper's legs (135/1537)
+    """
+
+    return (
+        content
+        .replace("\\:", ":")
+        .replace("\\(", "(")
+        .replace("\\)", ")")
+        .replace("\\'", "'")
+        .replace('\\"', '"')
+        .replace("\\-", "-")
+    )
+
+
+# ============================================================
 # REGEX PATTERNS
 # ============================================================
 
-# Simple message checks.
-# These currently only detect the message type.
-# Parsing is handled separately below.
-LOG_PATTERNS = {
-    r"received a new collection log item:": "Collection Log Item",
-    r"received a drop": "Drop",
-}
+# Normal drop format:
+#
+# Player received a drop: Item Name
+#
+# This is intentionally simple for now. If your Clan Chat app has a more exact
+# format, we can add a custom parser like the pet/raid/clog ones.
+NORMAL_DROP_PATTERN = re.compile(
+    r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a drop:?\s*(?P<drop>.+)?$",
+    re.IGNORECASE,
+)
 
 # Pet message formats:
 #
@@ -65,13 +94,26 @@ RAID_DROP_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Collection log format:
+#
+# <:Collectionlog:1147701373455048814> PatrickRobby received a new collection log item: Beekeeper's legs (135/1537)
+#
+# Grabs:
+# player = PatrickRobby
+# drop = Beekeeper's legs
+COLLECTION_LOG_PATTERN = re.compile(
+    r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a new collection log item:\s+"
+    r"(?P<drop>.+?)\s+\(",
+    re.IGNORECASE,
+)
+
 # Test format:
 #
 # SpaceScape: Test
-# Tyler Test
+# SpaceScape Test
 #
 # Grabs:
-# player = SpaceScape / Tyler
+# player = SpaceScape
 # drop = Test
 TEST_PATTERN = re.compile(
     r"^(?P<player>.+?)(?::)?\s+test\b",
@@ -130,6 +172,7 @@ class ChannelLogger(commands.Cog):
         print("✅ ChannelLogger cog initialized.")
 
     def get_matches(self, content: str) -> list[str]:
+        content = clean_clan_message(content)
         matches = []
 
         if PET_PATTERN.search(content):
@@ -138,12 +181,14 @@ class ChannelLogger(commands.Cog):
         if RAID_DROP_PATTERN.search(content):
             matches.append("Raid Drop")
 
+        if COLLECTION_LOG_PATTERN.search(content):
+            matches.append("Collection Log Item")
+
+        if NORMAL_DROP_PATTERN.search(content):
+            matches.append("Drop")
+
         if TEST_PATTERN.search(content):
             matches.append("Test")
-
-        for pattern, label in LOG_PATTERNS.items():
-            if re.search(pattern, content, flags=re.IGNORECASE):
-                matches.append(label)
 
         return matches
 
@@ -163,25 +208,9 @@ class ChannelLogger(commands.Cog):
         - Drop Received = parsed drop/item/test
         - Screenshot = blank
         - Date/Time = timestamp
-
-        For pet messages:
-        - submitted_for = name before "has"
-        - drop_received = text after ":" and before "at"
-
-        For raid special loot messages:
-        - submitted_for = name before "received special loot from a raid"
-        - drop_received = text after ":" and before the coin value
-
-        For test messages:
-        - submitted_for = name before "test"
-        - drop_received = Test
-
-        For other matched messages:
-        - submitted_for = message author's display name
-        - drop_received = full message text
         """
 
-        content = message.content.strip()
+        content = clean_clan_message(message.content.strip())
 
         pet_match = PET_PATTERN.search(content)
         if pet_match:
@@ -195,6 +224,24 @@ class ChannelLogger(commands.Cog):
             drop_received = raid_match.group("drop").strip()
             return submitted_for, drop_received
 
+        collection_match = COLLECTION_LOG_PATTERN.search(content)
+        if collection_match:
+            submitted_for = collection_match.group("player").strip()
+            drop_received = collection_match.group("drop").strip()
+            return submitted_for, drop_received
+
+        normal_drop_match = NORMAL_DROP_PATTERN.search(content)
+        if normal_drop_match:
+            submitted_for = normal_drop_match.group("player").strip()
+            drop_received = normal_drop_match.group("drop")
+
+            if drop_received:
+                drop_received = drop_received.strip()
+            else:
+                drop_received = "Drop"
+
+            return submitted_for, drop_received
+
         test_match = TEST_PATTERN.search(content)
         if test_match:
             submitted_for = test_match.group("player").strip()
@@ -205,29 +252,22 @@ class ChannelLogger(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        print(
-            f"[ChannelLogger DEBUG] Saw message | "
-            f"channel={message.channel.id} | "
-            f"author={message.author} | "
-            f"content={message.content!r}"
-        )
-
+        # IMPORTANT:
+        # Clan Chat appears to be a Discord bot/app.
+        # Do NOT ignore all bot messages, or Clan Chat logs will never be recorded.
+        #
+        # This only ignores your own bot so it does not accidentally log itself.
         if message.author.id == self.bot.user.id:
-            print("[ChannelLogger DEBUG] Ignored own bot message.")
             return
 
+        # Only watch the configured channel.
+        # This check is before any logging/printing so other channels do not spam Railway.
         if message.channel.id != WATCH_CHANNEL_ID:
-            print(
-                f"[ChannelLogger DEBUG] Wrong channel. "
-                f"Expected {WATCH_CHANNEL_ID}, got {message.channel.id}."
-            )
             return
 
         matches = self.get_matches(message.content)
-        print(f"[ChannelLogger DEBUG] Matches found: {matches}")
 
         if not matches:
-            print("[ChannelLogger DEBUG] No matching pattern.")
             return
 
         timestamp = datetime.now(CST).strftime("%m/%d/%Y %I:%M %p")
@@ -244,6 +284,8 @@ class ChannelLogger(commands.Cog):
         ]
 
         try:
+            # Write directly into A:F instead of relying on append_row behavior.
+            # Header is row 1, so first log row should be row 2.
             next_row = len(self.sheet.col_values(1)) + 1
 
             if next_row < 2:
@@ -263,6 +305,7 @@ class ChannelLogger(commands.Cog):
 
         except Exception as e:
             print(f"❌ ChannelLogger failed to log message: {e}")
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ChannelLogger(bot))
