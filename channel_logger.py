@@ -16,21 +16,53 @@ from google.oauth2.service_account import Credentials
 
 DROP_LOG_SHEET_ID = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
 
-# Change this if your tab name is different.
+# Your sheet tab name.
 DROP_LOG_TAB_NAME = "Drop Tab"
 
-# Put the channel ID you want the bot to watch here.
+# Channel the bot watches for drop/pet/clog messages.
 WATCH_CHANNEL_ID = 1272875477555482666
 
 CST = ZoneInfo("America/Chicago")
 
 
+# ============================================================
+# REGEX PATTERNS
+# ============================================================
+
+# Simple message checks.
 LOG_PATTERNS = {
     r"received a new collection log item:": "Collection Log Item",
     r"received a drop": "Drop",
-    r"has a funny feeling like (he's|she's|they're) being followed:": "Pet",
     r"\btest\b": "Test",
 }
+
+# Pet message formats:
+#
+# Name has a funny feeling like he's being followed: Pet Name at KC.
+# Name has a funny feeling like she's being followed: Pet Name at KC.
+# Name has a funny feeling like they're being followed: Pet Name at KC.
+# Name has a funny feeling like he would have been followed: Pet Name at XP.
+# Name has a funny feeling like she would have been followed: Pet Name at XP.
+# Name has a funny feeling like they would have been followed: Pet Name at XP.
+PET_PATTERN = re.compile(
+    r"^(?P<player>.+?)\s+has a funny feeling like\s+"
+    r"(?:(?:he's|she's|they're)\s+being followed|(?:he|she|they)\s+would have been followed):\s+"
+    r"(?P<drop>.+?)\s+at\b",
+    re.IGNORECASE,
+)
+
+# Raid drop format:
+#
+# [Rancour PvM] 🛡 Packn Fudge received special loot from a raid: Dinh's bulwark (16,726,799 coins).
+#
+# Grabs:
+# player = Packn Fudge
+# drop = Dinh's bulwark
+RAID_DROP_PATTERN = re.compile(
+    r"^(?:\[.*?\]\s*)?(?:\S+\s+)?(?P<player>.+?)\s+received special loot from a raid:\s+"
+    r"(?P<drop>.+?)\s+\(",
+    re.IGNORECASE,
+)
 
 
 # ============================================================
@@ -86,16 +118,68 @@ class ChannelLogger(commands.Cog):
     def get_matches(self, content: str) -> list[str]:
         matches = []
 
+        if PET_PATTERN.search(content):
+            matches.append("Pet")
+
+        if RAID_DROP_PATTERN.search(content):
+            matches.append("Raid Drop")
+
         for pattern, label in LOG_PATTERNS.items():
             if re.search(pattern, content, flags=re.IGNORECASE):
                 matches.append(label)
 
         return matches
 
+    def parse_logged_message(
+        self,
+        message: discord.Message,
+        matches: list[str],
+    ) -> tuple[str, str]:
+        """
+        Returns:
+        submitted_for, drop_received
+
+        For pet messages:
+        - submitted_for = name before "has"
+        - drop_received = text after ":" and before "at"
+
+        For raid special loot messages:
+        - submitted_for = name before "received special loot from a raid"
+        - drop_received = text after ":" and before the coin value
+
+        For other messages:
+        - submitted_for = message author's display name
+        - drop_received = full message text
+        """
+
+        content = message.content.strip()
+
+        pet_match = PET_PATTERN.search(content)
+        if pet_match:
+            submitted_for = pet_match.group("player").strip()
+            drop_received = pet_match.group("drop").strip()
+            return submitted_for, drop_received
+
+        raid_match = RAID_DROP_PATTERN.search(content)
+        if raid_match:
+            submitted_for = raid_match.group("player").strip()
+            drop_received = raid_match.group("drop").strip()
+            return submitted_for, drop_received
+
+        return message.author.display_name, content
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Ignore bots so the bot does not log itself or other bots.
-        if message.author.bot:
+        # IMPORTANT:
+        # The Clan Chat app appears to be a Discord bot/app.
+        # Do NOT ignore bot messages here, or Clan Chat logs will never be recorded.
+        #
+        # If you later want to prevent your own bot from logging itself, use:
+        #
+        # if message.author.id == self.bot.user.id:
+        #     return
+
+        if message.author.id == self.bot.user.id:
             return
 
         # Only watch the configured channel.
@@ -107,24 +191,27 @@ class ChannelLogger(commands.Cog):
         if not matches:
             return
 
-        timestamp = datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(CST).strftime("%m/%d/%Y %I:%M %p")
 
         attachment_urls = "\n".join(a.url for a in message.attachments)
 
+        submitted_for, drop_received = self.parse_logged_message(message, matches)
+
         row = [
-            "Auto Logger",
-            message.author.display_name,
-            str(message.author.id),
-            message.content,
-            attachment_urls,
-            timestamp,
+            "Auto Logger",           # Approved by
+            submitted_for,           # Submitted for
+            str(message.author.id),  # Submitted for Discord ID
+            drop_received,           # Drop Received
+            attachment_urls,         # Screenshot
+            timestamp,               # Date/Time
         ]
 
         try:
             self.sheet.append_row(row, value_input_option="USER_ENTERED")
             print(
                 f"✅ Logged message from {message.author} "
-                f"with match type(s): {', '.join(matches)}"
+                f"for {submitted_for} with drop: {drop_received} "
+                f"and match type(s): {', '.join(matches)}"
             )
         except Exception as e:
             print(f"❌ ChannelLogger failed to log message: {e}")
