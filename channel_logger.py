@@ -30,10 +30,11 @@ CST = ZoneInfo("America/Chicago")
 # ============================================================
 
 # Simple message checks.
+# These currently only detect the message type.
+# Parsing is handled separately below.
 LOG_PATTERNS = {
     r"received a new collection log item:": "Collection Log Item",
     r"received a drop": "Drop",
-    r"\btest\b": "Test",
 }
 
 # Pet message formats:
@@ -61,6 +62,19 @@ PET_PATTERN = re.compile(
 RAID_DROP_PATTERN = re.compile(
     r"^(?:\[.*?\]\s*)?(?:\S+\s+)?(?P<player>.+?)\s+received special loot from a raid:\s+"
     r"(?P<drop>.+?)\s+\(",
+    re.IGNORECASE,
+)
+
+# Test format:
+#
+# SpaceScape: Test
+# Tyler Test
+#
+# Grabs:
+# player = SpaceScape / Tyler
+# drop = Test
+TEST_PATTERN = re.compile(
+    r"^(?P<player>.+?)(?::)?\s+test\b",
     re.IGNORECASE,
 )
 
@@ -124,6 +138,9 @@ class ChannelLogger(commands.Cog):
         if RAID_DROP_PATTERN.search(content):
             matches.append("Raid Drop")
 
+        if TEST_PATTERN.search(content):
+            matches.append("Test")
+
         for pattern, label in LOG_PATTERNS.items():
             if re.search(pattern, content, flags=re.IGNORECASE):
                 matches.append(label)
@@ -139,6 +156,14 @@ class ChannelLogger(commands.Cog):
         Returns:
         submitted_for, drop_received
 
+        Auto-logged sheet behavior:
+        - Approved by = Auto Logger
+        - Submitted for = parsed player name
+        - Submitted for Discord ID = blank
+        - Drop Received = parsed drop/item/test
+        - Screenshot = blank
+        - Date/Time = timestamp
+
         For pet messages:
         - submitted_for = name before "has"
         - drop_received = text after ":" and before "at"
@@ -147,7 +172,11 @@ class ChannelLogger(commands.Cog):
         - submitted_for = name before "received special loot from a raid"
         - drop_received = text after ":" and before the coin value
 
-        For other messages:
+        For test messages:
+        - submitted_for = name before "test"
+        - drop_received = Test
+
+        For other matched messages:
         - submitted_for = message author's display name
         - drop_received = full message text
         """
@@ -166,11 +195,21 @@ class ChannelLogger(commands.Cog):
             drop_received = raid_match.group("drop").strip()
             return submitted_for, drop_received
 
+        test_match = TEST_PATTERN.search(content)
+        if test_match:
+            submitted_for = test_match.group("player").strip()
+            drop_received = "Test"
+            return submitted_for, drop_received
+
         return message.author.display_name, content
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Do not log this bot's own messages.
+        # IMPORTANT:
+        # Clan Chat appears to be a Discord bot/app.
+        # Do NOT ignore all bot messages, or Clan Chat logs will never be recorded.
+        #
+        # This only ignores your own bot so it does not accidentally log itself.
         if message.author.id == self.bot.user.id:
             return
 
