@@ -245,6 +245,7 @@ class BingoCog(commands.Cog):
         self.LOG_CHANNEL_ID = 1504315879431864372
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
+        self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
@@ -951,6 +952,45 @@ class BingoCog(commands.Cog):
             row_values.append("")
         return row_values[:12]
 
+    async def add_bingo_player_role_for_signup(
+        self,
+        submitting_member: discord.Member,
+        data: dict,
+        partner_row: Optional[int] = None,
+        partner_info: Optional[dict] = None,
+    ) -> None:
+        """Add Bingo Player role to the signup member and duo partner."""
+        guild = submitting_member.guild
+        if guild is None:
+            return
+
+        bingo_role = guild.get_role(self.BINGO_PLAYER_ROLE_ID)
+        if bingo_role is None:
+            print(f"Bingo Cog: Bingo player role {self.BINGO_PLAYER_ROLE_ID} not found in guild {guild.id}.")
+            return
+
+        target_ids = {submitting_member.id}
+        if str(data.get("signup_type", "")).strip() == "Duo":
+            partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
+            if partner_discord_id.isdigit():
+                target_ids.add(int(partner_discord_id))
+            if partner_row is not None:
+                row_values = self.get_signup_row_values(partner_row)
+                partner_id_from_sheet = str(row_values[1] if len(row_values) > 1 else "").strip()
+                if partner_id_from_sheet.isdigit():
+                    target_ids.add(int(partner_id_from_sheet))
+
+        for target_id in target_ids:
+            member = guild.get_member(target_id)
+            if member is None or bingo_role in member.roles:
+                continue
+            try:
+                await member.add_roles(bingo_role, reason="Bingo signup")
+            except discord.Forbidden:
+                print(f"Bingo Cog: Missing permission to add bingo role for {target_id}.")
+            except Exception as e:
+                print(f"Bingo Cog: Failed to add bingo role for {target_id}: {e}")
+
     def format_signup_row(self, row: int) -> None:
         """Leave signup row formatting alone; the sheet template controls visibility/style."""
         return
@@ -1544,6 +1584,7 @@ class BingoCog(commands.Cog):
         try:
             await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
             row = self.write_or_update_backup_to_sheet(member, data, registered_info=registered_info)
+            await self.add_bingo_player_role_for_signup(member, data)
 
             # Do not post a separate public message for every backup signup.
             # The backup list embed is the visible public record, so just refresh it.
@@ -1643,6 +1684,13 @@ class BingoCog(commands.Cog):
                 partner_row = self.ensure_duo_partner_row(member, data, first_url, partner_info)
                 data["_partner_row"] = partner_row
                 partner_file, partner_filename = await self.attachment_to_discord_file(first_attachment, "partner_buy_in.png")
+
+            await self.add_bingo_player_role_for_signup(
+                member,
+                data,
+                partner_row=partner_row,
+                partner_info=partner_info,
+            )
 
             first_embed = self.build_signup_embeds(member, data, [f"attachment://{first_filename}"])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
