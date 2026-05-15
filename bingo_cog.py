@@ -982,12 +982,7 @@ class BingoCog(commands.Cog):
 
         for target_id in target_ids:
             member = guild.get_member(target_id)
-            if member is None:
-                try:
-                    member = await guild.fetch_member(target_id)
-                except Exception:
-                    continue
-            if bingo_role in member.roles:
+            if member is None or bingo_role in member.roles:
                 continue
             try:
                 await member.add_roles(bingo_role, reason="Bingo signup")
