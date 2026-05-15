@@ -170,15 +170,7 @@ class ChannelLogger(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # IMPORTANT:
-        # The Clan Chat app appears to be a Discord bot/app.
-        # Do NOT ignore bot messages here, or Clan Chat logs will never be recorded.
-        #
-        # If you later want to prevent your own bot from logging itself, use:
-        #
-        # if message.author.id == self.bot.user.id:
-        #     return
-
+        # Do not log this bot's own messages.
         if message.author.id == self.bot.user.id:
             return
 
@@ -193,25 +185,22 @@ class ChannelLogger(commands.Cog):
 
         timestamp = datetime.now(CST).strftime("%m/%d/%Y %I:%M %p")
 
-        attachment_urls = "\n".join(a.url for a in message.attachments)
-
         submitted_for, drop_received = self.parse_logged_message(message, matches)
 
         row = [
-            "Auto Logger",           # Approved by
-            submitted_for,           # Submitted for
-            str(message.author.id),  # Submitted for Discord ID
-            drop_received,           # Drop Received
-            attachment_urls,         # Screenshot
-            timestamp,               # Date/Time
+            "Auto Logger",   # Approved by
+            submitted_for,   # Submitted for
+            "",              # Submitted for Discord ID
+            drop_received,   # Drop Received
+            "",              # Screenshot
+            timestamp,       # Date/Time
         ]
 
         try:
             self.sheet.append_row(row, value_input_option="USER_ENTERED")
             print(
-                f"✅ Logged message from {message.author} "
-                f"for {submitted_for} with drop: {drop_received} "
-                f"and match type(s): {', '.join(matches)}"
+                f"✅ Auto-logged {drop_received} for {submitted_for} "
+                f"with match type(s): {', '.join(matches)}"
             )
         except Exception as e:
             print(f"❌ ChannelLogger failed to log message: {e}")
