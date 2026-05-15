@@ -235,22 +235,32 @@ class ChannelLogger(commands.Cog):
         submitted_for, drop_received = self.parse_logged_message(message, matches)
 
         row = [
-            "Auto Logger",
-            submitted_for,
-            "",
-            drop_received,
-            "",
-            timestamp,
+            "Auto Logger",   # Approved by
+            submitted_for,   # Submitted for
+            "",              # Submitted for Discord ID
+            drop_received,   # Drop Received
+            "",              # Screenshot
+            timestamp,       # Date/Time
         ]
 
-        print(f"[ChannelLogger DEBUG] Row to append: {row}")
-
         try:
-            self.sheet.append_row(row, value_input_option="USER_ENTERED")
+            next_row = len(self.sheet.col_values(1)) + 1
+
+            if next_row < 2:
+                next_row = 2
+
+            self.sheet.update(
+                range_name=f"A{next_row}:F{next_row}",
+                values=[row],
+                value_input_option="USER_ENTERED",
+            )
+
             print(
                 f"✅ Auto-logged {drop_received} for {submitted_for} "
-                f"with match type(s): {', '.join(matches)}"
+                f"with match type(s): {', '.join(matches)} "
+                f"to row {next_row}"
             )
+
         except Exception as e:
             print(f"❌ ChannelLogger failed to log message: {e}")
 
