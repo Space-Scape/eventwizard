@@ -881,17 +881,13 @@ class BingoCog(commands.Cog):
             return ""
 
         # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
+        # Ironmen are eligible for automatic A/B/C classification; we only blank wild-card profiles.
         a_raid_ready = hmt >= 48 and cm >= 48 and toa_expert >= 98
         if slayer >= 95 and combat >= 125 and sol >= 1 and zuk >= 1 and a_raid_ready:
-            # A/B-quality iron accounts can be hard to compare if this is an alt/iron.
-            if "iron" in str(submitted_ironman).casefold() or "yes" in str(submitted_ironman).casefold():
-                return ""
             return "A"
 
         # Clear B: nearly 300 combined raids, or at least 25 HMT/CM, with minimum stats.
         if slayer >= 93 and combat >= 120 and (hmt >= 25 or cm >= 25 or raids_total >= 280):
-            if "iron" in str(submitted_ironman).casefold() or "yes" in str(submitted_ironman).casefold():
-                return ""
             return "B"
 
         # Wild-card cases: stat-qualified but uneven account shape.
