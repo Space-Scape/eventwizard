@@ -1616,6 +1616,13 @@ class BingoCog(commands.Cog):
         amount = int(match.group(2).replace(",", ""))
         return rsn, amount
 
+    async def validate_duo_buyin_from_live_chat(self, rsn: str) -> tuple[bool, Optional[str], int]:
+        live_channel = self.bot.get_channel(self.LIVE_CLAN_CHAT_CHANNEL_ID)
+        if live_channel is None:
+            return False, None, 0
+        normalized_target = self.normalize_rsn_for_lookup(rsn)
+        total = 0
+        latest_match_jump_url = None
     async def validate_duo_buyin_from_live_chat(self, rsn: str) -> bool:
         live_channel = self.bot.get_channel(self.LIVE_CLAN_CHAT_CHANNEL_ID)
         if live_channel is None:
@@ -1630,6 +1637,13 @@ class BingoCog(commands.Cog):
                 payer, amount = parsed
                 if self.normalize_rsn_for_lookup(payer) == normalized_target:
                     total += amount
+                    latest_match_jump_url = message.jump_url
+                    if total >= 35_000_000:
+                        return True, latest_match_jump_url, total
+        except Exception as e:
+            print(f"Bingo Cog: Failed to validate duo buy-in from live clan chat: {e}")
+            return False, None, total
+        return False, latest_match_jump_url, total
                     if total >= 35_000_000:
                         return True
         except Exception as e:
@@ -1730,6 +1744,7 @@ class BingoCog(commands.Cog):
                 first_file, first_filename = await self.attachment_to_discord_file(first_source.attachment, "buy_in.png")
 
             if is_duo:
+                duo_buyin_valid, live_chat_jump_url, live_chat_total = await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", "")))
                 duo_buyin_valid = await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", "")))
                 if not duo_buyin_valid:
                     warning_text = (
@@ -1743,6 +1758,7 @@ class BingoCog(commands.Cog):
                         await channel.send(f"{member.mention} {warning_text}")
                     except Exception:
                         pass
+                    first_url = live_chat_jump_url or "⛔"
                     first_url = "⛔"
 
             # Save the submitter immediately after the required screenshot.
@@ -1791,6 +1807,11 @@ class BingoCog(commands.Cog):
             if first_url != "⛔":
                 first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
+            if is_duo and not duo_buyin_valid:
+                value_text = f"⛔ Pending live-clan-chat validation ({live_chat_total:,}/35,000,000)."
+                if live_chat_jump_url:
+                    value_text += f"\nCurrent buy-in proof: [live-clan-chat message]({live_chat_jump_url})"
+                first_embed.add_field(name="Buy-In Validation", value=value_text, inline=False)
             if first_url == "⛔":
                 first_embed.add_field(name="Buy-In Validation", value="⛔ Pending live-clan-chat validation.", inline=False)
             first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
@@ -1814,6 +1835,7 @@ class BingoCog(commands.Cog):
                 else:
                     await channel.send(embed=partner_embed)
 
+            if is_duo and not duo_buyin_valid:
             if is_duo and first_url == "⛔":
                 try:
                     while True:
@@ -1821,6 +1843,18 @@ class BingoCog(commands.Cog):
                         retry_source = self.extract_image_url_from_message(retry_message)
                         if retry_source is None:
                             continue
+                        retry_valid, retry_jump_url, retry_total = await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", "")))
+                        if not retry_valid:
+                            await channel.send(f"{member.mention}, still no matching 35m duo buy-in in live-clan-chat yet ({retry_total:,}/35,000,000).")
+                            continue
+                        validated_proof_url = retry_jump_url or retry_source.image_url
+                        self.write_or_update_signup_to_sheet(member, data, validated_proof_url, registered_info=submitter_info)
+                        if partner_row:
+                            self.ensure_duo_partner_row(member, data, validated_proof_url, partner_info)
+                        if retry_jump_url:
+                            await channel.send(f"{member.mention}, ✅ buy-in validation passed. Proof linked from live-clan-chat: {retry_jump_url}")
+                        else:
+                            await channel.send(f"{member.mention}, ✅ buy-in validation passed and your signup proof has been updated.")
                         if not await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", ""))):
                             await channel.send(f"{member.mention}, still no matching 35m duo buy-in in live-clan-chat yet.")
                             continue
