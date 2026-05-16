@@ -1793,6 +1793,8 @@ class BingoCog(commands.Cog):
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             if first_url == "⛔":
                 first_embed.add_field(name="Buy-In Validation", value="⛔ Pending live-clan-chat validation.", inline=False)
+            first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
+            first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if first_file:
                 await channel.send(embed=first_embed, file=first_file)
