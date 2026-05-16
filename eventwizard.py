@@ -251,6 +251,8 @@ class BingoCog(commands.Cog):
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
+        self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID = int(os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID", "1504323734222147604"))
+        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = int(os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", "1505020794491764846"))
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
@@ -270,6 +272,8 @@ class BingoCog(commands.Cog):
         if self.backups_sheet is not None and not self.backup_list_updater.is_running():
             self.backup_list_updater.change_interval(seconds=self.BACKUP_LIST_POLL_SECONDS)
             self.backup_list_updater.start()
+
+        self.bot.loop.create_task(self.cleanup_old_signup_announcements_after_ready())
 
         if not getattr(self.bot.intents, "message_content", False):
             print(
@@ -381,6 +385,68 @@ class BingoCog(commands.Cog):
         message = await channel.send(embed=embed, view=view)
         self.backup_list_message_id = message.id
         print(f"Bingo Cog: Posted backup list message {message.id} in channel {self.BACKUP_LIST_CHANNEL_ID}.")
+
+    async def get_signup_announcement_channel(self) -> discord.abc.Messageable:
+        """Return the thread where public New Signup posts should be sent."""
+        target = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
+        if target is None:
+            try:
+                target = await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
+            except Exception as e:
+                print(
+                    f"Bingo Cog: Could not fetch signup announcement thread "
+                    f"{self.SIGNUP_ANNOUNCEMENT_THREAD_ID}: {e}"
+                )
+                return None
+        return target
+
+    async def cleanup_old_signup_announcements_after_ready(self) -> None:
+        """Remove old New Signup posts from the signup-panel channel after restart.
+
+        New Signup embeds now belong in the configured thread. This cleanup only
+        targets the bot's old signup-announcement messages in the previous channel
+        and leaves the signup panel itself alone.
+        """
+        try:
+            await self.bot.wait_until_ready()
+            channel = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID)
+            if channel is None:
+                channel = await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID)
+
+            deleted_count = 0
+            async for message in channel.history(limit=200):
+                if self.bot.user is None or message.author.id != self.bot.user.id:
+                    continue
+
+                is_old_signup_embed = any(
+                    (embed.title or "").startswith("New Signup!")
+                    or (embed.title or "") == "Partner Buy-In Screenshot"
+                    for embed in message.embeds
+                )
+                is_old_signup_followup = str(message.content or "").startswith("# Want to sign up?")
+
+                if not is_old_signup_embed and not is_old_signup_followup:
+                    continue
+
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    await asyncio.sleep(0.25)
+                except discord.Forbidden:
+                    print("Bingo Cog: Missing permission to delete old signup announcement messages.")
+                    break
+                except discord.NotFound:
+                    pass
+                except Exception as e:
+                    print(f"Bingo Cog: Failed to delete old signup announcement message {message.id}: {e}")
+
+            if deleted_count:
+                print(
+                    f"Bingo Cog: Removed {deleted_count} old signup announcement message(s) "
+                    f"from channel {self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID}."
+                )
+        except Exception as e:
+            print(f"Bingo Cog: Old signup announcement cleanup failed: {e}")
 
     # --- Helpers ---
 
@@ -1719,22 +1785,15 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
-            signup_announcement_target = channel
-            try:
-                target = self.bot.get_channel(1505020794491764846)
-                if target is None:
-                    target = await self.bot.fetch_channel(1505020794491764846)
-                signup_announcement_target = target
-            except Exception as e:
-                print(f"Bingo Cog: Could not use signup announcement thread 1505020794491764846; using current channel instead: {e}")
+            announcement_channel = await self.get_signup_announcement_channel() or channel
 
             first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if first_file:
-                await signup_announcement_target.send(embed=first_embed, file=first_file)
+                await announcement_channel.send(embed=first_embed, file=first_file)
             else:
-                await signup_announcement_target.send(embed=first_embed)
+                await announcement_channel.send(embed=first_embed)
 
             if is_duo and partner_row and partner_file and partner_filename:
                 partner_embed_url = f"attachment://{partner_filename}" if partner_filename else first_url
@@ -1745,14 +1804,14 @@ class BingoCog(commands.Cog):
                 )
                 partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
                 if partner_file:
-                    await signup_announcement_target.send(embed=partner_embed, file=partner_file)
+                    await announcement_channel.send(embed=partner_embed, file=partner_file)
                 else:
-                    await signup_announcement_target.send(embed=partner_embed)
+                    await announcement_channel.send(embed=partner_embed)
 
             await self.safe_delete_message(first_message)
 
             if not is_duo:
-                await signup_announcement_target.send(self.get_signup_followup_message())
+                await announcement_channel.send(self.get_signup_followup_message())
                 return
 
             # Optional partner screenshot. Wait briefly so the public signup link does not appear
@@ -1760,7 +1819,7 @@ class BingoCog(commands.Cog):
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
-                await signup_announcement_target.send(self.get_signup_followup_message())
+                await announcement_channel.send(self.get_signup_followup_message())
                 return
 
             second_source = self.extract_image_url_from_message(second_message)
@@ -1786,11 +1845,11 @@ class BingoCog(commands.Cog):
             second_embed.set_image(url=f"attachment://{second_filename}" if second_filename else second_url)
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if second_file:
-                await signup_announcement_target.send(embed=second_embed, file=second_file)
+                await announcement_channel.send(embed=second_embed, file=second_file)
             else:
-                await signup_announcement_target.send(embed=second_embed)
+                await announcement_channel.send(embed=second_embed)
             await self.safe_delete_message(second_message)
-            await signup_announcement_target.send(self.get_signup_followup_message())
+            await announcement_channel.send(self.get_signup_followup_message())
 
         except asyncio.TimeoutError:
             try:
