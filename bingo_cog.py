@@ -882,10 +882,12 @@ class BingoCog(commands.Cog):
         if not combat or combat < 115:
             return ""
 
-        # Hard C gate after the combat minimum. Under 92 Slayer is C only when
-        # the account is at least C-eligible combat; otherwise it stays blank.
         if slayer and slayer < 92:
             return "C"
+
+        if slayer and slayer < 80:
+            return ""
+
 
         # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
         # Ironmen are eligible for automatic A/B/C classification; we only blank wild-card profiles.
