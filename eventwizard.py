@@ -248,13 +248,6 @@ class BingoCog(commands.Cog):
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
         self.LOG_CHANNEL_ID = 1504315879431864372
-
-        # Thread used for public New Signup messages. Accepts either a raw ID or a Discord link
-        # in BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID. Falls back safely instead of crashing startup.
-        signup_thread_env = os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", "1505020794491764846")
-        signup_thread_ids = re.findall(r"\d{15,22}", str(signup_thread_env or ""))
-        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = int(signup_thread_ids[-1]) if signup_thread_ids else 1505020794491764846
-
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
@@ -1475,21 +1468,6 @@ class BingoCog(commands.Cog):
             return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})!"
         return "# Want to sign up? Please scroll to the signup panel above or ask staff to repost it."
 
-    async def get_signup_announcement_target(self, fallback_channel: discord.abc.Messageable) -> discord.abc.Messageable:
-        """Return the thread where public New Signup messages should be posted."""
-        target = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
-        if target is None:
-            try:
-                target = await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
-            except Exception as e:
-                print(
-                    f"Bingo Cog: Signup announcement thread not found "
-                    f"({self.SIGNUP_ANNOUNCEMENT_THREAD_ID}); using current channel instead: {e}"
-                )
-                return fallback_channel
-
-        return target
-
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
         signup_type = data.get("signup_type")
@@ -1741,7 +1719,14 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
-            signup_announcement_target = await self.get_signup_announcement_target(channel)
+            signup_announcement_target = channel
+            try:
+                target = self.bot.get_channel(1505020794491764846)
+                if target is None:
+                    target = await self.bot.fetch_channel(1505020794491764846)
+                signup_announcement_target = target
+            except Exception as e:
+                print(f"Bingo Cog: Could not use signup announcement thread 1505020794491764846; using current channel instead: {e}")
 
             first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
