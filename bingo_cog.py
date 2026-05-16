@@ -185,6 +185,25 @@ class BingoCog(commands.Cog):
         self._rsn_lookup_cache = None
         self.signup_panel_jump_url = None
 
+        def _env_int(name: str, default: int) -> int:
+            raw_value = os.getenv(name, str(default))
+            try:
+                return int(str(raw_value or str(default)).strip())
+            except ValueError:
+                print(f"Bingo Cog: Invalid integer env var {name}={raw_value!r}; using {default}.")
+                return default
+
+        # Public signup announcements belong in this thread, not in the signup channel.
+        # The signup channel should stay clean so users can see panel/buttons and their prompts.
+        self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID = _env_int(
+            "BINGO_SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID",
+            1504323734222147604,
+        )
+        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = _env_int(
+            "BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID",
+            1505020794491764846,
+        )
+
         # Wise Old Man rank lookup. WOM is used to auto-fill column L with A/B/C when clear.
         # Wild-card/ambiguous players are intentionally left blank for captain review.
         self.WOM_API_KEY = os.getenv("WOM_API_KEY", "").strip()
@@ -1501,6 +1520,37 @@ class BingoCog(commands.Cog):
 
         return embed
 
+    async def get_signup_announcement_channel(self) -> Optional[discord.abc.Messageable]:
+        """Return the thread where public New Signup posts should be sent."""
+        channel = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
+        if channel is not None:
+            return channel
+
+        try:
+            return await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
+        except Exception as e:
+            print(f"Bingo Cog: Could not find signup announcement thread {self.SIGNUP_ANNOUNCEMENT_THREAD_ID}: {e}")
+            return None
+
+    async def send_signup_announcement(self, source_channel: discord.abc.Messageable, *args, **kwargs) -> Optional[discord.Message]:
+        """Send a public signup announcement to the configured thread only.
+
+        Do not fall back to posting the public embed in the signup channel; that
+        channel needs to stay clear for signup instructions and screenshot prompts.
+        """
+        target_channel = await self.get_signup_announcement_channel()
+        if target_channel is None:
+            try:
+                await source_channel.send(
+                    "Signup saved, but I could not find the announcement thread. Please contact an administrator.",
+                    delete_after=30,
+                )
+            except Exception:
+                pass
+            return None
+
+        return await target_channel.send(*args, **kwargs)
+
     async def safe_delete_message(self, message: discord.Message) -> None:
         try:
             await message.delete()
@@ -1684,9 +1734,9 @@ class BingoCog(commands.Cog):
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if first_file:
-                await channel.send(embed=first_embed, file=first_file)
+                await self.send_signup_announcement(channel, embed=first_embed, file=first_file)
             else:
-                await channel.send(embed=first_embed)
+                await self.send_signup_announcement(channel, embed=first_embed)
 
             if is_duo and partner_row and partner_file and partner_filename:
                 partner_embed_url = f"attachment://{partner_filename}" if partner_filename else first_url
@@ -1697,14 +1747,14 @@ class BingoCog(commands.Cog):
                 )
                 partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
                 if partner_file:
-                    await channel.send(embed=partner_embed, file=partner_file)
+                    await self.send_signup_announcement(channel, embed=partner_embed, file=partner_file)
                 else:
-                    await channel.send(embed=partner_embed)
+                    await self.send_signup_announcement(channel, embed=partner_embed)
 
             await self.safe_delete_message(first_message)
 
             if not is_duo:
-                await channel.send(self.get_signup_followup_message())
+                await self.send_signup_announcement(channel, self.get_signup_followup_message())
                 return
 
             # Optional partner screenshot. Wait briefly so the public signup link does not appear
@@ -1712,7 +1762,7 @@ class BingoCog(commands.Cog):
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
-                await channel.send(self.get_signup_followup_message())
+                await self.send_signup_announcement(channel, self.get_signup_followup_message())
                 return
 
             second_source = self.extract_image_url_from_message(second_message)
@@ -1738,11 +1788,11 @@ class BingoCog(commands.Cog):
             second_embed.set_image(url=f"attachment://{second_filename}" if second_filename else second_url)
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if second_file:
-                await channel.send(embed=second_embed, file=second_file)
+                await self.send_signup_announcement(channel, embed=second_embed, file=second_file)
             else:
-                await channel.send(embed=second_embed)
+                await self.send_signup_announcement(channel, embed=second_embed)
             await self.safe_delete_message(second_message)
-            await channel.send(self.get_signup_followup_message())
+            await self.send_signup_announcement(channel, self.get_signup_followup_message())
 
         except asyncio.TimeoutError:
             try:
