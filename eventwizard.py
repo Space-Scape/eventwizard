@@ -248,7 +248,13 @@ class BingoCog(commands.Cog):
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
         self.LOG_CHANNEL_ID = 1504315879431864372
-        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = int(os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", "1505020794491764846"))
+
+        # Thread used for public New Signup messages. Accepts either a raw ID or a Discord link
+        # in BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID. Falls back safely instead of crashing startup.
+        signup_thread_env = os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", "1505020794491764846")
+        signup_thread_ids = re.findall(r"\d{15,22}", str(signup_thread_env or ""))
+        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = int(signup_thread_ids[-1]) if signup_thread_ids else 1505020794491764846
+
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
