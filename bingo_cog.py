@@ -246,6 +246,7 @@ class BingoCog(commands.Cog):
         self.BANNED_EVENT_RSNS = {"99mage", "corislayer"}
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
+        self.LIVE_CLAN_CHAT_CHANNEL_ID = 1504316149234401300
         self.REVIEW_CHANNEL_ID = 1504315926017867847
         self.LOG_CHANNEL_ID = 1504315879431864372
         self.REQUIRED_ROLE_NAME = "Event Staff"
@@ -1468,6 +1469,14 @@ class BingoCog(commands.Cog):
             return f"# Want to sign up? [Click here]({self.signup_panel_jump_url})!"
         return "# Want to sign up? Please scroll to the signup panel above or ask staff to repost it."
 
+    def build_channel_bottom_link(self, channel: discord.abc.Messageable) -> Optional[str]:
+        """Return a direct link that opens the current signup channel."""
+        guild_id = getattr(getattr(channel, "guild", None), "id", None)
+        channel_id = getattr(channel, "id", None)
+        if guild_id and channel_id:
+            return f"https://discord.com/channels/{guild_id}/{channel_id}"
+        return None
+
     def build_signup_embeds(self, member: discord.Member, data: dict, image_urls: list[str]) -> list[discord.Embed]:
         """Build the public New Signup embed or embeds."""
         signup_type = data.get("signup_type")
@@ -1579,11 +1588,54 @@ class BingoCog(commands.Cog):
             if thumbnail_url:
                 return MessageImageSource(attachment=None, image_url=thumbnail_url)
 
+        # Embed previews may not be ready yet on message create events.
+        # Accept direct image URLs pasted into message content as a fallback.
+        content = str(getattr(message, "content", "") or "").strip()
+        if content:
+            url_match = re.search(r"https?://\S+", content)
+            if url_match:
+                candidate = url_match.group(0).rstrip(")>]\"'.,!?")
+                parsed = urllib.parse.urlparse(candidate)
+                path = (parsed.path or "").casefold()
+                if parsed.scheme in {"http", "https"} and any(
+                    path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+                ):
+                    return MessageImageSource(attachment=None, image_url=candidate)
+
         return None
 
     def can_capture_signup_screenshots(self) -> bool:
         """Discord only sends attachment data to bots with Message Content Intent enabled."""
         return bool(getattr(self.bot.intents, "message_content", False))
+
+    def parse_coffer_deposit(self, content: str) -> Optional[tuple[str, int]]:
+        match = re.search(r"^(.+?) has deposited ([\d,]+) coins into the coffer\.$", str(content or "").strip())
+        if not match:
+            return None
+        rsn = match.group(1).strip()
+        amount = int(match.group(2).replace(",", ""))
+        return rsn, amount
+
+    async def validate_duo_buyin_from_live_chat(self, rsn: str) -> bool:
+        live_channel = self.bot.get_channel(self.LIVE_CLAN_CHAT_CHANNEL_ID)
+        if live_channel is None:
+            return False
+        normalized_target = self.normalize_rsn_for_lookup(rsn)
+        total = 0
+        try:
+            async for message in live_channel.history(limit=500):
+                parsed = self.parse_coffer_deposit(message.content)
+                if not parsed:
+                    continue
+                payer, amount = parsed
+                if self.normalize_rsn_for_lookup(payer) == normalized_target:
+                    total += amount
+                    if total >= 35_000_000:
+                        return True
+        except Exception as e:
+            print(f"Bingo Cog: Failed to validate duo buy-in from live clan chat: {e}")
+            return False
+        return False
 
     async def save_backup_signup(self, channel: discord.abc.Messageable, member: discord.Member, data: dict) -> None:
         """Save a backup signup immediately. Backups do not require buy-in screenshots."""
@@ -1677,6 +1729,22 @@ class BingoCog(commands.Cog):
             if first_source.attachment is not None:
                 first_file, first_filename = await self.attachment_to_discord_file(first_source.attachment, "buy_in.png")
 
+            if is_duo:
+                duo_buyin_valid = await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", "")))
+                if not duo_buyin_valid:
+                    warning_text = (
+                        "Hey, just letting you know you failed a buy-in validation check. "
+                        "There was only a single 17.5m instead of a total of 35m for a duo signup by a single player. "
+                        "Please upload a screenshot of your buy-in to the "
+                        "https://discord.com/channels/1272629330115297330/1504323734222147604 channel. "
+                        "Thanks, and good luck!"
+                    )
+                    try:
+                        await channel.send(f"{member.mention} {warning_text}")
+                    except Exception:
+                        pass
+                    first_url = "⛔"
+
             # Save the submitter immediately after the required screenshot.
             # Captain rows keep their pre-filled crown rank, so they are not WOM-ranked.
             if not is_captain:
@@ -1719,6 +1787,12 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
+            first_embed_url = ""
+            if first_url != "⛔":
+                first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
+            first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
+            if first_url == "⛔":
+                first_embed.add_field(name="Buy-In Validation", value="⛔ Pending live-clan-chat validation.", inline=False)
             first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
@@ -1739,6 +1813,25 @@ class BingoCog(commands.Cog):
                     await channel.send(embed=partner_embed, file=partner_file)
                 else:
                     await channel.send(embed=partner_embed)
+
+            if is_duo and first_url == "⛔":
+                try:
+                    while True:
+                        retry_message = await self.bot.wait_for("message", check=check, timeout=1800)
+                        retry_source = self.extract_image_url_from_message(retry_message)
+                        if retry_source is None:
+                            continue
+                        if not await self.validate_duo_buyin_from_live_chat(str(data.get("RSN", ""))):
+                            await channel.send(f"{member.mention}, still no matching 35m duo buy-in in live-clan-chat yet.")
+                            continue
+                        self.write_or_update_signup_to_sheet(member, data, retry_source.image_url, registered_info=submitter_info)
+                        if partner_row:
+                            self.ensure_duo_partner_row(member, data, retry_source.image_url, partner_info)
+                        await channel.send(f"{member.mention}, ✅ buy-in validation passed and your signup screenshot has been updated.")
+                        await self.safe_delete_message(retry_message)
+                        break
+                except asyncio.TimeoutError:
+                    pass
 
             await self.safe_delete_message(first_message)
 
@@ -2144,10 +2237,13 @@ class CaptainSignupModal(discord.ui.Modal, title="Captain Signup - Step 1 of 2")
             )
             return
 
+        channel_jump_link = self.cog.build_channel_bottom_link(interaction.channel)
+        channel_jump_text = f"\n[Jump to this channel]({channel_jump_link})" if channel_jump_link else ""
         await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post your buy-in screenshot in this channel now. "
-            "If you want to link a co-captain, press **Optional: Enter Co-Captain ➔** before posting your screenshot.",
+            "If you want to link a co-captain, press **Optional: Enter Co-Captain ➔** before posting your screenshot."
+            f"{channel_jump_text}",
             view=CaptainCoCaptainView(self.cog, data),
             ephemeral=True
         )
@@ -2268,10 +2364,13 @@ class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
             )
             return
 
+        channel_jump_link = self.cog.build_channel_bottom_link(interaction.channel)
+        channel_jump_text = f"\n[Jump to this channel]({channel_jump_link})" if channel_jump_link else ""
         await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post your buy-in screenshot in this channel now. "
-            "I will save it, delete your screenshot message, and post a public signup embed.",
+            "I will save it, delete your screenshot message, and post a public signup embed."
+            f"{channel_jump_text}",
             ephemeral=True
         )
         asyncio.create_task(self.cog.collect_signup_screenshots(interaction.channel, interaction.user, data))
@@ -2347,10 +2446,13 @@ class DuoSignupPageOneModal(discord.ui.Modal, title="Duo Signup - Page 1 of 2"):
             )
             return
 
+        channel_jump_link = self.cog.build_channel_bottom_link(interaction.channel)
+        channel_jump_text = f"\n[Jump to this channel]({channel_jump_link})" if channel_jump_link else ""
         await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post an image of your buy-in in this channel now to complete your signup. "
-            "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot.",
+            "If you are also signing up your duo partner, press **Optional: Page 2 ➜** before posting your screenshot."
+            f"{channel_jump_text}",
             view=DuoContinueSignupView(self.cog, data),
             ephemeral=True
         )
