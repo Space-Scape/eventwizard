@@ -20,6 +20,63 @@ import urllib.error
 # Boss-Drop Mapping
 # ---------------------------
 
+#Master List
+    #"Abyssal Sire": ["Abyssal orphan", "Unsired", "Abyssal head", "Bludgeon spine", "Bludgeon claw", "Bludgeon axon", "Jar of miasma", "Abyssal dagger", "Abyssal whip"],
+    #"Alchemical Hydra": ["Ikkle hydra", "Hydra's claw", "Hydra tail", "Hydra leather", "Hydra's fang", "Hydra's eye", "Hydra's heart", "Jar of chemicals"],
+    #"Amoxliatl": ["Moxi"],
+    #"Araxxor": ["Noxious pommel", "Noxious point", "Noxious blade", "Araxyte fang", "Araxyte head", "Aranea boots", "Jar of venom", "Coagulated venom", "Nid"],
+    #"Barrows": ["Ahrim's hood", "Ahrim's robetop", "Ahrim's robeskirt", "Ahrim's staff", "Karil's coif", "Karil's leathertop", "Karil's leatherskirt", "Karil's crossbow", "Dharok's helm", "Dharok's platebody", "Dharok's platelegs", "Dharok's greataxe", "Guthan's helm", "Guthan's platebody", "Guthan's chainskirt", "Guthan's warspear", "Torag's helm", "Torag's platebody", "Torag's platelegs", "Torag's hammers", "Verac's helm", "Verac's brassard", "Verac's plateskirt", "Verac's flail"],
+    #"Bryophyta": ["Bryophyta's essence"],
+    #"Callisto": ["Callisto cub", "Tyrannical ring", "Dragon pickaxe", "Claws of callisto", "Voidwaker hilt"],
+    #"Cerberus": ["Hellpuppy", "Eternal crystal", "Pegasian crystal", "Primordial crystal", "Jar of souls"],
+    #"Chaos Fanatic": ["Odium shard 1", "Malediction shard 1"],
+    #"Chambers of Xeric": ["Dexterous prayer scroll", "Arcane prayer scroll", "Twisted buckler", "Dragon hunter crossbow", "Dinh's bulwark", "Ancestral hat", "Ancestral robe top", "Ancestral robe bottom", "Dragon claws", "Elder maul", "Kodai insignia", "Twisted bow", "Olmlet", "Twisted ancestral colour kit", "Metamorphic dust"],
+    #"Colosseum": ["Dizana's quiver (uncharged)", "Sunfire fanatic cuirass", "Sunfire fanatic chausses", "Sunfire fanatic helm", "Echo crystal", "Tonalztics of ralos (uncharged)"],
+    #"Commander Zilyana": ["Pet zilyana", "Armadyl crossbow", "Saradomin hilt", "Saradomin sword", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3", "Saradomin's light"],
+    #"Corporeal Beast": ["Pet dark core", "Elysian sigil", "Spectral sigil", "Arcane sigil", "Jar of spirits", "Spirit shield", "Holy Elixir"],
+    #"Crazy Archaeologist": ["Odium shard 2", "Malediction shard 2", "Fedora"],
+    #"Dagannoth Kings": ["Pet dagannoth supreme", "Pet dagannoth rex", "Pet dagannoth prime", "Archers ring", "Seers ring", "Berserker ring", "Warrior ring"],
+    #"Demonic Gorilla": ["Zenyte shard", "Ballista limbs", "Ballista spring", "Light frame", "Heavy frame", "Monkey tail"],
+    #"Deranged Archaeologist": ["Steel ring"],
+    #"Doom of Mokhaiotl": ["Dom", "Avernic treads", "Eye of ayak (uncharged)", "Mokhaiotl cloth"],
+    #"Duke Sucellus": ["Baron", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Magus vestige", "Eye of the duke"],
+    #"Gauntlet": ["Youngllef", "Crystal weapon seed", "Crystal armour seed", "Enhanced crystal weapon seed"],
+    #"General Graardor": ["Pet general graardor", "	Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Giant Mole": ["Baby mole"],
+    #"Grotesque Guardians": ["Noon/midnight", "Granite gloves", "Granite hammer", "Granite ring", "Black tourmaline core", "Jar of stone"],
+    #"Hueycoatl": ["Huberte", "Dragon hunter wand", "Hueycoatl hide", "Tome of earth (empty)"],
+    #"Inferno": ["Infernal cape"],
+    #"Jad": ["Fire cape"],
+    #"Kalphite Queen": ["Kalphite princess", "Dragon chainbody", "Dragon pickaxe", "Jar of sand", "Kq head"],
+    #"Kraken": ["Pet kraken", "Kraken tentacle", "Trident of the seas (full)", "Jar of dirt"],
+    #"Kree'arra": ["Pet kree'arra", "Armadyl helmet", "Armadyl chestplate", "Armadyl chainskirt", "Armadyl hilt", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"K'ril Tsutsaroth": ["Pet K'ril Tsutsaroth", "Zamorakian spear", "Staff of the dead", "Zamorak hilt", "Steam battlestaff", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"],
+    #"Moons of Peril": ["Eclipse atlatl", "Eclipse moon helm", "Eclipse moon chestplate", "Eclipse moon tassets", "Dual macuahuitl", "Blood moon helm", "Blood moon chestplate", "Blood moon tassets", "Blue moon spear", "Blue moon helm", "Blue moon chestplate", "Blue moon tassets"],
+    #"King black dragon": ["Prince black dragon"],
+    #"Nightmare": ["Little nightmare/Parasite", "Nightmare staff", "Inquisitor's great helm", "Inquisitor's hauberk", "Inquisitor's plateskirt", "Inquisitor's mace", "Eldritch orb", "Harmonised orb", "Volatile orb", "Jar of dreams"],
+    #"Nex": ["Nexling", "Ancient hilt", "Nihil horn", "Zaryte vambraces", "Torva full helm (damaged)", "Torva platebody (damaged)", "Torva platelegs (damaged)"],
+    #"Phantom Muspah": ["Muphin", "Venator shard", "Ancient icon", "Charged ice", "Frozen cache", "Ancient essence"],
+    #"Royal Titans": ["Bran", "Deadeye prayer scroll", "Mystic vigour prayer scroll", "Fire element staff crown", "Ice element staff crown"],
+    #"Revenants": ["Thammaron's sceptre", "Viggora's chainmace", "Craw's bow", "Ancient relic", "Ancient effigy", "Ancient medallion", "Ancient statuette", "Ancient totem"],
+    #"Sarachnis": ["Sraracha", "Sarachnis cudgel", "Jar of eyes"],
+    #"Scorpia": ["Scorpia's Offspring", "Malediction shard 3", "Odium shard 3"],
+    #"Scurrius": ["Scurry"],
+    #"Tempoross": ["Tome of water (empty)"],
+    #"The Leviathan": ["Lil'viathan", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Venator vestige", "Leviathan's lure"],
+    #"Thermonuclear smoke devil": ["Jar of smoke", "Pet smoke devil"],
+    #"The Whisperer": ["Wisp", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Bellator vestige", "Siren's staff"],
+    #"Theatre of Blood": ["Lil' zik", "Avernic defender hilt", "Ghrazi rapier", "Sanguinesti staff (uncharged)", "Justiciar faceguard", "Justiciar chestguard", "Justiciar legguards", "Scythe of vitur (uncharged)", "Holy ornament kit", "Sanguine ornament kit", "Sanguine dust"],
+    #"Tombs of Amascut": ["Tumeken's Guardian", "Masori mask", "Masori body", "Masori chaps", "Lightbearer", "Osmumten's fang", "Elidinis' ward", "Tumeken's shadow (uncharged)"],
+    #"Tormented Demons": ["Tormented synapse", "Burning claw"],
+    #"Vardorvis": ["Butch", "Virtus mask", "Virtus robe top", "Virtus robe bottom", "Ultor vestige", "Executioner's axe head"],
+    #"Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
+    #"Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
+    #"Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
+    #"Wintertodt": ["Tome of fire (empty)"],
+    #"Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
+    #"Zalcano": ["Smolcano", "Zalcano shard", "Crystal tool seed"],
+    #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
+
 BOSS_DROPS = {
     "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
     "Alchemical Hydra": ["Ikkle hydra", "Jar of chemicals"],
@@ -74,17 +131,6 @@ class MessageImageSource(NamedTuple):
 
 class BingoCog(commands.Cog):
     """Cog for handling bingo drop submissions, reviews, and player rolls."""
-
-    def safe_int_env(self, name: str, default: int) -> int:
-        """Read an integer env var without crashing if Railway has it blank/invalid."""
-        value = os.getenv(name)
-        if value is None or str(value).strip() == "":
-            return default
-        try:
-            return int(str(value).strip())
-        except Exception:
-            print(f"Bingo Cog WARNING: {name}={value!r} is not a valid integer. Using {default}.")
-            return default
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -164,10 +210,10 @@ class BingoCog(commands.Cog):
         # Backup list sheet. This is read by a polling task and mirrored into
         # one edited embed in the configured Discord channel.
         self.backups_sheet = None
-        self.BACKUP_LIST_CHANNEL_ID = self.safe_int_env("BINGO_BACKUP_LIST_CHANNEL_ID", 1504316523571839156)
+        self.BACKUP_LIST_CHANNEL_ID = int(os.getenv("BINGO_BACKUP_LIST_CHANNEL_ID", "1504316523571839156"))
         self.BACKUP_LIST_WORKSHEET = os.getenv("BINGO_BACKUP_LIST_WORKSHEET", "Backups")
-        self.BACKUP_LIST_POLL_SECONDS = self.safe_int_env("BINGO_BACKUP_LIST_POLL_SECONDS", 30)
-        self.backup_list_message_id = self.safe_int_env("BINGO_BACKUP_LIST_MESSAGE_ID", 0)
+        self.BACKUP_LIST_POLL_SECONDS = int(os.getenv("BINGO_BACKUP_LIST_POLL_SECONDS", "30"))
+        self.backup_list_message_id = int(os.getenv("BINGO_BACKUP_LIST_MESSAGE_ID", "0") or "0")
         self._backup_list_last_signature = None
 
         try:
@@ -205,19 +251,17 @@ class BingoCog(commands.Cog):
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
-        self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID = self.safe_int_env("BINGO_SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID", 1504323734222147604)
-        self.SIGNUP_ANNOUNCEMENT_THREAD_ID = self.safe_int_env("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", 1505020794491764846)
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
         # Solo signups begin under the Solo Signups header at row 18.
         # Duo signups begin under the Duo Signups header at row 132.
-        self.CAPTAIN_SIGNUP_START_ROW = self.safe_int_env("BINGO_CAPTAIN_SIGNUP_START_ROW", 3)
-        self.CAPTAIN_SIGNUP_END_ROW = self.safe_int_env("BINGO_CAPTAIN_SIGNUP_END_ROW", 16)
-        self.SOLO_SIGNUP_START_ROW = self.safe_int_env("BINGO_SOLO_SIGNUP_START_ROW", 18)
-        self.SOLO_SIGNUP_END_ROW = self.safe_int_env("BINGO_SOLO_SIGNUP_END_ROW", 130)
-        self.DUO_SIGNUP_START_ROW = self.safe_int_env("BINGO_DUO_SIGNUP_START_ROW", 132)
-        self.DUO_SIGNUP_END_ROW = self.safe_int_env("BINGO_DUO_SIGNUP_END_ROW", 232)
+        self.CAPTAIN_SIGNUP_START_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_START_ROW", "3"))
+        self.CAPTAIN_SIGNUP_END_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_END_ROW", "16"))
+        self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
+        self.SOLO_SIGNUP_END_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_END_ROW", "130"))
+        self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
+        self.DUO_SIGNUP_END_ROW = int(os.getenv("BINGO_DUO_SIGNUP_END_ROW", "232"))
 
         # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
@@ -235,13 +279,6 @@ class BingoCog(commands.Cog):
             )
         
         print("Bingo Cog: Initialized successfully.")
-
-    async def cog_load(self):
-        """Start non-critical cleanup after the cog is loaded, without blocking startup."""
-        try:
-            asyncio.create_task(self.cleanup_old_signup_announcements_after_ready())
-        except Exception as e:
-            print(f"Bingo Cog: Could not schedule old signup announcement cleanup: {e}")
 
     def cog_unload(self):
         if hasattr(self, "backup_list_updater") and self.backup_list_updater.is_running():
@@ -344,68 +381,6 @@ class BingoCog(commands.Cog):
         message = await channel.send(embed=embed, view=view)
         self.backup_list_message_id = message.id
         print(f"Bingo Cog: Posted backup list message {message.id} in channel {self.BACKUP_LIST_CHANNEL_ID}.")
-
-    async def get_signup_announcement_channel(self) -> discord.abc.Messageable:
-        """Return the thread where public New Signup posts should be sent."""
-        target = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
-        if target is None:
-            try:
-                target = await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_THREAD_ID)
-            except Exception as e:
-                print(
-                    f"Bingo Cog: Could not fetch signup announcement thread "
-                    f"{self.SIGNUP_ANNOUNCEMENT_THREAD_ID}: {e}"
-                )
-                return None
-        return target
-
-    async def cleanup_old_signup_announcements_after_ready(self) -> None:
-        """Remove old New Signup posts from the signup-panel channel after restart.
-
-        New Signup embeds now belong in the configured thread. This cleanup only
-        targets the bot's old signup-announcement messages in the previous channel
-        and leaves the signup panel itself alone.
-        """
-        try:
-            await self.bot.wait_until_ready()
-            channel = self.bot.get_channel(self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID)
-            if channel is None:
-                channel = await self.bot.fetch_channel(self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID)
-
-            deleted_count = 0
-            async for message in channel.history(limit=200):
-                if self.bot.user is None or message.author.id != self.bot.user.id:
-                    continue
-
-                is_old_signup_embed = any(
-                    (embed.title or "").startswith("New Signup!")
-                    or (embed.title or "") == "Partner Buy-In Screenshot"
-                    for embed in message.embeds
-                )
-                is_old_signup_followup = str(message.content or "").startswith("# Want to sign up?")
-
-                if not is_old_signup_embed and not is_old_signup_followup:
-                    continue
-
-                try:
-                    await message.delete()
-                    deleted_count += 1
-                    await asyncio.sleep(0.25)
-                except discord.Forbidden:
-                    print("Bingo Cog: Missing permission to delete old signup announcement messages.")
-                    break
-                except discord.NotFound:
-                    pass
-                except Exception as e:
-                    print(f"Bingo Cog: Failed to delete old signup announcement message {message.id}: {e}")
-
-            if deleted_count:
-                print(
-                    f"Bingo Cog: Removed {deleted_count} old signup announcement message(s) "
-                    f"from channel {self.SIGNUP_ANNOUNCEMENT_SOURCE_CHANNEL_ID}."
-                )
-        except Exception as e:
-            print(f"Bingo Cog: Old signup announcement cleanup failed: {e}")
 
     # --- Helpers ---
 
@@ -900,15 +875,17 @@ class BingoCog(commands.Cog):
             if isinstance(boss, dict) and isinstance(boss.get("kills"), (int, float))
         )
 
-        # Hard C gate. Under 92 Slayer is automatically C.
-        if slayer and slayer < 92:
-            return "C"
-
         # Under 115 combat is below even the C minimum, so it is a Wild Card /
-        # manual review rather than an automatic C. If combat could not be read
-        # or calculated, leave it blank rather than guessing C from low KC.
+        # manual review rather than an automatic C. This check intentionally
+        # happens before the Slayer gate so low-combat accounts are not
+        # classified as C just because they also have under 92 Slayer.
         if not combat or combat < 115:
             return ""
+
+        # Hard C gate after the combat minimum. Under 92 Slayer is C only when
+        # the account is at least C-eligible combat; otherwise it stays blank.
+        if slayer and slayer < 92:
+            return "C"
 
         # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
         # Ironmen are eligible for automatic A/B/C classification; we only blank wild-card profiles.
@@ -1744,15 +1721,13 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
-            announcement_channel = await self.get_signup_announcement_channel() or channel
-
             first_embed_url = f"attachment://{first_filename}" if first_filename else first_url
             first_embed = self.build_signup_embeds(member, data, [first_embed_url])[0]
             first_embed.set_footer(text=f"Saved to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if first_file:
-                await announcement_channel.send(embed=first_embed, file=first_file)
+                await channel.send(embed=first_embed, file=first_file)
             else:
-                await announcement_channel.send(embed=first_embed)
+                await channel.send(embed=first_embed)
 
             if is_duo and partner_row and partner_file and partner_filename:
                 partner_embed_url = f"attachment://{partner_filename}" if partner_filename else first_url
@@ -1763,14 +1738,14 @@ class BingoCog(commands.Cog):
                 )
                 partner_embed.set_footer(text=f"Saved to signup row {partner_row}.")
                 if partner_file:
-                    await announcement_channel.send(embed=partner_embed, file=partner_file)
+                    await channel.send(embed=partner_embed, file=partner_file)
                 else:
-                    await announcement_channel.send(embed=partner_embed)
+                    await channel.send(embed=partner_embed)
 
             await self.safe_delete_message(first_message)
 
             if not is_duo:
-                await announcement_channel.send(self.get_signup_followup_message())
+                await channel.send(self.get_signup_followup_message())
                 return
 
             # Optional partner screenshot. Wait briefly so the public signup link does not appear
@@ -1778,7 +1753,7 @@ class BingoCog(commands.Cog):
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
-                await announcement_channel.send(self.get_signup_followup_message())
+                await channel.send(self.get_signup_followup_message())
                 return
 
             second_source = self.extract_image_url_from_message(second_message)
@@ -1804,11 +1779,11 @@ class BingoCog(commands.Cog):
             second_embed.set_image(url=f"attachment://{second_filename}" if second_filename else second_url)
             second_embed.set_footer(text=f"Added to signup row {submitter_row}" + (f" and partner row {partner_row}." if partner_row else "."))
             if second_file:
-                await announcement_channel.send(embed=second_embed, file=second_file)
+                await channel.send(embed=second_embed, file=second_file)
             else:
-                await announcement_channel.send(embed=second_embed)
+                await channel.send(embed=second_embed)
             await self.safe_delete_message(second_message)
-            await announcement_channel.send(self.get_signup_followup_message())
+            await channel.send(self.get_signup_followup_message())
 
         except asyncio.TimeoutError:
             try:
