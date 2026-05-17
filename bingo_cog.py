@@ -173,6 +173,7 @@ class BingoCog(commands.Cog):
         self.backup_list_message_id = int(os.getenv("BINGO_BACKUP_LIST_MESSAGE_ID", "0") or "0")
         self._backup_list_last_signature = None
 
+
         try:
             backup_spreadsheet = signup_spreadsheet or main_spreadsheet
             self.backups_sheet = backup_spreadsheet.worksheet(self.BACKUP_LIST_WORKSHEET)
@@ -237,6 +238,10 @@ class BingoCog(commands.Cog):
             self.backup_list_updater.change_interval(seconds=self.BACKUP_LIST_POLL_SECONDS)
             self.backup_list_updater.start()
 
+        if self.signup_sheet is not None and not self.signups_updater.is_running():
+            self.signups_updater.change_interval(seconds=self.SIGNUPS_POLL_SECONDS)
+            self.signups_updater.start()
+
         if not getattr(self.bot.intents, "message_content", False):
             print(
                 "Bingo Cog WARNING: message_content intent is disabled. "
@@ -249,6 +254,8 @@ class BingoCog(commands.Cog):
     def cog_unload(self):
         if hasattr(self, "backup_list_updater") and self.backup_list_updater.is_running():
             self.backup_list_updater.cancel()
+        if hasattr(self, "signups_updater") and self.signups_updater.is_running():
+            self.signups_updater.cancel()
 
     @tasks.loop(seconds=30)
     async def backup_list_updater(self):
@@ -347,6 +354,81 @@ class BingoCog(commands.Cog):
         message = await channel.send(embed=embed, view=view)
         self.backup_list_message_id = message.id
         print(f"Bingo Cog: Posted backup list message {message.id} in channel {self.BACKUP_LIST_CHANNEL_ID}.")
+
+
+    @tasks.loop(seconds=30)
+    async def signups_updater(self):
+        """Mirror signup totals into a single edited Discord embed."""
+        if self.signup_sheet is None:
+            return
+
+        try:
+            counts = await asyncio.to_thread(self.get_signup_counts)
+            signature = f"{counts['solo_count']}|{counts['duo_count']}|{counts['captain_count']}|{counts['total_count']}"
+            if signature == self._signups_last_signature:
+                return
+
+            await self.post_or_update_signups(counts)
+            self._signups_last_signature = signature
+        except Exception as e:
+            print(f"Bingo Cog: Signups update failed: {e}")
+
+    @signups_updater.before_loop
+    async def before_signups_updater(self):
+        await self.bot.wait_until_ready()
+
+    def build_signups_embed(self, counts: dict[str, int]) -> discord.Embed:
+        embed = discord.Embed(
+            title="Current Bingo Signup Totals",
+            colour=discord.Colour.gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Solo Signups", value=str(counts["solo_count"]), inline=True)
+        embed.add_field(name="Duo Signups", value=str(counts["duo_count"]), inline=True)
+        embed.add_field(name="Total Signups", value=str(counts["total_count"]), inline=True)
+        embed.add_field(name="Captains", value=str(counts["captain_count"]), inline=False)
+        embed.set_footer(text="Automatically updates from the signup worksheet.")
+        return embed
+
+    async def find_existing_signups_message(self, channel: discord.TextChannel) -> Optional[discord.Message]:
+        if self.signups_message_id:
+            try:
+                return await channel.fetch_message(self.signups_message_id)
+            except Exception:
+                self.signups_message_id = 0
+
+        try:
+            async for message in channel.history(limit=50):
+                if message.author.id != self.bot.user.id:
+                    continue
+                for embed in message.embeds:
+                    if embed.title == "Current Bingo Signup Totals":
+                        self.signups_message_id = message.id
+                        return message
+        except Exception as e:
+            print(f"Bingo Cog: Could not search for existing signups message: {e}")
+
+        return None
+
+    async def post_or_update_signups(self, counts: dict[str, int]) -> None:
+        channel = self.bot.get_channel(self.SIGNUPS_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(self.SIGNUPS_CHANNEL_ID)
+            except Exception as e:
+                print(f"Bingo Cog: Signups channel not found ({self.SIGNUPS_CHANNEL_ID}): {e}")
+                return
+
+        embed = self.build_signups_embed(counts)
+        message = await self.find_existing_signups_message(channel)
+
+        if message is not None:
+            await message.edit(embed=embed)
+            return
+
+        message = await channel.send(embed=embed)
+        self.signups_message_id = message.id
+        print(f"Bingo Cog: Posted signups message {message.id} in channel {self.SIGNUPS_CHANNEL_ID}.")
 
     # --- Helpers ---
 
@@ -1998,6 +2080,7 @@ class BingoCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         names = await asyncio.to_thread(self.read_backup_names_from_sheet)
         self._backup_list_last_signature = None
+
         await self.post_or_update_backup_list(names)
         self._backup_list_last_signature = "\n".join(names)
         await interaction.followup.send("Backup list posted/refreshed.", ephemeral=True)
