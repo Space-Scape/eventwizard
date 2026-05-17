@@ -966,6 +966,38 @@ class BingoCog(commands.Cog):
         """Leave signup row formatting alone; the sheet template controls visibility/style."""
         return
 
+
+    def count_signup_rows(self, signup_type: str) -> int:
+        """Count signed-up rows in the selected signup section."""
+        start_row, end_row = self.get_signup_bounds(signup_type)
+
+        try:
+            values = self.signup_sheet.get(f"A{start_row}:L{end_row}")
+        except Exception:
+            values = []
+
+        count = 0
+        for offset in range(end_row - start_row + 1):
+            row_values = values[offset] if offset < len(values) else []
+            row_discord_id = str(row_values[1]).strip() if len(row_values) > 1 else ""
+            row_rsn = str(row_values[2]).strip() if len(row_values) > 2 else ""
+            if row_discord_id or row_rsn:
+                count += 1
+
+        return count
+
+    def get_signup_counts(self) -> dict[str, int]:
+        """Return signup totals for solo, duo, captain, and combined participants."""
+        solo_count = self.count_signup_rows("Solo")
+        duo_count = self.count_signup_rows("Duo")
+        captain_count = self.count_signup_rows("Captain")
+        total_count = solo_count + duo_count + captain_count
+        return {
+            "solo_count": solo_count,
+            "duo_count": duo_count,
+            "captain_count": captain_count,
+            "total_count": total_count,
+        }
     def find_next_signup_row(self, signup_type: str) -> int:
         """Find the next open row in the correct signup section of the signup sheet."""
         start_row, end_row = self.get_signup_bounds(signup_type)
@@ -1929,6 +1961,29 @@ class BingoCog(commands.Cog):
             view=BingoSignupPanelView(self),
             ephemeral=True
         )
+
+
+    @app_commands.command(name="signups", description="Show current signup totals")
+    async def signups(self, interaction: discord.Interaction):
+        if self.signup_sheet is None:
+            await interaction.response.send_message(
+                "Bingo signup system is not properly configured. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        counts = await asyncio.to_thread(self.get_signup_counts)
+
+        embed = discord.Embed(
+            title="Current Bingo Signup Totals",
+            colour=discord.Colour.gold()
+        )
+        embed.add_field(name="Solo Signups", value=str(counts["solo_count"]), inline=True)
+        embed.add_field(name="Duo Signups", value=str(counts["duo_count"]), inline=True)
+        embed.add_field(name="Total Signups", value=str(counts["total_count"]), inline=True)
+        embed.add_field(name="Captains", value=str(counts["captain_count"]), inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
     @app_commands.command(name="backup_list", description="Post or refresh the bingo backup list embed")
     @app_commands.checks.has_permissions(administrator=True)
