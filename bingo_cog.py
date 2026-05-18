@@ -2062,6 +2062,14 @@ class BingoCog(commands.Cog):
         counts = await asyncio.to_thread(self.get_signup_counts)
 
         embed = self.build_signups_embed(counts)
+        embed = discord.Embed(
+            title="Current Bingo Signup Totals",
+            colour=discord.Colour.gold()
+        )
+        embed.add_field(name="Solo Signups", value=str(counts["solo_count"]), inline=True)
+        embed.add_field(name="Duo Signups", value=str(counts["duo_count"]), inline=True)
+        embed.add_field(name="Total Signups", value=str(counts["total_count"]), inline=True)
+        embed.add_field(name="Captains", value=str(counts["captain_count"]), inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=False)
 
