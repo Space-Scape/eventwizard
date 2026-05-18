@@ -173,6 +173,11 @@ class BingoCog(commands.Cog):
         self.backup_list_message_id = int(os.getenv("BINGO_BACKUP_LIST_MESSAGE_ID", "0") or "0")
         self._backup_list_last_signature = None
 
+        # Signup totals mirror embed settings.
+        self.SIGNUPS_CHANNEL_ID = int(os.getenv("BINGO_SIGNUPS_CHANNEL_ID", "1504323734222147604") or "1504323734222147604")
+        self.SIGNUPS_POLL_SECONDS = int(os.getenv("BINGO_SIGNUPS_POLL_SECONDS", "30"))
+        self.signups_message_id = int(os.getenv("BINGO_SIGNUPS_MESSAGE_ID", "0") or "0")
+        self._signups_last_signature = None
 
         try:
             backup_spreadsheet = signup_spreadsheet or main_spreadsheet
@@ -2056,6 +2061,7 @@ class BingoCog(commands.Cog):
 
         counts = await asyncio.to_thread(self.get_signup_counts)
 
+        embed = self.build_signups_embed(counts)
         embed = discord.Embed(
             title="Current Bingo Signup Totals",
             colour=discord.Colour.gold()
