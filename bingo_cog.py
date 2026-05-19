@@ -1682,6 +1682,29 @@ class BingoCog(commands.Cog):
             print(f"Bingo Cog: Failed to send signup announcement to thread {self.SIGNUP_ANNOUNCEMENT_THREAD_ID}: {e}")
             return None
 
+    async def send_signup_image_post(
+        self,
+        *,
+        image_url: str,
+        file: Optional[discord.File] = None,
+        filename: Optional[str] = None,
+        colour: Optional[discord.Colour] = None,
+    ) -> Optional[discord.Message]:
+        """Post only the buy-in image to the signup announcement thread.
+
+        This intentionally has no "New Signup" title/text. The public thread
+        gets the proof image only; the spreadsheet row and completion DM are the
+        actual signup confirmation.
+        """
+        embed = discord.Embed(colour=colour or discord.Colour.gold())
+        if file is not None and filename:
+            embed.set_image(url=f"attachment://{filename}")
+            return await self.send_signup_announcement(embed=embed, file=file)
+        if image_url:
+            embed.set_image(url=image_url)
+            return await self.send_signup_announcement(embed=embed)
+        return None
+
     async def send_signup_completed_dm(self, user: discord.abc.User, row: int, signup_type: str, rsn: str = "") -> None:
         """DM a player after their signup is saved. Throttled to avoid Discord DM rate limits."""
         if user is None or not row:
@@ -1941,6 +1964,13 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
+            await self.send_signup_image_post(
+                image_url=first_url,
+                file=first_file,
+                filename=first_filename,
+                colour=discord.Colour.blue() if is_duo else (discord.Colour.gold() if is_captain else discord.Colour.green()),
+            )
+
             await self.safe_delete_message(first_message)
 
             if not is_duo:
@@ -1962,6 +1992,13 @@ class BingoCog(commands.Cog):
             if second_source.attachment is not None:
                 second_file, second_filename = await self.attachment_to_discord_file(second_source.attachment, "partner_buy_in.png")
             self.update_duo_second_screenshot(submitter_row, partner_row, second_url)
+
+            await self.send_signup_image_post(
+                image_url=second_url,
+                file=second_file,
+                filename=second_filename,
+                colour=discord.Colour.blue(),
+            )
 
             partner_target = None
             partner_discord_id = str((partner_info or {}).get("discord_id", "")).strip()
