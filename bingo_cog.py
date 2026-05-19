@@ -199,9 +199,9 @@ class BingoCog(commands.Cog):
         self.SIGNUP_CHANNEL_ID = int(os.getenv("BINGO_SIGNUP_CHANNEL_ID", "1504323734222147604") or "1504323734222147604")
         self.SIGNUP_ANNOUNCEMENT_THREAD_ID = int(os.getenv("BINGO_SIGNUP_ANNOUNCEMENT_THREAD_ID", "1505020794491764846") or "1505020794491764846")
         self._pending_signup_screenshot_user_ids = set()
+        self._signup_dm_sent_keys = set()
         self._dm_send_lock = asyncio.Lock()
-        self._last_dm_send_time = 0.0
-        self._signup_completion_dm_keys = set()
+
 
         # Wise Old Man rank lookup. WOM is used to auto-fill column L with A/B/C when clear.
         # Wild-card/ambiguous players are intentionally left blank for captain review.
@@ -1635,11 +1635,11 @@ class BingoCog(commands.Cog):
     async def safe_delete_message(self, message: discord.Message) -> None:
         try:
             await message.delete()
-        except discord.NotFound:
-            # Another handler may have already removed it. Treat this as success.
-            return
         except discord.Forbidden:
             print("Bingo Cog: Missing permission to delete signup screenshot message.")
+        except discord.NotFound:
+            # The message was already deleted by Discord, another listener, or a prior cleanup.
+            return
         except discord.HTTPException as e:
             if getattr(e, "code", None) == 10008:
                 return
@@ -1683,16 +1683,16 @@ class BingoCog(commands.Cog):
             return None
 
     async def send_signup_completed_dm(self, user: discord.abc.User, row: int, signup_type: str, rsn: str = "") -> None:
-        """DM a player after their signup is saved, with basic rate-limit protection."""
+        """DM a player after their signup is saved. Throttled to avoid Discord DM rate limits."""
         if user is None or not row:
             return
 
-        display_rsn = str(rsn or "your account").strip()
-        dm_key = (getattr(user, "id", None), int(row), str(signup_type), self.normalize_signup_value(display_rsn))
-        if dm_key in self._signup_completion_dm_keys:
+        user_id = getattr(user, "id", None)
+        dm_key = (str(user_id), int(row), str(signup_type).casefold())
+        if dm_key in self._signup_dm_sent_keys:
             return
-        self._signup_completion_dm_keys.add(dm_key)
 
+        display_rsn = str(rsn or "your account").strip()
         message = (
             f"Your {signup_type.lower()} signup for **{display_rsn}** is complete.\n"
             f"You were saved to row **{row}** on the signup spreadsheet:\n"
@@ -1700,28 +1700,26 @@ class BingoCog(commands.Cog):
         )
 
         async with self._dm_send_lock:
-            loop = asyncio.get_running_loop()
-            elapsed = loop.time() - self._last_dm_send_time
-            if elapsed < 1.5:
-                await asyncio.sleep(1.5 - elapsed)
-
-            try:
-                await user.send(message)
-                self._last_dm_send_time = loop.time()
-            except discord.Forbidden:
-                print(f"Bingo Cog: Could not DM signup completion to {getattr(user, 'id', 'unknown')} because DMs are closed.")
-            except discord.HTTPException as e:
-                if getattr(e, "code", None) == 40003:
-                    await asyncio.sleep(6)
-                    try:
-                        await user.send(message)
-                        self._last_dm_send_time = loop.time()
-                    except Exception as retry_error:
-                        print(f"Bingo Cog: Failed to DM signup completion to {getattr(user, 'id', 'unknown')} after retry: {retry_error}")
-                else:
+            for attempt in range(2):
+                try:
+                    # Small spacing prevents bursts when duo signups trigger multiple DMs.
+                    await asyncio.sleep(1.5 if attempt == 0 else 6.0)
+                    await user.send(message)
+                    self._signup_dm_sent_keys.add(dm_key)
+                    return
+                except discord.Forbidden:
+                    print(f"Bingo Cog: Could not DM signup completion to {getattr(user, 'id', 'unknown')} because DMs are closed.")
+                    return
+                except discord.HTTPException as e:
+                    # 40003 = opening DMs too fast. Retry once after a short pause.
+                    if getattr(e, "code", None) == 40003 and attempt == 0:
+                        print(f"Bingo Cog: DM rate limited for {getattr(user, 'id', 'unknown')}; retrying once.")
+                        continue
                     print(f"Bingo Cog: Failed to DM signup completion to {getattr(user, 'id', 'unknown')}: {e}")
-            except Exception as e:
-                print(f"Bingo Cog: Failed to DM signup completion to {getattr(user, 'id', 'unknown')}: {e}")
+                    return
+                except Exception as e:
+                    print(f"Bingo Cog: Failed to DM signup completion to {getattr(user, 'id', 'unknown')}: {e}")
+                    return
 
     async def send_signup_completed_dm_by_registered_info(self, guild: Optional[discord.Guild], registered_info: Optional[dict], row: int, signup_type: str, rsn: str = "") -> None:
         """DM a signup completion message to a tracker user when possible."""
@@ -1752,28 +1750,12 @@ class BingoCog(commands.Cog):
             "4. Only post your buy-in screenshot after the bot asks you to post it.\n\n"
             "Please start from the signup panel and try again."
         )
-        async with self._dm_send_lock:
-            loop = asyncio.get_running_loop()
-            elapsed = loop.time() - self._last_dm_send_time
-            if elapsed < 1.5:
-                await asyncio.sleep(1.5 - elapsed)
-            try:
-                await user.send(message)
-                self._last_dm_send_time = loop.time()
-            except discord.Forbidden:
-                print(f"Bingo Cog: Could not DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')} because DMs are closed.")
-            except discord.HTTPException as e:
-                if getattr(e, "code", None) == 40003:
-                    await asyncio.sleep(6)
-                    try:
-                        await user.send(message)
-                        self._last_dm_send_time = loop.time()
-                    except Exception as retry_error:
-                        print(f"Bingo Cog: Failed to DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')} after retry: {retry_error}")
-                else:
-                    print(f"Bingo Cog: Failed to DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')}: {e}")
-            except Exception as e:
-                print(f"Bingo Cog: Failed to DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')}: {e}")
+        try:
+            await user.send(message)
+        except discord.Forbidden:
+            print(f"Bingo Cog: Could not DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')} because DMs are closed.")
+        except Exception as e:
+            print(f"Bingo Cog: Failed to DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')}: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1959,16 +1941,13 @@ class BingoCog(commands.Cog):
                 partner_info=partner_info,
             )
 
-            # Public New Signup announcements were intentionally removed.
-            # The signup channel stays clear, and users are notified by DM instead.
-
             await self.safe_delete_message(first_message)
 
             if not is_duo:
                 return
 
-            # Optional partner screenshot. Wait briefly so the public signup link does not appear
-            # between the required signup embed(s) and the optional second-screenshot embed.
+            # Optional partner screenshot. Wait briefly for a second image, but do not post
+            # public signup announcements. The sheet and DM confirmation are the record.
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
@@ -1992,7 +1971,6 @@ class BingoCog(commands.Cog):
                 partner_rsn = str(data.get("Duo Partner", "")).strip()
                 partner_target = partner_rsn or member.mention
 
-            # Optional second screenshot is stored in the sheet only; no public announcement is posted.
             await self.safe_delete_message(second_message)
 
         except asyncio.TimeoutError:
@@ -2511,7 +2489,7 @@ class SoloSignupModal(discord.ui.Modal, title="Solo Signup - Step 1 of 2"):
         await interaction.followup.send(
             "**Step 2/2: Post Buy In Screenshot**\n"
             "Post your buy-in screenshot in this channel now. "
-            "I will save it, delete your screenshot message, and post a public signup embed.",
+            "I will save it, delete your screenshot message, and DM you when your signup is complete.",
             ephemeral=True
         )
         self.cog._pending_signup_screenshot_user_ids.add(interaction.user.id)
