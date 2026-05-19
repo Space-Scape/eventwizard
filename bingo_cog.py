@@ -78,7 +78,8 @@ import urllib.error
     #"Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
 
 BOSS_DROPS = {
-    "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"]
+    "Abyssal Sire": ["Abyssal orphan", "Jar of miasma"],
+    "General Graardor": ["Pet general graardor", "Bandos hilt", "Bandos chestplate", "Bandos tassets", "Bandos boots", "Godsword shard 1", "Godsword shard 2", "Godsword shard 3"]
 }
 
 
