@@ -1928,12 +1928,14 @@ class BingoCog(commands.Cog):
             "No drop verification message was sent."
         )
 
+        team_role_mention = f"<@&{self.TEAM_ROLE_IDS[team_number]}>"
+
         await team_channel.send(
             content=(
-                "**Drop detected!**\n"
-                f"{drop_name} for {target_user.mention}\n"
-                f"[link to drop message]({source_message_url})\n"
-                "Would you like to submit it now?"
+                f"{team_role_mention}\n\n"
+                "**Drop Received!**\n\n"
+                f"{drop_name} for {target_user.mention}\n\n"
+                f"*Chat submission link:* [Open message]({source_message_url})"
             ),
             view=AutoDetectedDropConfirmView(
                 cog=self,
@@ -1945,7 +1947,7 @@ class BingoCog(commands.Cog):
                 source_message_url=source_message_url,
                 source_message_id=message.id,
             ),
-            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
 
     @commands.Cog.listener()
@@ -3054,20 +3056,30 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         embed = self.build_review_embed(interaction.user)
         await review_channel.send(
             embed=embed,
-            view=DropReviewButtons(self.cog, self.target_user, self.drop_name, self.image_url, interaction.user, team_mention),
+            view=DropReviewButtons(
+                self.cog,
+                self.target_user,
+                self.drop_name,
+                self.image_url,
+                interaction.user,
+                team_mention,
+                evidence_url=self.source_message_url,
+            ),
         )
 
         self.completed = True
         self.disable_buttons()
+        team_role_mention = f"<@&{self.cog.TEAM_ROLE_IDS[self.team_number]}>"
         await interaction.response.edit_message(
             content=(
-                "**Drop detected!**\n"
-                f"{self.drop_name} for {self.target_user.mention}\n"
-                f"[link to drop message]({self.source_message_url})\n"
+                f"{team_role_mention}\n\n"
+                "**Drop Received!**\n\n"
+                f"{self.drop_name} for {self.target_user.mention}\n\n"
+                f"*Chat submission link:* [Open message]({self.source_message_url})\n\n"
                 f"Submitted to drop verification by {interaction.user.mention}."
             ),
             view=self,
-            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
 
     @discord.ui.button(label="No", style=discord.ButtonStyle.red)
@@ -3080,15 +3092,17 @@ class AutoDetectedDropConfirmView(discord.ui.View):
 
         self.completed = True
         self.disable_buttons()
+        team_role_mention = f"<@&{self.cog.TEAM_ROLE_IDS[self.team_number]}>"
         await interaction.response.edit_message(
             content=(
-                "**Drop detected!**\n"
-                f"{self.drop_name} for {self.target_user.mention}\n"
-                f"[link to drop message]({self.source_message_url})\n"
+                f"{team_role_mention}\n\n"
+                "**Drop Received!**\n\n"
+                f"{self.drop_name} for {self.target_user.mention}\n\n"
+                f"*Chat submission link:* [Open message]({self.source_message_url})\n\n"
                 "Not submitted. Please use `/submitdrop`."
             ),
             view=self,
-            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
 
     async def on_timeout(self):
@@ -3161,7 +3175,16 @@ class DropView(discord.ui.View):
 
 
 class DropReviewButtons(discord.ui.View):
-    def __init__(self, cog: BingoCog, submitted_user: discord.Member, drop: str, image_url: str, submitting_user: discord.Member, team_mention: str):
+    def __init__(
+        self,
+        cog: BingoCog,
+        submitted_user: discord.Member,
+        drop: str,
+        image_url: str,
+        submitting_user: discord.Member,
+        team_mention: str,
+        evidence_url: Optional[str] = None,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
         self.submitted_user = submitted_user
@@ -3169,6 +3192,10 @@ class DropReviewButtons(discord.ui.View):
         self.image_url = image_url
         self.submitting_user = submitting_user
         self.team_mention = team_mention
+        # This is what gets written to the Drop Log "screenshot" column E.
+        # Manual /submitdrop approvals keep using the screenshot URL.
+        # Auto-detected approvals use the original clan-chat submission link.
+        self.evidence_url = evidence_url or image_url
         self.reviewer: Optional[int] = None
 
     def has_drop_manager_role(self, member: discord.Member) -> bool:
@@ -3268,7 +3295,10 @@ class DropReviewButtons(discord.ui.View):
                 embed.add_field(name="Team", value=self.team_mention, inline=False)
                 embed.add_field(name="Drop", value=self.drop, inline=False)
                 embed.add_field(name="Submitted By", value=self.submitting_user.mention, inline=False)
-                embed.set_image(url=self.image_url)
+                if self.image_url:
+                    embed.set_image(url=self.image_url)
+                if self.evidence_url and self.evidence_url != self.image_url:
+                    embed.add_field(name="Chat Submission Link", value=f"[Open message]({self.evidence_url})", inline=False)
                 await log_channel.send(embed=embed)
             except Exception as e:
                 print(f"Bingo Cog: Failed to send to log channel: {e}")
@@ -3282,7 +3312,7 @@ class DropReviewButtons(discord.ui.View):
                 submitted_user_name=self.submitted_user.display_name,
                 submitted_user_id=self.submitted_user.id,
                 drop=self.drop,
-                image_url=self.image_url,
+                image_url=self.evidence_url,
             )
         except Exception as e:
             print(f"Bingo Cog: Failed to write drop log row: {e}")
