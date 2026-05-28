@@ -57,7 +57,7 @@ BOSS_DROPS = {
     "Venenatis": ["Venenatis spiderling", "Fangs of venenatis", "Dragon pickaxe", "Voidwaker gem", "Treasonous ring"],
     "Vet'ion": ["Vet'ion jr.", "Skull of vet'ion", "Dragon pickaxe", "Voidwaker blade", "Ring of the gods", "Skeleton champion scroll"],
     "Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
-    "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs"],
+    "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"]
 }
 
@@ -228,6 +228,8 @@ class BingoCog(commands.Cog):
             5: 1504315384797462649,
             6: 1504315537814065415,
         }
+        self._auto_drop_prompted_message_ids: set[int] = set()
+        self._auto_drop_prompt_lock = asyncio.Lock()
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
@@ -1916,7 +1918,21 @@ class BingoCog(commands.Cog):
         )
 
     async def handle_detected_drop_message(self, message: discord.Message) -> None:
-        """Ask the player's team whether an auto-detected drop should be submitted."""
+        """Ask the player's team whether an auto-detected drop should be submitted.
+
+        This method only posts the prompt in the team's channel. It must never
+        forward anything to the drop verification channel; that only happens
+        from AutoDetectedDropConfirmView.yes().
+        """
+        async with self._auto_drop_prompt_lock:
+            if message.id in self._auto_drop_prompted_message_ids:
+                return
+            self._auto_drop_prompted_message_ids.add(message.id)
+
+            # Keep the in-memory duplicate guard from growing forever.
+            if len(self._auto_drop_prompted_message_ids) > 500:
+                self._auto_drop_prompted_message_ids = set(list(self._auto_drop_prompted_message_ids)[-250:])
+
         text = self.flatten_message_text(message)
         drop_name = self.find_drop_name_in_text(text)
         if not drop_name:
@@ -3025,6 +3041,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
             return
 
+        # This is the only auto-detected-drop path that is allowed to send to drop verification.
         review_message = await self.cog.send_drop_to_review_channel(
             boss=self.boss_name,
             drop_name=self.drop_name,
