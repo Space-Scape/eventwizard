@@ -536,14 +536,6 @@ async def on_ready():
 #            print(f"❌ Failed to load extension: monopoly - {e}")
 #            traceback.print_exc()
     
-    if "channel_logger" not in bot.extensions:
-        try:
-            await bot.load_extension("channel_logger")
-            print("✅ Loaded extension: channel_logger")
-        except Exception as e:
-            print(f"❌ Failed to load extension: channel_logger - {e}")
-            traceback.print_exc()
-    
     if "bingo_cog" not in bot.extensions:
         try:
             await bot.load_extension("bingo_cog")
