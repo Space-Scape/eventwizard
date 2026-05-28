@@ -206,6 +206,28 @@ class BingoCog(commands.Cog):
         self.REQUIRED_ROLE_NAME = "Event Staff"
         self.REGISTERED_ROLE_NAME = "Registered"
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
+
+        # Auto-detected drop confirmation routing.
+        # Messages detected in DROP_DETECTION_CHANNEL_ID will ask the player's team
+        # if they want to forward the drop into the normal drop verification flow.
+        self.DROP_DETECTION_CHANNEL_ID = int(os.getenv("BINGO_DROP_DETECTION_CHANNEL_ID", "1272875477555482666") or "1272875477555482666")
+        self.GUILD_ID = int(os.getenv("BINGO_GUILD_ID", "1272629330115297330") or "1272629330115297330")
+        self.TEAM_ROLE_IDS = {
+            1: 1464306125582241954,
+            2: 1464306197531328552,
+            3: 1464306160202154075,
+            4: 1464306263868309564,
+            5: 1464306051049328832,
+            6: 1464306298513395855,
+        }
+        self.TEAM_CHANNEL_IDS = {
+            1: 1504315482587660459,
+            2: 1504315751274909848,
+            3: 1504315637898674279,
+            4: 1504315822292861108,
+            5: 1504315384797462649,
+            6: 1504315537814065415,
+        }
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
         # Signup sheet layout based on the displayed signup spreadsheet.
@@ -1760,12 +1782,200 @@ class BingoCog(commands.Cog):
         except Exception as e:
             print(f"Bingo Cog: Failed to DM incorrect signup-image instructions to {getattr(user, 'id', 'unknown')}: {e}")
 
+    def get_member_team_number(self, member: discord.Member) -> Optional[int]:
+        """Return the bingo team number for a member based on configured team role IDs."""
+        member_role_ids = {role.id for role in getattr(member, "roles", [])}
+        for team_number, role_id in self.TEAM_ROLE_IDS.items():
+            if role_id in member_role_ids:
+                return team_number
+        return None
+
+    async def get_channel_by_id(self, channel_id: int):
+        """Fetch a Discord channel by ID with cache fallback."""
+        channel = self.bot.get_channel(channel_id)
+        if channel is not None:
+            return channel
+        try:
+            return await self.bot.fetch_channel(channel_id)
+        except Exception as e:
+            print(f"Bingo Cog: Could not fetch channel {channel_id}: {e}")
+            return None
+
+    def flatten_message_text(self, message: discord.Message) -> str:
+        """Collect message content and embed text for simple drop/player parsing."""
+        parts = [message.content or ""]
+        for embed in message.embeds:
+            for value in (embed.title, embed.description):
+                if value:
+                    parts.append(str(value))
+            for field in embed.fields:
+                parts.append(str(field.name or ""))
+                parts.append(str(field.value or ""))
+            footer_text = getattr(getattr(embed, "footer", None), "text", None)
+            author_name = getattr(getattr(embed, "author", None), "name", None)
+            if footer_text:
+                parts.append(str(footer_text))
+            if author_name:
+                parts.append(str(author_name))
+        return "\n".join(part for part in parts if part)
+
+    def find_drop_name_in_text(self, text: str) -> Optional[str]:
+        """Find the first known bingo drop name mentioned in a detected drop message."""
+        text_lower = text.casefold()
+        all_drops = sorted(
+            {drop for drops in BOSS_DROPS.values() for drop in drops},
+            key=len,
+            reverse=True,
+        )
+        for drop in all_drops:
+            if drop.casefold() in text_lower:
+                return drop
+        return None
+
+    async def resolve_detected_drop_member(self, message: discord.Message, text: str) -> Optional[discord.Member]:
+        """Best-effort resolution of the player from mentions, embeds, or plain text."""
+        guild = message.guild
+        if guild is None:
+            return None
+
+        if message.mentions:
+            for mentioned in message.mentions:
+                if isinstance(mentioned, discord.Member) and not mentioned.bot:
+                    return mentioned
+
+        id_match = re.search(r"<@!?(\d{15,22})>", text) or re.search(r"\b(\d{15,22})\b", text)
+        if id_match:
+            try:
+                return guild.get_member(int(id_match.group(1))) or await guild.fetch_member(int(id_match.group(1)))
+            except Exception:
+                pass
+
+        normalized_text = text.casefold()
+        for member in getattr(guild, "members", []):
+            if member.bot:
+                continue
+            names = {
+                str(getattr(member, "display_name", "") or "").casefold(),
+                str(getattr(member, "name", "") or "").casefold(),
+                str(getattr(member, "global_name", "") or "").casefold(),
+            }
+            names.discard("")
+            if any(name and name in normalized_text for name in names):
+                return member
+
+        return None
+
+    def build_drop_review_embed(
+        self,
+        boss: str,
+        drop_name: str,
+        target_user: discord.Member,
+        submitting_user: discord.abc.User,
+        image_url: str,
+        source_message_url: Optional[str] = None,
+    ) -> discord.Embed:
+        """Build the same style of review embed used by /submitdrop."""
+        title = f"{boss} Drop Submission" if boss else "Drop Submission"
+        embed = discord.Embed(title=title, colour=discord.Colour.blurple())
+        embed.add_field(name="Submitted For", value=f"{target_user.mention} ({target_user.id})", inline=False)
+        embed.add_field(name="Drop Received", value=drop_name, inline=False)
+        embed.add_field(name="Submitted By", value=f"{submitting_user.mention} ({submitting_user.id})", inline=False)
+        if source_message_url:
+            embed.add_field(name="Source Message", value=f"[Open drop message]({source_message_url})", inline=False)
+        if image_url:
+            embed.set_image(url=image_url)
+        return embed
+
+    async def send_drop_to_review_channel(
+        self,
+        *,
+        boss: str,
+        drop_name: str,
+        target_user: discord.Member,
+        submitting_user: discord.abc.User,
+        image_url: str,
+        source_message_url: Optional[str] = None,
+    ) -> Optional[discord.Message]:
+        """Forward a drop into the normal drop verification channel."""
+        review_channel = await self.get_channel_by_id(self.REVIEW_CHANNEL_ID)
+        if review_channel is None:
+            return None
+
+        team_mention = self.get_team_role_mention(target_user)
+        embed = self.build_drop_review_embed(
+            boss=boss,
+            drop_name=drop_name,
+            target_user=target_user,
+            submitting_user=submitting_user,
+            image_url=image_url,
+            source_message_url=source_message_url,
+        )
+        return await review_channel.send(
+            embed=embed,
+            view=DropReviewButtons(self, target_user, drop_name, image_url, submitting_user, team_mention),
+        )
+
+    async def handle_detected_drop_message(self, message: discord.Message) -> None:
+        """Ask the player's team whether an auto-detected drop should be submitted."""
+        text = self.flatten_message_text(message)
+        drop_name = self.find_drop_name_in_text(text)
+        if not drop_name:
+            return
+
+        target_user = await self.resolve_detected_drop_member(message, text)
+        if target_user is None:
+            print(f"Bingo Cog: Detected drop '{drop_name}' but could not resolve the player from message {message.id}.")
+            return
+
+        team_number = self.get_member_team_number(target_user)
+        if team_number is None:
+            print(f"Bingo Cog: Detected drop for {target_user.id}, but they do not have a configured team role.")
+            return
+
+        team_channel_id = self.TEAM_CHANNEL_IDS.get(team_number)
+        team_channel = await self.get_channel_by_id(team_channel_id) if team_channel_id else None
+        if team_channel is None:
+            return
+
+        image_source = self.extract_image_url_from_message(message)
+        image_url = image_source.image_url if image_source else ""
+        boss_name = next((boss for boss, drops in BOSS_DROPS.items() if drop_name in drops), "")
+        source_message_url = getattr(message, "jump_url", None) or f"https://discord.com/channels/{self.GUILD_ID}/{message.channel.id}/{message.id}"
+
+        await team_channel.send(
+            content=(
+                "**Drop detected!**\n"
+                f"{drop_name} for {target_user.mention}\n"
+                f"[link to drop message]({source_message_url})\n"
+                "Would you like to submit it now?"
+            ),
+            view=AutoDetectedDropConfirmView(
+                cog=self,
+                team_number=team_number,
+                target_user=target_user,
+                drop_name=drop_name,
+                boss_name=boss_name,
+                image_url=image_url,
+                source_message_url=source_message_url,
+            ),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Handle screenshots posted in the signup channel without an active signup."""
+        """Handle signup screenshots and auto-detected drop confirmations."""
+        if self.bot.user and message.author.id == self.bot.user.id:
+            return
+
+        channel_id = getattr(message.channel, "id", None)
+
+        if channel_id == self.DROP_DETECTION_CHANNEL_ID:
+            await self.handle_detected_drop_message(message)
+            return
+
         if message.author.bot:
             return
-        if getattr(message.channel, "id", None) != self.SIGNUP_CHANNEL_ID:
+        if channel_id != self.SIGNUP_CHANNEL_ID:
             return
         if message.author.id in self._pending_signup_screenshot_user_ids:
             return
@@ -2768,6 +2978,105 @@ class NextPageButton(discord.ui.Button):
         await interaction.response.edit_message(
             view=BossView(self.cog, self.submitting_user, self.target_user, self.screenshot, self.page + 1)
         )
+
+
+class AutoDetectedDropConfirmView(discord.ui.View):
+    def __init__(
+        self,
+        cog: BingoCog,
+        team_number: int,
+        target_user: discord.Member,
+        drop_name: str,
+        boss_name: str,
+        image_url: str,
+        source_message_url: str,
+    ):
+        super().__init__(timeout=86400)
+        self.cog = cog
+        self.team_number = team_number
+        self.target_user = target_user
+        self.drop_name = drop_name
+        self.boss_name = boss_name
+        self.image_url = image_url
+        self.source_message_url = source_message_url
+        self.completed = False
+
+    def is_team_member(self, member: discord.Member) -> bool:
+        return any(role.id == self.cog.TEAM_ROLE_IDS.get(self.team_number) for role in getattr(member, "roles", []))
+
+    async def guard_team_member(self, interaction: discord.Interaction) -> bool:
+        if self.is_team_member(interaction.user):
+            return True
+        await interaction.response.send_message(
+            "Only a member of this team can answer this drop prompt.",
+            ephemeral=True,
+        )
+        return False
+
+    def disable_buttons(self) -> None:
+        for child in self.children:
+            child.disabled = True
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
+    async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.guard_team_member(interaction):
+            return
+        if self.completed:
+            await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
+            return
+
+        review_message = await self.cog.send_drop_to_review_channel(
+            boss=self.boss_name,
+            drop_name=self.drop_name,
+            target_user=self.target_user,
+            submitting_user=interaction.user,
+            image_url=self.image_url,
+            source_message_url=self.source_message_url,
+        )
+
+        if review_message is None:
+            await interaction.response.send_message(
+                "I could not send this to the drop verification channel. Please use `/submitdrop` instead.",
+                ephemeral=True,
+            )
+            return
+
+        self.completed = True
+        self.disable_buttons()
+        await interaction.response.edit_message(
+            content=(
+                "**Drop detected!**\n"
+                f"{self.drop_name} for {self.target_user.mention}\n"
+                f"[link to drop message]({self.source_message_url})\n"
+                f"Submitted to drop verification by {interaction.user.mention}."
+            ),
+            view=self,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.red)
+    async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.guard_team_member(interaction):
+            return
+        if self.completed:
+            await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
+            return
+
+        self.completed = True
+        self.disable_buttons()
+        await interaction.response.edit_message(
+            content=(
+                "**Drop detected!**\n"
+                f"{self.drop_name} for {self.target_user.mention}\n"
+                f"[link to drop message]({self.source_message_url})\n"
+                "Not submitted. Please use `/submitdrop`."
+            ),
+            view=self,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+
+    async def on_timeout(self):
+        self.disable_buttons()
 
 
 class DropSelect(discord.ui.Select):
