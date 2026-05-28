@@ -229,6 +229,7 @@ class BingoCog(commands.Cog):
             6: 1504315537814065415,
         }
         self._auto_drop_prompted_message_ids: set[int] = set()
+        self._auto_drop_review_submitted_message_ids: set[int] = set()
         self._auto_drop_prompt_lock = asyncio.Lock()
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
@@ -1973,6 +1974,7 @@ class BingoCog(commands.Cog):
                 boss_name=boss_name,
                 image_url=image_url,
                 source_message_url=source_message_url,
+                source_message_id=message.id,
             ),
             allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
         )
@@ -3006,6 +3008,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         boss_name: str,
         image_url: str,
         source_message_url: str,
+        source_message_id: int = 0,
     ):
         super().__init__(timeout=86400)
         self.cog = cog
@@ -3015,6 +3018,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         self.boss_name = boss_name
         self.image_url = image_url
         self.source_message_url = source_message_url
+        self.source_message_id = int(source_message_id or 0)
         self.completed = False
 
     def is_team_member(self, member: discord.Member) -> bool:
@@ -3042,6 +3046,17 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             return
 
         # This is the only auto-detected-drop path that is allowed to send to drop verification.
+        # The source-message guard prevents double-submits from repeated clicks or duplicate prompts.
+        if self.source_message_id and self.source_message_id in self.cog._auto_drop_review_submitted_message_ids:
+            await interaction.response.send_message(
+                "This detected drop has already been submitted to drop verification.",
+                ephemeral=True,
+            )
+            return
+
+        if self.source_message_id:
+            self.cog._auto_drop_review_submitted_message_ids.add(self.source_message_id)
+
         review_message = await self.cog.send_drop_to_review_channel(
             boss=self.boss_name,
             drop_name=self.drop_name,
@@ -3052,6 +3067,8 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         )
 
         if review_message is None:
+            if self.source_message_id:
+                self.cog._auto_drop_review_submitted_message_ids.discard(self.source_message_id)
             await interaction.response.send_message(
                 "I could not send this to the drop verification channel. Please use `/submitdrop` instead.",
                 ephemeral=True,
