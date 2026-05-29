@@ -1852,7 +1852,7 @@ class BingoCog(commands.Cog):
                 return team_number
         return None
 
-        def parse_player_name_from_drop_text(self, text: str) -> str:
+    def parse_player_name_from_drop_text(self, text: str) -> str:
         """Extract the RSN/player name from a detected Clan Chat drop message."""
 
         text = self.flatten_message_text(text) if not isinstance(text, str) else text
