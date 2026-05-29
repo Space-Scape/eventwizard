@@ -59,7 +59,7 @@ BOSS_DROPS = {
     "Vorkath": ["Vorki", "Draconic visage", "Skeletal visage", "Jar of decay", "Dragonbone necklace"],
     "Yama": ["Yami", "Soulflame horn", "Oathplate helm", "Oathplate chest", "Oathplate legs", "Dossier"],
     "Zulrah": ["Pet snakeling", "Tanzanite mutagen", "Magma mutagen", "Jar of swamp", "Tanzanite fang", "Magic fang", "Serpentine visage", "Uncut onyx"],
-    "Pets/Misc": ["Gull", "Kalphite princess", "Noon/Midnight", "Pet General Graardor", "Pet K'ril Tsutsaroth", "Pet Kraken", "Pet Kree'Arra", "Pet smoke devil", "Pet Zilyana", "Sraracha"]
+    "Pets/Misc": ["Gull", "Kalphite princess", "Noon/Midnight", "Pet General Graardor", "Pet K'ril Tsutsaroth", "Pet Kraken", "Pet Kree'Arra", "Pet smoke devil", "Pet Zilyana", "Smolcano", "Sraracha"]
 }
 
 class MessageImageSource(NamedTuple):
