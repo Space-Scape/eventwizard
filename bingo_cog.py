@@ -1852,35 +1852,108 @@ class BingoCog(commands.Cog):
                 return team_number
         return None
 
-    async def resolve_detected_drop_member(self, message: discord.Message, text: str) -> Optional[discord.Member]:
-        """Best-effort player resolver for a detected drop message."""
+        def parse_player_name_from_drop_text(self, text: str) -> str:
+        """Extract the RSN/player name from a detected Clan Chat drop message."""
+
+        text = self.flatten_message_text(text) if not isinstance(text, str) else text
+        text = text.replace("\\:", ":").replace("\\(", "(").replace("\\)", ")").strip()
+
+        patterns = [
+            r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a drop:",
+            r"^(?:<a?:[^:]+:\d+>\s*)?(?P<player>.+?)\s+received a new collection log item:",
+            r"^(?P<player>.+?)\s+has a funny feeling like\s+",
+            r"^(?:\[.*?\]\s*)?(?:<a?:[^:]+:\d+>\s*|[^\w\s]+\s*)?(?P<player>.+?)\s+received special loot from a raid:",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                player = str(match.group("player") or "").strip()
+
+                # Remove custom emoji and bold markdown if present.
+                player = re.sub(r"<a?:[^:]+:\d+>", "", player).strip()
+                bold_match = re.search(r"\*\*(.+?)\*\*", player)
+                if bold_match:
+                    player = bold_match.group(1).strip()
+
+                return player.replace("*", "").strip()
+
+        return ""
+    
+        async def resolve_detected_drop_member(self, message: discord.Message, text: str) -> Optional[discord.Member]:
+        """Resolve the Clan Chat RSN to a Discord member.
+
+        Priority:
+        1. RSN Tracker exact lookup.
+        2. Exact normalized nickname/display-name segment match.
+        3. Mentions/IDs fallback.
+        """
+
         guild = message.guild
         if guild is None:
             return None
 
+        player_rsn = self.parse_player_name_from_drop_text(text)
+        normalized_player = self.normalize_rsn_for_lookup(player_rsn)
+
+        if normalized_player:
+            registered_info = self.find_registered_rsn_info(player_rsn)
+            discord_id = str((registered_info or {}).get("discord_id", "")).strip()
+
+            if discord_id.isdigit():
+                try:
+                    member = guild.get_member(int(discord_id)) or await guild.fetch_member(int(discord_id))
+                    if member is not None:
+                        print(
+                            f"Bingo Cog: Resolved detected drop RSN '{player_rsn}' "
+                            f"to Discord member {member.id} through RSN Tracker."
+                        )
+                        return member
+                except Exception as e:
+                    print(f"Bingo Cog: Could not fetch member for RSN '{player_rsn}' / Discord ID {discord_id}: {e}")
+
+            # Fallback: exact match against nickname/name/global name pieces.
+            # This handles names like "Hikizato | Hikis Donger".
+            for member in getattr(guild, "members", []):
+                if member.bot:
+                    continue
+
+                possible_names = {
+                    str(getattr(member, "display_name", "") or ""),
+                    str(getattr(member, "name", "") or ""),
+                    str(getattr(member, "global_name", "") or ""),
+                }
+
+                expanded_parts = set()
+                for name in possible_names:
+                    expanded_parts.add(name)
+                    expanded_parts.update(re.split(r"[|,/;\n\r]+", name))
+
+                normalized_parts = {
+                    self.normalize_rsn_for_lookup(part)
+                    for part in expanded_parts
+                    if self.normalize_rsn_for_lookup(part)
+                }
+
+                if normalized_player in normalized_parts:
+                    print(
+                        f"Bingo Cog: Resolved detected drop RSN '{player_rsn}' "
+                        f"to Discord member {member.id} through exact name match."
+                    )
+                    return member
+
+        # Mention fallback.
         for mentioned in message.mentions:
             if isinstance(mentioned, discord.Member) and not mentioned.bot:
                 return mentioned
 
+        # Raw Discord ID fallback.
         id_match = re.search(r"<@!?(\d{15,22})>", text) or re.search(r"\b(\d{15,22})\b", text)
         if id_match:
             try:
                 return guild.get_member(int(id_match.group(1))) or await guild.fetch_member(int(id_match.group(1)))
             except Exception:
                 pass
-
-        normalized_text = text.casefold()
-        for member in getattr(guild, "members", []):
-            if member.bot:
-                continue
-            names = {
-                str(getattr(member, "display_name", "") or "").casefold(),
-                str(getattr(member, "name", "") or "").casefold(),
-                str(getattr(member, "global_name", "") or "").casefold(),
-            }
-            names.discard("")
-            if any(name and name in normalized_text for name in names):
-                return member
 
         return None
 
