@@ -3200,7 +3200,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             embed.set_image(url=self.image_url)
         return embed
 
-    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Send Drop", style=discord.ButtonStyle.green)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self.guard_team_member(interaction):
             return
@@ -3212,7 +3212,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         if not self.cog.reserve_open_drop_submission(self.target_user, self.drop_name):
             await interaction.response.send_message(
                 (
-                    f"{self.target_user.display_name} already has **{self.drop_name}** open in drop verification. "
+                    f"{self.target_user.display_name} already has **{self.drop_name}** in drop verification. "
                     "Please wait for that submission to be approved or rejected before submitting the same drop again."
                 ),
                 ephemeral=True,
@@ -3242,7 +3242,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             return
 
         print(
-            "Bingo Cog: AUTO DROP YES CLICKED - sending to drop verification "
+            "Bingo Cog: Send Drop CLICKED - sending to drop verification "
             f"message={self.source_message_id}, drop={self.drop_name}, clicked_by={interaction.user.id}."
         )
 
@@ -3281,13 +3281,14 @@ class AutoDetectedDropConfirmView(discord.ui.View):
                 "**Drop Received!**\n\n"
                 f"{self.drop_name} for {self.target_user.mention}\n\n"
                 f"*Chat submission link:* [Open message]({self.source_message_url})\n\n"
-                f"Submitted to drop verification by {interaction.user.mention}."
+                f"Submitted to drop verification by {interaction.user.mention}.\n\n"
+                f"Select (Send Drop) below if you would like to send your drop to Drop-Verification for review - ignore or press (Cancel) if you'd like to send it manually (only the player that got the drop can use these buttons)."
             ),
             view=self,
             allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
 
-    @discord.ui.button(label="No", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
     async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self.guard_team_member(interaction):
             return
