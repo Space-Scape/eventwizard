@@ -1870,8 +1870,8 @@ class BingoCog(commands.Cog):
             if match:
                 player = str(match.group("player") or "").strip()
 
-                # Remove custom emoji and bold markdown if present.
                 player = re.sub(r"<a?:[^:]+:\d+>", "", player).strip()
+
                 bold_match = re.search(r"\*\*(.+?)\*\*", player)
                 if bold_match:
                     player = bold_match.group(1).strip()
@@ -1879,8 +1879,8 @@ class BingoCog(commands.Cog):
                 return player.replace("*", "").strip()
 
         return ""
-    
-        async def resolve_detected_drop_member(self, message: discord.Message, text: str) -> Optional[discord.Member]:
+
+    async def resolve_detected_drop_member(self, message: discord.Message, text: str) -> Optional[discord.Member]:
         """Resolve the Clan Chat RSN to a Discord member.
 
         Priority:
@@ -1912,8 +1912,6 @@ class BingoCog(commands.Cog):
                 except Exception as e:
                     print(f"Bingo Cog: Could not fetch member for RSN '{player_rsn}' / Discord ID {discord_id}: {e}")
 
-            # Fallback: exact match against nickname/name/global name pieces.
-            # This handles names like "Hikizato | Hikis Donger".
             for member in getattr(guild, "members", []):
                 if member.bot:
                     continue
@@ -1942,12 +1940,10 @@ class BingoCog(commands.Cog):
                     )
                     return member
 
-        # Mention fallback.
         for mentioned in message.mentions:
             if isinstance(mentioned, discord.Member) and not mentioned.bot:
                 return mentioned
 
-        # Raw Discord ID fallback.
         id_match = re.search(r"<@!?(\d{15,22})>", text) or re.search(r"\b(\d{15,22})\b", text)
         if id_match:
             try:
