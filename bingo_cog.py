@@ -235,6 +235,14 @@ class BingoCog(commands.Cog):
         self._auto_drop_review_submitted_message_ids: set[int] = set()
         self._auto_drop_prompt_lock = asyncio.Lock()
 
+        # Aggressive duplicate protection shared by auto-submit and /submitdrop.
+        # A key is one Discord user + one normalized drop name. Pending keys block
+        # manual duplicates while an auto-submit prompt is waiting in a team channel.
+        self._drop_duplicate_lock = asyncio.Lock()
+        self._pending_auto_drop_keys: set[str] = set()
+        self._recent_drop_submission_keys: dict[str, float] = {}
+        self.DROP_DUPLICATE_BLOCK_SECONDS = int(os.getenv("BINGO_DROP_DUPLICATE_BLOCK_SECONDS", "600"))
+
         # Prevent rapid duplicate team prompts and track open review submissions
         # by player/drop, not by Discord message ID. A player can submit the
         # same drop again after the previous review is approved/rejected.
@@ -1876,24 +1884,101 @@ class BingoCog(commands.Cog):
         key = self.get_open_drop_submission_key(member, drop_name)
         return bool(key and key in self._open_drop_submission_keys)
 
-    def reserve_open_drop_submission(self, member: discord.Member, drop_name: str) -> bool:
-        """Reserve a player/drop as open in verification.
+    def cleanup_recent_drop_keys(self) -> None:
+        now = time.monotonic()
+        expired_keys = [
+            key for key, expires_at in self._recent_drop_submission_keys.items()
+            if expires_at <= now
+        ]
+        for key in expired_keys:
+            self._recent_drop_submission_keys.pop(key, None)
 
-        Returns False if the same player/drop is already open.
+    def duplicate_drop_message(self, member: discord.Member, drop_name: str, reason: str = "recent") -> str:
+        display_name = getattr(member, "display_name", "This player")
+        if reason == "open":
+            return (
+                f"{display_name} already has **{drop_name}** open in Drop Verification. "
+                "Please check Drop Verification before submitting again. Exact duplicate submissions create extra work and may be rejected."
+            )
+        if reason == "pending":
+            return (
+                f"{display_name} already has an auto-submit prompt open for **{drop_name}** in their team channel. "
+                "Please use that prompt, or check Drop Verification before submitting again."
+            )
+        return (
+            f"{display_name} recently submitted **{drop_name}**. "
+            "Please check Drop Verification before submitting again. Exact duplicate submissions create extra work and may be rejected."
+        )
+
+    async def reserve_auto_drop_prompt(self, member: discord.Member, drop_name: str) -> tuple[bool, str]:
+        """Reserve an auto-submit prompt before it is posted in a team channel.
+
+        This blocks /submitdrop from submitting the same player/drop while the
+        auto prompt is waiting.
         """
         key = self.get_open_drop_submission_key(member, drop_name)
         if not key:
-            return True
-        if key in self._open_drop_submission_keys:
-            return False
-        self._open_drop_submission_keys.add(key)
-        return True
+            return True, ""
+
+        async with self._drop_duplicate_lock:
+            self.cleanup_recent_drop_keys()
+
+            if key in self._open_drop_submission_keys:
+                return False, self.duplicate_drop_message(member, drop_name, "open")
+            if key in self._pending_auto_drop_keys:
+                return False, self.duplicate_drop_message(member, drop_name, "pending")
+            if key in self._recent_drop_submission_keys:
+                return False, self.duplicate_drop_message(member, drop_name, "recent")
+
+            self._pending_auto_drop_keys.add(key)
+            return True, ""
+
+    async def reserve_open_drop_submission(
+        self,
+        member: discord.Member,
+        drop_name: str,
+        *,
+        allow_pending: bool = False,
+    ) -> tuple[bool, str]:
+        """Reserve a player/drop as being sent to Drop Verification.
+
+        Blocks exact duplicates across auto-submit and /submitdrop using the
+        same Discord user + same normalized drop name.
+        """
+        key = self.get_open_drop_submission_key(member, drop_name)
+        if not key:
+            return True, ""
+
+        async with self._drop_duplicate_lock:
+            self.cleanup_recent_drop_keys()
+
+            if key in self._open_drop_submission_keys:
+                return False, self.duplicate_drop_message(member, drop_name, "open")
+            if key in self._recent_drop_submission_keys:
+                return False, self.duplicate_drop_message(member, drop_name, "recent")
+            if key in self._pending_auto_drop_keys and not allow_pending:
+                return False, self.duplicate_drop_message(member, drop_name, "pending")
+
+            self._pending_auto_drop_keys.discard(key)
+            self._open_drop_submission_keys.add(key)
+            self._recent_drop_submission_keys[key] = time.monotonic() + self.DROP_DUPLICATE_BLOCK_SECONDS
+            return True, ""
+
+    def clear_pending_auto_drop_prompt(self, member: discord.Member, drop_name: str) -> None:
+        key = self.get_open_drop_submission_key(member, drop_name)
+        if key:
+            self._pending_auto_drop_keys.discard(key)
 
     def clear_open_drop_submission(self, member: discord.Member, drop_name: str) -> None:
-        """Clear a player/drop once the review is no longer open."""
+        """Clear a player/drop once the review is no longer open.
+
+        The recent-submission cooldown intentionally remains, so rapid exact
+        duplicates stay blocked even right after approval/rejection.
+        """
         key = self.get_open_drop_submission_key(member, drop_name)
         if key:
             self._open_drop_submission_keys.discard(key)
+            self._pending_auto_drop_keys.discard(key)
 
     def should_skip_duplicate_auto_drop_prompt(self, target_user: discord.Member, drop_name: str) -> bool:
         """Return True if this player/drop already created a team prompt recently."""
@@ -2079,15 +2164,13 @@ class BingoCog(commands.Cog):
         team_role_mention = f"<@&{self.TEAM_ROLE_IDS[team_number]}>"
         source_message_url = getattr(message, "jump_url", None) or f"https://discord.com/channels/{self.GUILD_ID}/{message.channel.id}/{message.id}"
 
-        # If this same player/drop is already waiting in drop verification, do
-        # not create another prompt. Tell the team/player, but rate-limit the notice.
-        if self.has_open_drop_submission(target_user, drop_name):
+        ok, duplicate_message = await self.reserve_auto_drop_prompt(target_user, drop_name)
+        if not ok:
             if not self.should_skip_duplicate_open_notice(target_user, drop_name):
                 await team_channel.send(
                     content=(
                         f"{team_role_mention}\n\n"
-                        f"{target_user.mention}, you already have **{drop_name}** open in drop verification.\n"
-                        "Please wait for that submission to be approved or rejected before submitting the same drop again.\n\n"
+                        f"{target_user.mention}, {duplicate_message}\n\n"
                         f"*Chat submission link:* [Open message]({source_message_url})"
                     ),
                     allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
@@ -2095,6 +2178,7 @@ class BingoCog(commands.Cog):
             return
 
         if self.should_skip_duplicate_auto_drop_prompt(target_user, drop_name):
+            self.clear_pending_auto_drop_prompt(target_user, drop_name)
             print(
                 f"Bingo Cog: Skipped duplicate auto-drop prompt for "
                 f"{target_user.display_name} / {drop_name} within "
@@ -2112,14 +2196,18 @@ class BingoCog(commands.Cog):
             "No drop verification message was sent."
         )
 
-        await team_channel.send(
-            content=(
-                f"{team_role_mention}\n\n"
-                "**Drop Received!**\n\n"
-                f"{drop_name} for {target_user.mention}\n\n"
-                f"*Chat submission link:* [Open message]({source_message_url})"
-            ),
-            view=AutoDetectedDropConfirmView(
+        try:
+            await team_channel.send(
+                content=(
+                    f"{team_role_mention}\n\n"
+                    "**Drop Received!**\n\n"
+                    f"{drop_name} for {target_user.mention}\n\n"
+                    f"*Chat submission link:* [Open message]({source_message_url})\n\n"
+                    "Select **Send Drop** below if you want to send this to Drop Verification.\n"
+                    "Before pressing it, check Drop Verification to make sure this same drop is not already there.\n"
+                    "Exact duplicate submissions create extra work and may be rejected."
+                ),
+                view=AutoDetectedDropConfirmView(
                 cog=self,
                 team_number=team_number,
                 target_user=target_user,
@@ -2128,9 +2216,12 @@ class BingoCog(commands.Cog):
                 image_url=image_url,
                 source_message_url=source_message_url,
                 source_message_id=message.id,
-            ),
-            allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
-        )
+                ),
+                allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
+            )
+        except Exception as e:
+            self.clear_pending_auto_drop_prompt(target_user, drop_name)
+            print(f"Bingo Cog: Failed to send auto-drop team prompt: {e}")
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Handle signup screenshots and auto-detected drop prompts."""
@@ -3196,7 +3287,6 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         embed.add_field(name="Drop Received", value=self.drop_name, inline=False)
         embed.add_field(name="Submitted By", value=f"{submitting_user.mention} ({submitting_user.id})", inline=False)
         embed.add_field(name="Source Message", value=f"[Open drop message]({self.source_message_url})", inline=False)
-        embed.add_field(name="Auto-Submitter", value="Select (Send Drop) below if you would like to send your drop to Drop-Verification for review (only the player that got the drop can use these buttons).", inline=False)
         if self.image_url:
             embed.set_image(url=self.image_url)
         return embed
@@ -3209,15 +3299,14 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
             return
 
-        # Block same player/drop if it is already open in drop verification.
-        if not self.cog.reserve_open_drop_submission(self.target_user, self.drop_name):
-            await interaction.response.send_message(
-                (
-                    f"{self.target_user.display_name} already has **{self.drop_name}** in drop verification. "
-                    "Please wait for that submission to be approved or rejected before submitting the same drop again."
-                ),
-                ephemeral=True,
-            )
+        # Block exact duplicates, but allow this team prompt to promote its pending key.
+        ok, duplicate_message = await self.cog.reserve_open_drop_submission(
+            self.target_user,
+            self.drop_name,
+            allow_pending=True,
+        )
+        if not ok:
+            await interaction.response.send_message(duplicate_message, ephemeral=True)
             return
 
         if self.source_message_id and self.source_message_id in self.cog._auto_drop_review_submitted_message_ids:
@@ -3282,7 +3371,8 @@ class AutoDetectedDropConfirmView(discord.ui.View):
                 "**Drop Received!**\n\n"
                 f"{self.drop_name} for {self.target_user.mention}\n\n"
                 f"*Chat submission link:* [Open message]({self.source_message_url})\n\n"
-                f"Submitted to drop verification by {interaction.user.mention}.\n\n"
+                f"Submitted to Drop Verification by {interaction.user.mention}.\n\n"
+                "Please do not submit this same drop again unless it is a separate drop."
             ),
             view=self,
             allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
@@ -3297,6 +3387,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             return
 
         self.completed = True
+        self.cog.clear_pending_auto_drop_prompt(self.target_user, self.drop_name)
         self.disable_buttons()
         team_role_mention = f"<@&{self.cog.TEAM_ROLE_IDS[self.team_number]}>"
         await interaction.response.edit_message(
@@ -3305,13 +3396,14 @@ class AutoDetectedDropConfirmView(discord.ui.View):
                 "**Drop Received!**\n\n"
                 f"{self.drop_name} for {self.target_user.mention}\n\n"
                 f"*Chat submission link:* [Open message]({self.source_message_url})\n\n"
-                "Not submitted. Please use `/submitdrop`."
+                "Not submitted. Please use `/submitdrop` only if this is not already in Drop Verification."
             ),
             view=self,
             allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
 
     async def on_timeout(self):
+        self.cog.clear_pending_auto_drop_prompt(self.target_user, self.drop_name)
         self.disable_buttons()
 
 
@@ -3329,12 +3421,10 @@ class DropSelect(discord.ui.Select):
         drop_name = self.values[0]
         review_channel = self.cog.bot.get_channel(self.cog.REVIEW_CHANNEL_ID)
 
-        if not self.cog.reserve_open_drop_submission(self.target_user, drop_name):
+        ok, duplicate_message = await self.cog.reserve_open_drop_submission(self.target_user, drop_name)
+        if not ok:
             await interaction.response.edit_message(
-                content=(
-                    f"{self.target_user.display_name} already has **{drop_name}** open in drop verification. "
-                    "Please wait for that submission to be approved or rejected before submitting the same drop again."
-                ),
+                content=duplicate_message,
                 embed=None,
                 view=None,
             )
