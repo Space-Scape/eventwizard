@@ -1884,10 +1884,9 @@ class BingoCog(commands.Cog):
 
         return None
 
-    async def handle_detected_drop_message(self, message: discord.Message) -> None:
-        """Post ONLY the team-channel confirmation prompt for an auto-detected drop."""
-        if message.author.bot:
-            # Avoid reacting to bot reposts/embeds and accidentally looping.
+    async def handle_detected_drop_message(self, message: discord.Message):
+        if self.bot.user and message.author.id == self.bot.user.id:
+            # Avoid reacting to this bot's own messages.
             return
 
         async with self._auto_drop_prompt_lock:
