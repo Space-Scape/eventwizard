@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import asyncio
 from typing import Optional, NamedTuple
 import random
+import time
 import io
 import re
 import json
@@ -233,6 +234,15 @@ class BingoCog(commands.Cog):
         self._auto_drop_prompted_message_ids: set[int] = set()
         self._auto_drop_review_submitted_message_ids: set[int] = set()
         self._auto_drop_prompt_lock = asyncio.Lock()
+
+        # Prevent rapid duplicate team prompts and track open review submissions
+        # by player/drop, not by Discord message ID. A player can submit the
+        # same drop again after the previous review is approved/rejected.
+        self._auto_drop_recent_prompt_keys: dict[str, float] = {}
+        self._auto_drop_recent_open_notice_keys: dict[str, float] = {}
+        self._open_drop_submission_keys: set[str] = set()
+        self.AUTO_DROP_PROMPT_COOLDOWN_SECONDS = 60
+        self.AUTO_DROP_OPEN_NOTICE_COOLDOWN_SECONDS = 60
 
         # Signup sheet layout based on the displayed signup spreadsheet.
         # Solo signups begin under the Solo Signups header at row 18.
@@ -1852,9 +1862,85 @@ class BingoCog(commands.Cog):
                 return team_number
         return None
 
+    def normalize_auto_drop_key_value(self, value: str) -> str:
+        """Normalize player/drop pieces for duplicate-open-submission tracking."""
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+    def get_open_drop_submission_key(self, member: discord.Member, drop_name: str) -> str:
+        """Return a stable key for one player's one drop currently in review."""
+        member_id = str(getattr(member, "id", "") or "")
+        normalized_drop = self.normalize_auto_drop_key_value(drop_name)
+        return f"{member_id}:{normalized_drop}" if member_id and normalized_drop else ""
+
+    def has_open_drop_submission(self, member: discord.Member, drop_name: str) -> bool:
+        key = self.get_open_drop_submission_key(member, drop_name)
+        return bool(key and key in self._open_drop_submission_keys)
+
+    def reserve_open_drop_submission(self, member: discord.Member, drop_name: str) -> bool:
+        """Reserve a player/drop as open in verification.
+
+        Returns False if the same player/drop is already open.
+        """
+        key = self.get_open_drop_submission_key(member, drop_name)
+        if not key:
+            return True
+        if key in self._open_drop_submission_keys:
+            return False
+        self._open_drop_submission_keys.add(key)
+        return True
+
+    def clear_open_drop_submission(self, member: discord.Member, drop_name: str) -> None:
+        """Clear a player/drop once the review is no longer open."""
+        key = self.get_open_drop_submission_key(member, drop_name)
+        if key:
+            self._open_drop_submission_keys.discard(key)
+
+    def should_skip_duplicate_auto_drop_prompt(self, target_user: discord.Member, drop_name: str) -> bool:
+        """Return True if this player/drop already created a team prompt recently."""
+        now = time.monotonic()
+
+        expired_keys = [
+            key for key, timestamp in self._auto_drop_recent_prompt_keys.items()
+            if now - timestamp > self.AUTO_DROP_PROMPT_COOLDOWN_SECONDS
+        ]
+        for key in expired_keys:
+            self._auto_drop_recent_prompt_keys.pop(key, None)
+
+        key = self.get_open_drop_submission_key(target_user, drop_name)
+        if not key:
+            return False
+
+        last_prompt_time = self._auto_drop_recent_prompt_keys.get(key)
+        if last_prompt_time is not None and now - last_prompt_time <= self.AUTO_DROP_PROMPT_COOLDOWN_SECONDS:
+            return True
+
+        self._auto_drop_recent_prompt_keys[key] = now
+        return False
+
+    def should_skip_duplicate_open_notice(self, target_user: discord.Member, drop_name: str) -> bool:
+        """Rate-limit 'already open' notices in team channels."""
+        now = time.monotonic()
+
+        expired_keys = [
+            key for key, timestamp in self._auto_drop_recent_open_notice_keys.items()
+            if now - timestamp > self.AUTO_DROP_OPEN_NOTICE_COOLDOWN_SECONDS
+        ]
+        for key in expired_keys:
+            self._auto_drop_recent_open_notice_keys.pop(key, None)
+
+        key = self.get_open_drop_submission_key(target_user, drop_name)
+        if not key:
+            return False
+
+        last_notice_time = self._auto_drop_recent_open_notice_keys.get(key)
+        if last_notice_time is not None and now - last_notice_time <= self.AUTO_DROP_OPEN_NOTICE_COOLDOWN_SECONDS:
+            return True
+
+        self._auto_drop_recent_open_notice_keys[key] = now
+        return False
+
     def parse_player_name_from_drop_text(self, text: str) -> str:
         """Extract the RSN/player name from a detected Clan Chat drop message."""
-
         text = self.flatten_message_text(text) if not isinstance(text, str) else text
         text = text.replace("\\:", ":").replace("\\(", "(").replace("\\)", ")").strip()
 
@@ -1869,13 +1955,10 @@ class BingoCog(commands.Cog):
             match = re.search(pattern, text, flags=re.IGNORECASE)
             if match:
                 player = str(match.group("player") or "").strip()
-
                 player = re.sub(r"<a?:[^:]+:\d+>", "", player).strip()
-
                 bold_match = re.search(r"\*\*(.+?)\*\*", player)
                 if bold_match:
                     player = bold_match.group(1).strip()
-
                 return player.replace("*", "").strip()
 
         return ""
@@ -1888,7 +1971,6 @@ class BingoCog(commands.Cog):
         2. Exact normalized nickname/display-name segment match.
         3. Mentions/IDs fallback.
         """
-
         guild = message.guild
         if guild is None:
             return None
@@ -1912,6 +1994,8 @@ class BingoCog(commands.Cog):
                 except Exception as e:
                     print(f"Bingo Cog: Could not fetch member for RSN '{player_rsn}' / Discord ID {discord_id}: {e}")
 
+            # Fallback: exact match against nickname/name/global name pieces.
+            # This handles names like "Hikizato | Hikis Donger".
             for member in getattr(guild, "members", []):
                 if member.bot:
                     continue
@@ -1940,10 +2024,12 @@ class BingoCog(commands.Cog):
                     )
                     return member
 
+        # Mention fallback.
         for mentioned in message.mentions:
             if isinstance(mentioned, discord.Member) and not mentioned.bot:
                 return mentioned
 
+        # Raw Discord ID fallback.
         id_match = re.search(r"<@!?(\d{15,22})>", text) or re.search(r"\b(\d{15,22})\b", text)
         if id_match:
             try:
@@ -1977,7 +2063,12 @@ class BingoCog(commands.Cog):
 
         team_number = self.get_member_team_number(target_user)
         if team_number is None:
-            print(f"Bingo Cog: Detected drop for {target_user.id}, but they do not have a configured team role.")
+            print(
+                f"Bingo Cog: Detected drop '{drop_name}' for "
+                f"{target_user.display_name} ({target_user.id}), "
+                "but they do not have a configured team role. "
+                f"Roles: {[f'{role.name}:{role.id}' for role in getattr(target_user, 'roles', [])]}"
+            )
             return
 
         team_channel_id = self.TEAM_CHANNEL_IDS.get(team_number)
@@ -1985,18 +2076,41 @@ class BingoCog(commands.Cog):
         if team_channel is None:
             return
 
+        team_role_mention = f"<@&{self.TEAM_ROLE_IDS[team_number]}>"
+        source_message_url = getattr(message, "jump_url", None) or f"https://discord.com/channels/{self.GUILD_ID}/{message.channel.id}/{message.id}"
+
+        # If this same player/drop is already waiting in drop verification, do
+        # not create another prompt. Tell the team/player, but rate-limit the notice.
+        if self.has_open_drop_submission(target_user, drop_name):
+            if not self.should_skip_duplicate_open_notice(target_user, drop_name):
+                await team_channel.send(
+                    content=(
+                        f"{team_role_mention}\n\n"
+                        f"{target_user.mention}, you already have **{drop_name}** open in drop verification.\n"
+                        "Please wait for that submission to be approved or rejected before submitting the same drop again.\n\n"
+                        f"*Chat submission link:* [Open message]({source_message_url})"
+                    ),
+                    allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
+                )
+            return
+
+        if self.should_skip_duplicate_auto_drop_prompt(target_user, drop_name):
+            print(
+                f"Bingo Cog: Skipped duplicate auto-drop prompt for "
+                f"{target_user.display_name} / {drop_name} within "
+                f"{self.AUTO_DROP_PROMPT_COOLDOWN_SECONDS}s."
+            )
+            return
+
         image_source = self.extract_image_url_from_message(message)
         image_url = image_source.image_url if image_source else ""
         boss_name = self.get_boss_for_drop(drop_name)
-        source_message_url = getattr(message, "jump_url", None) or f"https://discord.com/channels/{self.GUILD_ID}/{message.channel.id}/{message.id}"
 
         print(
             "Bingo Cog: AUTO DROP PROMPT ONLY - "
             f"message={message.id}, team={team_number}, drop={drop_name}. "
             "No drop verification message was sent."
         )
-
-        team_role_mention = f"<@&{self.TEAM_ROLE_IDS[team_number]}>"
 
         await team_channel.send(
             content=(
@@ -2017,7 +2131,6 @@ class BingoCog(commands.Cog):
             ),
             allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
         )
-
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Handle signup screenshots and auto-detected drop prompts."""
@@ -3095,7 +3208,19 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
             return
 
+        # Block same player/drop if it is already open in drop verification.
+        if not self.cog.reserve_open_drop_submission(self.target_user, self.drop_name):
+            await interaction.response.send_message(
+                (
+                    f"{self.target_user.display_name} already has **{self.drop_name}** open in drop verification. "
+                    "Please wait for that submission to be approved or rejected before submitting the same drop again."
+                ),
+                ephemeral=True,
+            )
+            return
+
         if self.source_message_id and self.source_message_id in self.cog._auto_drop_review_submitted_message_ids:
+            self.cog.clear_open_drop_submission(self.target_user, self.drop_name)
             await interaction.response.send_message(
                 "This detected drop has already been submitted to drop verification.",
                 ephemeral=True,
@@ -3109,6 +3234,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         if review_channel is None:
             if self.source_message_id:
                 self.cog._auto_drop_review_submitted_message_ids.discard(self.source_message_id)
+            self.cog.clear_open_drop_submission(self.target_user, self.drop_name)
             await interaction.response.send_message(
                 "I could not send this to the drop verification channel. Please use `/submitdrop` instead.",
                 ephemeral=True,
@@ -3122,18 +3248,29 @@ class AutoDetectedDropConfirmView(discord.ui.View):
 
         team_mention = self.cog.get_team_role_mention(self.target_user)
         embed = self.build_review_embed(interaction.user)
-        await review_channel.send(
-            embed=embed,
-            view=DropReviewButtons(
-                self.cog,
-                self.target_user,
-                self.drop_name,
-                self.image_url,
-                interaction.user,
-                team_mention,
-                evidence_url=self.source_message_url,
-            ),
-        )
+        try:
+            await review_channel.send(
+                embed=embed,
+                view=DropReviewButtons(
+                    self.cog,
+                    self.target_user,
+                    self.drop_name,
+                    self.image_url,
+                    interaction.user,
+                    team_mention,
+                    evidence_url=self.source_message_url,
+                ),
+            )
+        except Exception as e:
+            if self.source_message_id:
+                self.cog._auto_drop_review_submitted_message_ids.discard(self.source_message_id)
+            self.cog.clear_open_drop_submission(self.target_user, self.drop_name)
+            print(f"Bingo Cog: Failed to send auto-detected drop to review channel: {e}")
+            await interaction.response.send_message(
+                "I could not send this to the drop verification channel. Please use `/submitdrop` instead.",
+                ephemeral=True,
+            )
+            return
 
         self.completed = True
         self.disable_buttons()
@@ -3191,6 +3328,17 @@ class DropSelect(discord.ui.Select):
         drop_name = self.values[0]
         review_channel = self.cog.bot.get_channel(self.cog.REVIEW_CHANNEL_ID)
 
+        if not self.cog.reserve_open_drop_submission(self.target_user, drop_name):
+            await interaction.response.edit_message(
+                content=(
+                    f"{self.target_user.display_name} already has **{drop_name}** open in drop verification. "
+                    "Please wait for that submission to be approved or rejected before submitting the same drop again."
+                ),
+                embed=None,
+                view=None,
+            )
+            return
+
         embed = discord.Embed(title=f"{self.boss} Drop Submission", colour=discord.Colour.blurple())
         embed.add_field(name="Submitted For", value=f"{self.target_user.mention} ({self.target_user.id})", inline=False)
         embed.add_field(name="Drop Received", value=drop_name, inline=False)
@@ -3201,10 +3349,17 @@ class DropSelect(discord.ui.Select):
 
         if review_channel:
             team_mention = self.cog.get_team_role_mention(self.target_user)
-            await review_channel.send(
-                embed=embed,
-                view=DropReviewButtons(self.cog, self.target_user, drop_name, self.screenshot.url, self.submitting_user, team_mention)
-            )
+            try:
+                await review_channel.send(
+                    embed=embed,
+                    view=DropReviewButtons(self.cog, self.target_user, drop_name, self.screenshot.url, self.submitting_user, team_mention)
+                )
+            except Exception as e:
+                self.cog.clear_open_drop_submission(self.target_user, drop_name)
+                print(f"Bingo Cog: Failed to send manual drop to review channel: {e}")
+        else:
+            self.cog.clear_open_drop_submission(self.target_user, drop_name)
+
 
 
 class DropView(discord.ui.View):
@@ -3265,6 +3420,7 @@ class DropReviewButtons(discord.ui.View):
         # Auto-detected approvals use the original clan-chat submission link.
         self.evidence_url = evidence_url or image_url
         self.reviewer: Optional[int] = None
+        self.open_submission_key = self.cog.get_open_drop_submission_key(self.submitted_user, self.drop)
 
     def has_drop_manager_role(self, member: discord.Member) -> bool:
         return any(role.name == self.cog.REQUIRED_ROLE_NAME for role in member.roles)
@@ -3397,6 +3553,9 @@ class DropReviewButtons(discord.ui.View):
                 ephemeral=True
             )
 
+        # This review is no longer open, so allow the same player/drop again.
+        self.cog.clear_open_drop_submission(self.submitted_user, self.drop)
+
         try:
             await asyncio.sleep(1)
             await interaction.message.delete()
@@ -3462,11 +3621,17 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
                 ephemeral=True
             )
 
+        # Rejected means this review is closed too, so allow the same player/drop again.
+        try:
+            self.cog.clear_open_drop_submission(self.parent_view.submitted_user, self.parent_view.drop)
+        except Exception as e:
+            print(f"Bingo Cog: Failed to clear open drop submission after rejection: {e}")
+
         try:
             await asyncio.sleep(1)
             await self.message.delete()
         except Exception as e:
-            print(f"Bingo Cog: Failed to delete review message: {e}")
+            print(f"Bingo Cog: Failed to delete rejected review message: {e}")
 
 
 async def setup(bot: commands.Bot):
