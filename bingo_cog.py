@@ -3196,7 +3196,7 @@ class AutoDetectedDropConfirmView(discord.ui.View):
         embed.add_field(name="Drop Received", value=self.drop_name, inline=False)
         embed.add_field(name="Submitted By", value=f"{submitting_user.mention} ({submitting_user.id})", inline=False)
         embed.add_field(name="Source Message", value=f"[Open drop message]({self.source_message_url})", inline=False)
-        embed.add_field(name="Auto-Submitter", value=f"Select (Send Drop) below if you would like to send your drop to Drop-Verification for review (only the player that got the drop can use these buttons)."), inline=False)
+        embed.add_field(name="Auto-Submitter", value="Select (Send Drop) below if you would like to send your drop to Drop-Verification for review (only the player that got the drop can use these buttons).", inline=False)
         if self.image_url:
             embed.set_image(url=self.image_url)
         return embed
