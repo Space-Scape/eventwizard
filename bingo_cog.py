@@ -125,13 +125,9 @@ class BingoCog(commands.Cog):
 
         sheet_id = "1VjoOx_GdzD0dNP-SnbMDjhKV8M054QQ9JgRbLQeSe-M"
         main_spreadsheet = sheet_client.open_by_key(sheet_id)
-        
-        # Primary drop submission sheet
+
         self.sheet = main_spreadsheet.sheet1
 
-        # Bingo signup sheet.
-        # Set BINGO_SIGNUP_SHEET_ID to the Google Sheet ID for the signup sheet.
-        # If it is not set, the cog uses the same spreadsheet as the drop submission sheet.
         signup_sheet_id = os.getenv("BINGO_SIGNUP_SHEET_ID", sheet_id)
         signup_worksheet_name = os.getenv("BINGO_SIGNUP_WORKSHEET", "Buy ins")
         signup_spreadsheet = None
@@ -144,8 +140,6 @@ class BingoCog(commands.Cog):
             print(f"Bingo Cog: Could not load signup spreadsheet/tab '{signup_sheet_id}' / '{signup_worksheet_name}': {e}")
             self.signup_sheet = None
 
-        # Backup list sheet. This is read by a polling task and mirrored into
-        # one edited embed in the configured Discord channel.
         self.backups_sheet = None
         self.BACKUP_LIST_CHANNEL_ID = int(os.getenv("BINGO_BACKUP_LIST_CHANNEL_ID", "1504316523571839156"))
         self.BACKUP_LIST_WORKSHEET = os.getenv("BINGO_BACKUP_LIST_WORKSHEET", "Backups")
@@ -153,7 +147,6 @@ class BingoCog(commands.Cog):
         self.backup_list_message_id = int(os.getenv("BINGO_BACKUP_LIST_MESSAGE_ID", "0") or "0")
         self._backup_list_last_signature = None
 
-        # Signup totals mirror embed settings.
         self.SIGNUPS_CHANNEL_ID = int(os.getenv("BINGO_SIGNUPS_CHANNEL_ID", "1504323734222147604") or "1504323734222147604")
         self.SIGNUPS_POLL_SECONDS = int(os.getenv("BINGO_SIGNUPS_POLL_SECONDS", "30"))
         self.signups_message_id = int(os.getenv("BINGO_SIGNUPS_MESSAGE_ID", "0") or "0")
@@ -171,7 +164,6 @@ class BingoCog(commands.Cog):
         self._rsn_lookup_cache = None
         self.signup_panel_jump_url = None
 
-        # Signup announcement / DM settings.
         self.SIGNUP_SPREADSHEET_URL = os.getenv(
             "BINGO_SIGNUP_SPREADSHEET_URL",
             "https://docs.google.com/spreadsheets/d/1xrcTgwaq5UqsoJRI7wtj3RKBCcR7pVeyu1g6NGIESA0/edit?gid=0#gid=0"
@@ -182,23 +174,17 @@ class BingoCog(commands.Cog):
         self._signup_dm_sent_keys = set()
         self._dm_send_lock = asyncio.Lock()
 
-
-        # Wise Old Man rank lookup. WOM is used to auto-fill column L with A/B/C when clear.
-        # Wild-card/ambiguous players are intentionally left blank for captain review.
         self.WOM_API_KEY = os.getenv("WOM_API_KEY", "").strip()
         self.WOM_GROUP_ID = os.getenv("WOM_GROUP_ID", "").strip()
         self.WOM_CODE = os.getenv("WOM_CODE", "").strip()
         self.WOM_BASE_URL = os.getenv("WOM_BASE_URL", "https://api.wiseoldman.net/v2").rstrip("/")
         self._wom_rank_cache = {}
 
-        # Players who cannot participate in this event.
-        # These are checked by Discord ID from the RSN tracker, by the user pressing
-        # the button, and by normalized RSN/name so partner signups are also blocked.
         self.BANNED_EVENT_DISCORD_IDS = {
-            "162068110516420608": "99 mage",
-            "314953972278362112": "CoriSlayer",
+            " ",
+            " ",
         }
-        self.BANNED_EVENT_RSNS = {"99mage", "corislayer"}
+        self.BANNED_EVENT_RSNS = {""}
 
         self.SUBMISSION_CHANNEL_ID = 1447066912159830149
         self.REVIEW_CHANNEL_ID = 1504315926017867847
@@ -208,10 +194,6 @@ class BingoCog(commands.Cog):
         self.BINGO_PLAYER_ROLE_ID = 1464304452059267208
         self.CAPTAIN_SIGNUP_ROLE_NAMES = {"Event Staff", "Clan Staff", "Senior Staff", "Event Captains"}
 
-        # Auto-detected drop confirmation settings.
-        # IMPORTANT: Detection only posts a prompt in the team channel. It does
-        # not send anything to the drop verification channel until a team member
-        # clicks Yes on that prompt.
         self.GUILD_ID = 1272629330115297330
         self.DROP_DETECTION_CHANNEL_ID = 1272875477555482666
         self.TEAM_ROLE_IDS = {
@@ -234,26 +216,17 @@ class BingoCog(commands.Cog):
         self._auto_drop_review_submitted_message_ids: set[int] = set()
         self._auto_drop_prompt_lock = asyncio.Lock()
 
-        # Aggressive duplicate protection shared by auto-submit and /submitdrop.
-        # A key is one Discord user + one normalized drop name. Pending keys block
-        # manual duplicates while an auto-submit prompt is waiting in a team channel.
         self._drop_duplicate_lock = asyncio.Lock()
         self._pending_auto_drop_keys: set[str] = set()
         self._recent_drop_submission_keys: dict[str, float] = {}
         self.DROP_DUPLICATE_BLOCK_SECONDS = int(os.getenv("BINGO_DROP_DUPLICATE_BLOCK_SECONDS", "600"))
 
-        # Prevent rapid duplicate team prompts and track open review submissions
-        # by player/drop, not by Discord message ID. A player can submit the
-        # same drop again after the previous review is approved/rejected.
         self._auto_drop_recent_prompt_keys: dict[str, float] = {}
         self._auto_drop_recent_open_notice_keys: dict[str, float] = {}
         self._open_drop_submission_keys: set[str] = set()
         self.AUTO_DROP_PROMPT_COOLDOWN_SECONDS = 60
         self.AUTO_DROP_OPEN_NOTICE_COOLDOWN_SECONDS = 60
 
-        # Signup sheet layout based on the displayed signup spreadsheet.
-        # Solo signups begin under the Solo Signups header at row 18.
-        # Duo signups begin under the Duo Signups header at row 132.
         self.CAPTAIN_SIGNUP_START_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_START_ROW", "3"))
         self.CAPTAIN_SIGNUP_END_ROW = int(os.getenv("BINGO_CAPTAIN_SIGNUP_END_ROW", "16"))
         self.SOLO_SIGNUP_START_ROW = int(os.getenv("BINGO_SOLO_SIGNUP_START_ROW", "18"))
@@ -261,7 +234,6 @@ class BingoCog(commands.Cog):
         self.DUO_SIGNUP_START_ROW = int(os.getenv("BINGO_DUO_SIGNUP_START_ROW", "132"))
         self.DUO_SIGNUP_END_ROW = int(os.getenv("BINGO_DUO_SIGNUP_END_ROW", "232"))
 
-        # Re-register the persistent panel buttons after bot restarts.
         self.bot.add_view(BingoSignupPanelView(self))
         self.bot.add_view(BackupListView(self))
 
@@ -461,8 +433,6 @@ class BingoCog(commands.Cog):
         self.signups_message_id = message.id
         print(f"Bingo Cog: Posted signups message {message.id} in channel {self.SIGNUPS_CHANNEL_ID}.")
 
-    # --- Helpers ---
-
     def get_team_role_mention(self, member: discord.Member) -> str:
         """Get the team role mention for a member."""
         for role in member.roles:
@@ -591,7 +561,6 @@ class BingoCog(commands.Cog):
             if index is not None and index not in rsn_indexes:
                 rsn_indexes.append(index)
 
-        # Also include any header with RSN/main/iron/runescape so future sheet tweaks still work.
         for index, header in enumerate(normalized_headers):
             if any(token in header for token in ("rsn", "runescape", "main", "iron")) and index not in rsn_indexes:
                 rsn_indexes.append(index)
@@ -642,8 +611,6 @@ class BingoCog(commands.Cog):
         if info is not None:
             return info
 
-        # Refresh once on miss so recent Tracker edits are picked up without a
-        # full bot restart. This also helps Old RSN lookups added during tests.
         self._rsn_lookup_cache = self.build_rsn_lookup_cache()
         return self._rsn_lookup_cache.get(normalized)
 
@@ -706,30 +673,21 @@ class BingoCog(commands.Cog):
         """Validate that signup RSNs exist in the RSN Tracker and are allowed to participate."""
         submitter_rsn = str(data.get("RSN", "")).strip()
         submitter_info = self.find_registered_rsn_info(submitter_rsn)
-        # Missing submitter RSN can be an unregistered alt; the row will fall
-        # back to the submitter's Discord nickname/ID.
 
         submitter_discord_id = str(data.get("_submitter_discord_id", "")).strip()
         if self.is_banned_event_participant(submitter_rsn, submitter_discord_id, submitter_info):
             return False, self.banned_signup_error_message()
 
         if data.get("signup_type") == "Duo":
-            # Signing up the duo partner is optional. Only validate the partner RSN
-            # if the user chose to add partner details on the optional second page.
             partner_rsn = str(data.get("Duo Partner", "")).strip()
             if partner_rsn:
                 partner_info = self.find_registered_rsn_info(partner_rsn)
-                # If the partner RSN is not in the Tracker, allow it as a possible
-                # submitter alt. The partner row will fall back to the submitter's
-                # Discord nickname/ID instead of blocking the signup.
                 if not partner_info:
                     print(f"Bingo Cog: Duo partner RSN not found in Tracker; using submitter fallback if row is created: {partner_rsn}")
                 if self.is_banned_event_participant(partner_rsn, "", partner_info):
                     return False, self.banned_signup_error_message()
 
         return True, ""
-
-    # --- Wise Old Man ranking helpers ---
 
     def xp_for_level(self, level: int) -> int:
         """Return the OSRS cumulative XP required for a level."""
@@ -744,8 +702,6 @@ class BingoCog(commands.Cog):
             "User-Agent": "RancourBingoSignupBot/1.0",
         }
         if self.WOM_API_KEY:
-            # WOM player endpoints are public, but these headers are harmless if your
-            # deployment uses an API key / proxy / elevated WOM limits.
             headers["Authorization"] = f"Bearer {self.WOM_API_KEY}"
             headers["x-api-key"] = self.WOM_API_KEY
         if self.WOM_GROUP_ID:
@@ -766,7 +722,6 @@ class BingoCog(commands.Cog):
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as e:
-            # A 404 just means WOM does not know that player yet or the name is invalid.
             if e.code not in (404, 429):
                 try:
                     detail = e.read().decode("utf-8")[:300]
@@ -789,13 +744,10 @@ class BingoCog(commands.Cog):
             return self._wom_rank_cache[cache_key]
 
         encoded = urllib.parse.quote(rsn, safe="")
-
-        # POST /players/:username tracks or updates the player and returns PlayerDetails.
         details = await asyncio.to_thread(self.wom_request_blocking, "POST", f"/players/{encoded}")
         if not isinstance(details, dict):
             details = await asyncio.to_thread(self.wom_request_blocking, "GET", f"/players/{encoded}")
 
-        # If exact fetch fails, search and retry the most exact displayName/username match.
         if not isinstance(details, dict):
             query = urllib.parse.urlencode({"username": rsn, "limit": 5})
             results = await asyncio.to_thread(self.wom_request_blocking, "GET", f"/players/search?{query}")
@@ -826,7 +778,6 @@ class BingoCog(commands.Cog):
         data = snapshot.get("data") if isinstance(snapshot, dict) else None
         if isinstance(data, dict):
             return data
-        # Some responses may already include data-like keys at the top level.
         if any(key in details for key in ("skills", "bosses", "activities", "computed")):
             return details
         return {}
@@ -881,8 +832,6 @@ class BingoCog(commands.Cog):
             combat = extract_from_source(source)
             if combat:
                 return combat
-
-        # Fall back to the official OSRS combat formula from skills.
         attack = self.wom_skill_level(data, "attack")
         strength = self.wom_skill_level(data, "strength")
         defence = self.wom_skill_level(data, "defence")
@@ -954,10 +903,6 @@ class BingoCog(commands.Cog):
             if isinstance(boss, dict) and isinstance(boss.get("kills"), (int, float))
         )
 
-        # Under 115 combat is below even the C minimum, so it is a Wild Card /
-        # manual review rather than an automatic C. This check intentionally
-        # happens before the Slayer gate so low-combat accounts are not
-        # classified as C just because they also have under 92 Slayer.
         if not combat or combat < 115:
             return ""
 
@@ -967,18 +912,13 @@ class BingoCog(commands.Cog):
         if slayer and slayer < 80:
             return ""
 
-
-        # A: hard minimums plus all three high-end raid KC signals. "Very close" is allowed.
-        # Ironmen are eligible for automatic A/B/C classification; we only blank wild-card profiles.
         a_raid_ready = hmt >= 48 and cm >= 48 and toa_expert >= 98
         if slayer >= 95 and combat >= 125 and sol >= 1 and zuk >= 1 and a_raid_ready:
             return "A"
 
-        # Clear B: nearly 300 combined raids, or at least 25 HMT/CM, with minimum stats.
         if slayer >= 93 and combat >= 120 and (hmt >= 25 or cm >= 25 or raids_total >= 280):
             return "B"
-
-        # Wild-card cases: stat-qualified but uneven account shape.
+            
         if slayer >= 92:
             if slayer_boss_low_count >= 2:
                 return ""
@@ -988,11 +928,9 @@ class BingoCog(commands.Cog):
             if max(hydra, araxxor, cerb, cox, tob, toa, cm, hmt, toa_expert) >= 300 and sum(1 for kc in (hydra, araxxor, cerb, cox, tob, toa) if kc < 25) >= 3:
                 return ""
 
-        # C by low raid experience / low total bossing.
         if normal_low_count >= 2 or raids_total < 50 or all_boss_total < 500:
             return "C"
 
-        # Anything that does not clearly fit A/B/C is a Wild Card and stays blank.
         return ""
 
     async def get_auto_rank_for_rsn(self, rsn: str, submitted_ironman: str = "") -> str:
@@ -1197,19 +1135,14 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
-            # Rank is auto-filled from WOM only when the sheet cell is blank. If captains
-            # manually change a rank, never overwrite it on later signup edits.
             if index == 11:
                 merged.append(new_value if not current_value and new_value else current_value)
                 continue
 
-            # Keep the visible Discord nickname current when the user is the owner of this row.
             if index == 0 and new_value:
                 merged.append(new_value)
                 continue
-
-            # Fill blanks only. This lets someone who was placeholder-signed-up complete missing fields
-            # without accidentally overwriting information captains may already have reviewed.
+                
             if not current_value and new_value:
                 merged.append(new_value)
             else:
@@ -1239,9 +1172,6 @@ class BingoCog(commands.Cog):
         discord_name = ""
         discord_id = ""
 
-        # Prefer the identity attached to the submitted RSN in the RSN Tracker.
-        # If that RSN is not in the tracker, fall back to the person who pressed
-        # the button; this covers alts that were not registered separately.
         if registered_info and (registered_info.get("discord_name") or registered_info.get("discord_id")):
             discord_name = registered_info.get("discord_name", "")
             discord_id = registered_info.get("discord_id", "")
@@ -1300,9 +1230,6 @@ class BingoCog(commands.Cog):
         tracker_partner_info = partner_info or self.find_registered_rsn_info(partner_rsn)
         identity_info = tracker_partner_info
         if identity_info is None and submitting_member is not None:
-            # Fallback for unregistered alts: use the submitter's Discord identity
-            # for columns A/B, but do NOT use that Discord ID to find the partner
-            # row. Otherwise the partner can collapse into the submitter's row.
             identity_info = {
                 "discord_id": str(submitting_member.id),
                 "discord_name": self.get_member_signup_name(submitting_member),
@@ -1532,7 +1459,6 @@ class BingoCog(commands.Cog):
             current_value = str(current_values[index]).strip() if index < len(current_values) else ""
             new_value = str(new_value or "").strip()
 
-            # Rank only fills if blank so manual ranking stays safe.
             if index == 7:
                 merged.append(new_value if not current_value and new_value else current_value)
                 continue
@@ -1614,7 +1540,6 @@ class BingoCog(commands.Cog):
             first_embed.set_image(url=image_urls[0])
         embeds.append(first_embed)
 
-        # Discord only allows one large image per embed, so the optional second screenshot is shown in a second embed.
         if len(image_urls) > 1:
             second_embed = discord.Embed(title="Partner Buy-In Screenshot", colour=colour)
             second_embed.set_image(url=image_urls[1])
@@ -1632,9 +1557,6 @@ class BingoCog(commands.Cog):
         submitter_rsn = str(data.get("RSN", "")).strip()
         partner_rsn = str(data.get("Duo Partner", "")).strip()
 
-        # Use the partner's RSN in the public title. Do not use generic wording
-        # such as "submitter's duo partner" here. If the RSN is somehow blank,
-        # fall back to the tracker name only as a last resort.
         partner_display = partner_rsn or str((partner_info or {}).get("discord_name", "")).strip() or "Duo Partner"
         partner_title = f"New Signup! {partner_display} has signed up as a duo"
         if submitter_rsn:
@@ -1661,7 +1583,6 @@ class BingoCog(commands.Cog):
         except discord.Forbidden:
             print("Bingo Cog: Missing permission to delete signup screenshot message.")
         except discord.NotFound:
-            # The message was already deleted by Discord, another listener, or a prior cleanup.
             return
         except discord.HTTPException as e:
             if getattr(e, "code", None) == 10008:
@@ -1748,7 +1669,6 @@ class BingoCog(commands.Cog):
         async with self._dm_send_lock:
             for attempt in range(2):
                 try:
-                    # Small spacing prevents bursts when duo signups trigger multiple DMs.
                     await asyncio.sleep(1.5 if attempt == 0 else 6.0)
                     await user.send(message)
                     self._signup_dm_sent_keys.add(dm_key)
@@ -1757,7 +1677,6 @@ class BingoCog(commands.Cog):
                     print(f"Bingo Cog: Could not DM signup completion to {getattr(user, 'id', 'unknown')} because DMs are closed.")
                     return
                 except discord.HTTPException as e:
-                    # 40003 = opening DMs too fast. Retry once after a short pause.
                     if getattr(e, "code", None) == 40003 and attempt == 0:
                         print(f"Bingo Cog: DM rate limited for {getattr(user, 'id', 'unknown')}; retrying once.")
                         continue
@@ -2108,12 +2027,10 @@ class BingoCog(commands.Cog):
                     )
                     return member
 
-        # Mention fallback.
         for mentioned in message.mentions:
             if isinstance(mentioned, discord.Member) and not mentioned.bot:
                 return mentioned
 
-        # Raw Discord ID fallback.
         id_match = re.search(r"<@!?(\d{15,22})>", text) or re.search(r"\b(\d{15,22})\b", text)
         if id_match:
             try:
@@ -2125,7 +2042,6 @@ class BingoCog(commands.Cog):
 
     async def handle_detected_drop_message(self, message: discord.Message):
         if self.bot.user and message.author.id == self.bot.user.id:
-            # Avoid reacting to this bot's own messages.
             return
 
         async with self._auto_drop_prompt_lock:
@@ -2292,10 +2208,6 @@ class BingoCog(commands.Cog):
             await self.add_bingo_player_role_for_signup(member, data)
             await self.send_signup_completed_dm(member, row, "Backup", data.get("RSN", ""))
 
-            # Do not post a separate public message for every backup signup.
-            # The backup list embed is the visible public record, so just refresh it.
-
-            # Refresh the list immediately instead of waiting for the next poll.
             names = await asyncio.to_thread(self.read_backup_names_from_sheet)
             self._backup_list_last_signature = "\n".join(names)
             await self.post_or_update_backup_list(names)
@@ -2331,8 +2243,6 @@ class BingoCog(commands.Cog):
 
         submitter_info = self.find_registered_rsn_info(data.get("RSN", ""))
         if submitter_info is None:
-            # The RSN may be an unregistered alt. Allow the signup and use the
-            # submitter's Discord nickname/ID as a fallback identity.
             print(f"Bingo Cog: RSN not found in Tracker for submitter; using submitter identity: {data.get('RSN', '')}")
 
         if self.is_banned_event_participant(data.get("RSN", ""), str(member.id), submitter_info):
@@ -2364,8 +2274,6 @@ class BingoCog(commands.Cog):
             if first_source.attachment is not None:
                 first_file, first_filename = await self.attachment_to_discord_file(first_source.attachment, "buy_in.png")
 
-            # Save the submitter immediately after the required screenshot.
-            # Captain rows keep their pre-filled crown rank, so they are not WOM-ranked.
             if not is_captain:
                 await self.add_auto_rank_to_signup_data(data, "RSN", "Rank", "Ironman")
             submitter_row = self.write_or_update_signup_to_sheet(member, data, first_url, registered_info=submitter_info)
@@ -2378,9 +2286,6 @@ class BingoCog(commands.Cog):
             partner_file = None
             partner_filename = None
 
-            # If optional partner details are already present, create/fill the partner row now.
-            # If the user submits Page 2 slightly after the screenshot, the Page 2 modal handler
-            # will update/create the partner row using _buyin_screenshot.
             if is_duo and str(data.get("Duo Partner", "")).strip():
                 partner_info = self.find_registered_rsn_info(data.get("Duo Partner", ""))
                 if partner_info is not None:
@@ -2426,8 +2331,6 @@ class BingoCog(commands.Cog):
             if not is_duo:
                 return
 
-            # Optional partner screenshot. Wait briefly for a second image, but do not post
-            # public signup announcements. The sheet and DM confirmation are the record.
             try:
                 second_message = await self.bot.wait_for("message", check=check, timeout=20)
             except asyncio.TimeoutError:
@@ -3119,8 +3022,6 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             "Duo Ironman": str(self.duo_ironman.value).strip(),
         })
 
-        # Respond immediately so Discord does not expire the modal interaction
-        # while the Google Sheet / RSN tracker lookup runs.
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         valid, error_message = await self.cog.validate_signup_rsns(interaction.channel, self.data)
@@ -3128,10 +3029,6 @@ class DuoSignupPageTwoModal(discord.ui.Modal, title="Duo Signup - Page 2 of 2"):
             await interaction.followup.send(error_message, ephemeral=True)
             return
 
-        # If the user already posted the screenshot before filling the optional
-        # partner page, update the existing submitter row and create/fill the
-        # partner row now. Otherwise, the in-memory data will be picked up by
-        # the screenshot collector when the user posts their image.
         buyin_screenshot = str(self.data.get("_buyin_screenshot", "")).strip()
         if buyin_screenshot:
             try:
@@ -3298,7 +3195,6 @@ class AutoDetectedDropConfirmView(discord.ui.View):
             await interaction.response.send_message("This drop prompt has already been answered.", ephemeral=True)
             return
 
-        # Block exact duplicates, but allow this team prompt to promote its pending key.
         ok, duplicate_message = await self.cog.reserve_open_drop_submission(
             self.target_user,
             self.drop_name,
@@ -3505,9 +3401,6 @@ class DropReviewButtons(discord.ui.View):
         self.image_url = image_url
         self.submitting_user = submitting_user
         self.team_mention = team_mention
-        # This is what gets written to the Drop Log "screenshot" column E.
-        # Manual /submitdrop approvals keep using the screenshot URL.
-        # Auto-detected approvals use the original clan-chat submission link.
         self.evidence_url = evidence_url or image_url
         self.reviewer: Optional[int] = None
         self.open_submission_key = self.cog.get_open_drop_submission_key(self.submitted_user, self.drop)
@@ -3711,7 +3604,6 @@ class RejectReasonModal(discord.ui.Modal, title="Reject Submission"):
                 ephemeral=True
             )
 
-        # Rejected means this review is closed too, so allow the same player/drop again.
         try:
             self.cog.clear_open_drop_submission(self.parent_view.submitted_user, self.parent_view.drop)
         except Exception as e:
