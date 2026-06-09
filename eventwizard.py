@@ -51,34 +51,25 @@ EVENTS_SHEET_ID = "1ycltDSLJeKTLAHzVeYZ6JKwIV5A7md8Lh7IetvVljEc"
 events_sheet = sheet_client.open_by_key(EVENTS_SHEET_ID).worksheet("Event Inputs")
 
 
-# ---------------------------
-# 🔹 Discord Bot Setup
-# ---------------------------
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
-# ---------------------------
-# 🔹 Global State for Schedule
-# ---------------------------
 current_schedule_message_id = None
 last_known_sheet_data = None
 
 
-# ---------------------------
-# 🔹 Configuration
-# ---------------------------
 REQUIRED_ROLE_NAME = "Event Staff"
 REGISTERED_ROLE_NAME = "Registered"
 
-# Event Management
+# Event Shit
 EVENT_SCHEDULE_CHANNEL_ID = 1272646577432825977
 STAFF_ROLE_ID = 1272635396991221824
 ADMINISTRATOR_ROLE_ID = 1272961765034164318
 
-# Timezones
+# Timezone Shit
 CST = ZoneInfo("America/Chicago")
 TIMEZONE_DATA = {
     "PST": ("America/Los_Angeles", "🇺🇸"), "MST": ("America/Denver", "🇺🇸"),
@@ -91,9 +82,6 @@ TIMEZONE_DATA = {
 }
 INTERNATIONAL_TIMEZONES = {"GMT", "CET", "EET", "BRT", "ART", "AWST", "ACST", "AEST"}
 
-# --------------------------------------------------
-# 🔹 Event Management System
-# --------------------------------------------------
 def _fmt_no_leading_zero(hour_12: str) -> str:
     return hour_12.lstrip("0") if hour_12.startswith("0") else hour_12
 
@@ -103,7 +91,7 @@ async def find_manual_event_posts_for_times(channel: discord.TextChannel, times_
         dt_cst = dt.astimezone(CST)
         weekday_long = dt_cst.strftime("%A")
         month_long = dt_cst.strftime("%B")
-        day_str = str(dt_cst.day) # Correctly get day as integer
+        day_str = str(dt_cst.day)
         year = dt_cst.strftime("%Y")
         time_12 = _fmt_no_leading_zero(dt_cst.strftime("%I:%M %p"))
         fmt1 = f"{weekday_long}, {month_long} {day_str}, {year} {time_12}"
@@ -123,10 +111,7 @@ async def post_todays_event_links(channel: discord.TextChannel):
     if not channel:
         print("❌ post_todays_event_links: No channel provided.")
         return
-
-    # 🔹 FIXED: Clean up old bot messages (like previous daily links) before posting new ones
     async for msg in channel.history(limit=50):
-        # Only delete messages authored by the bot, and DO NOT delete the main schedule embed
         if msg.author == bot.user and msg.id != current_schedule_message_id:
             try:
                 await msg.delete()
@@ -176,14 +161,13 @@ async def update_schedule_message(channel: discord.TextChannel, force_new=False)
 
     embed = await generate_schedule_embed()
     
-    # 🔹 FIXED: Delete the old schedule message instead of just forgetting its ID
     if force_new and current_schedule_message_id:
         try:
             old_message = await channel.fetch_message(current_schedule_message_id)
             await old_message.delete()
             print("🗑️ Deleted old schedule message.")
         except discord.NotFound:
-            pass # Message was already deleted manually
+            pass
         current_schedule_message_id = None
 
     if current_schedule_message_id:
@@ -211,7 +195,7 @@ def get_all_event_records():
         records = []
         for i, row in enumerate(data_rows):
             record = {headers[j]: (row[j] if j < len(row) else "") for j in range(len(headers))}
-            record['row_number'] = i + 5 # Sheet row numbers are 1-based, data starts on row 5
+            record['row_number'] = i + 5
             
             if any(val for key, val in record.items() if key != 'row_number'):
                 records.append(record)
@@ -397,8 +381,8 @@ async def generate_schedule_embed():
         return discord.Embed(title="Error", description="Could not fetch event data from the spreadsheet.", color=discord.Color.red())
 
     now, today = datetime.now(CST), datetime.now(CST).date()
-    start_of_week = today - timedelta(days=today.weekday()) # Monday
-    end_of_week = start_of_week + timedelta(days=6) # Sunday
+    start_of_week = today - timedelta(days=today.weekday())
+    end_of_week = start_of_week + timedelta(days=6)
 
     daily_events = {start_of_week + timedelta(days=i): [] for i in range(7)}
     week_long_events = []
@@ -466,10 +450,6 @@ async def generate_schedule_embed():
     embed.set_footer(text=f"Last Updated: {now:%m/%d/%Y %I:%M %p CST}")
     return embed
 
-# --------------------------------------------------
-# 🔹 Scheduled Tasks
-# --------------------------------------------------
-
 @tasks.loop(minutes=10)
 async def check_sheet_for_updates():
     """Periodically checks the sheet for changes and posts a NEW schedule if changed."""
@@ -512,10 +492,7 @@ async def daily_event_link_post():
     channel = bot.get_channel(EVENT_SCHEDULE_CHANNEL_ID)
     if channel:
         await post_todays_event_links(channel)
-    
-# --------------------------------------------------
-# 🔹 Bot Startup
-# --------------------------------------------------
+
 @bot.event
 async def on_ready():
     global last_known_sheet_data, current_schedule_message_id
@@ -527,14 +504,6 @@ async def on_ready():
         weekly_schedule_post.start()
     if not daily_event_link_post.is_running():
         daily_event_link_post.start()
-
-#    if "monopoly" not in bot.extensions:
-#        try:
-#            await bot.load_extension("monopoly")
-#            print("✅ Loaded extension: monopoly")
-#        except Exception as e:
-#            print(f"❌ Failed to load extension: monopoly - {e}")
-#            traceback.print_exc()
     
     if "bingo_cog" not in bot.extensions:
         try:
